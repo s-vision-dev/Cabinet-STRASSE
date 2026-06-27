@@ -17,6 +17,8 @@ object CabinetNative {
 
     external fun settingsJson(databasePath: String): String
 
+    external fun eventsJson(databasePath: String, limit: Long): String
+
     external fun backupExportJson(databasePath: String): String
 
     external fun backupImportJson(databasePath: String, backupJson: String): String

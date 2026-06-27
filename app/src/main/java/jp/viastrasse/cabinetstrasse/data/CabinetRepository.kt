@@ -40,6 +40,10 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.settings(CabinetNative.settingsJson(databasePath))
     }
 
+    fun eventsJson(limit: Long = 100): String {
+        return CabinetNative.eventsJson(databasePath, limit)
+    }
+
     fun duplicateReport(): DuplicateReport {
         return CabinetJsonParser.duplicateReport(CabinetNative.duplicateReportJson(databasePath))
     }

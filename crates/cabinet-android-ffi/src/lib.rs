@@ -80,6 +80,16 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_sett
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_eventsJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    limit: i64,
+) -> jstring {
+    run_string(&mut env, database_path, |core| core.events_json(limit))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_backupExportJson(
     mut env: JNIEnv,
     _class: JClass,

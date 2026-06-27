@@ -173,6 +173,10 @@ const BACKUP_TABLES: &[(&str, &[&str])] = &[
     ),
     ("security_settings", &["key", "value", "updated_at"]),
     (
+        "cabinet_events",
+        &["id", "event_type", "item_id", "payload_json", "created_at"],
+    ),
+    (
         "smart_folders",
         &[
             "id",
@@ -571,7 +575,7 @@ impl CabinetCore {
                      status = ?5
                  WHERE id = ?6",
                 params![
-                    preview.summary_text,
+                    &preview.summary_text,
                     preview.width,
                     preview.height,
                     now_string(),
@@ -580,6 +584,15 @@ impl CabinetCore {
                 ],
             )?;
             self.rebuild_fts_for_item(&item_id)?;
+            self.log_event(
+                "Cabinet.PreviewGenerated",
+                Some(&item_id),
+                serde_json::json!({
+                    "preview_id": preview_id,
+                    "mime_type": mime_type,
+                    "status": preview.status,
+                }),
+            )?;
             processed += 1;
         }
 
@@ -598,6 +611,29 @@ impl CabinetCore {
             security: self.security_summary()?,
         };
         Ok(serde_json::to_string(&snapshot)?)
+    }
+
+    pub fn events_json(&self, limit: i64) -> CabinetResult<String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, event_type, item_id, payload_json, created_at
+             FROM cabinet_events
+             ORDER BY created_at DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "event_type": row.get::<_, String>(1)?,
+                "item_id": row.get::<_, Option<String>>(2)?,
+                "payload": serde_json::from_str::<Value>(&row.get::<_, String>(3)?).unwrap_or(Value::Null),
+                "created_at": row.get::<_, String>(4)?,
+            }))
+        })?;
+        let mut events = Vec::new();
+        for row in rows {
+            events.push(row?);
+        }
+        Ok(serde_json::json!({ "events": events }).to_string())
     }
 
     pub fn backup_export_json(&self) -> CabinetResult<String> {
@@ -677,6 +713,14 @@ impl CabinetCore {
             return Err(CabinetError::Message(format!("Item not found: {item_id}")));
         }
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.ItemUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "is_favorite": is_favorite,
+                "is_unsorted": is_unsorted,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -723,6 +767,14 @@ impl CabinetCore {
             params![item_id, tag_id],
         )?;
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.TagAdded",
+            Some(item_id),
+            serde_json::json!({
+                "tag_id": tag_id,
+                "tag_name": normalized,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -762,6 +814,14 @@ impl CabinetCore {
             params![now, collection_id],
         )?;
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.CollectionCreated",
+            Some(item_id),
+            serde_json::json!({
+                "collection_id": collection_id,
+                "title": normalized,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -820,6 +880,15 @@ impl CabinetCore {
             "UPDATE cabinet_documents SET current_version_id = ?1, updated_at = ?2 WHERE id = ?3",
             params![version_id, now, document_id],
         )?;
+        self.log_event(
+            "Cabinet.VersionAdded",
+            Some(item_id),
+            serde_json::json!({
+                "document_id": document_id,
+                "version_id": version_id,
+                "version_number": next_version,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -836,6 +905,13 @@ impl CabinetCore {
             params![new_id(), item_id, now],
         )?;
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.ItemDeleted",
+            Some(item_id),
+            serde_json::json!({
+                "trash": true,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -857,6 +933,17 @@ impl CabinetCore {
             params![new_id(), item_id, reference_type, source_app, source_id, title, uri, note, now],
         )?;
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.ReferenceAdded",
+            Some(item_id),
+            serde_json::json!({
+                "reference_type": reference_type,
+                "source_app": source_app,
+                "source_id": source_id,
+                "title": title,
+                "uri": uri,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -888,6 +975,14 @@ impl CabinetCore {
             params![if is_protected { "[protected memo]" } else { normalized }, now, item_id],
         )?;
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.ItemUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "memo_added": true,
+                "is_protected": is_protected,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -940,6 +1035,13 @@ impl CabinetCore {
                 hidden_when_locked = excluded.hidden_when_locked,
                 updated_at = excluded.updated_at",
             params![item_id, if is_protected { 1 } else { 0 }, now],
+        )?;
+        self.log_event(
+            "Cabinet.ItemUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "is_protected": is_protected,
+            }),
         )?;
         self.item_detail_json(item_id)
     }
@@ -1018,6 +1120,13 @@ impl CabinetCore {
             )?;
         }
         self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.ItemUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "renamed_to": normalized,
+            }),
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -1041,6 +1150,15 @@ impl CabinetCore {
             params![new_id(), id, title, note, now],
         )?;
         self.rebuild_fts_for_item(&id)?;
+        self.log_event(
+            "Cabinet.ItemAdded",
+            Some(&id),
+            serde_json::json!({
+                "title": title,
+                "source_kind": "url",
+                "url": url,
+            }),
+        )?;
         let item = self.item_by_id(&id)?.expect("inserted item must exist");
         Ok(serde_json::to_string(&item)?)
     }
@@ -1114,6 +1232,25 @@ impl CabinetCore {
             ],
         )?;
         self.rebuild_fts_for_item(&item_id)?;
+        self.log_event(
+            "Cabinet.ItemAdded",
+            Some(&item_id),
+            serde_json::json!({
+                "display_name": display_name,
+                "mime_type": mime_type,
+                "source_kind": source_kind,
+                "size": size,
+            }),
+        )?;
+        self.log_event(
+            "Cabinet.VersionAdded",
+            Some(&item_id),
+            serde_json::json!({
+                "document_id": document_id,
+                "version_id": version_id,
+                "version_number": 1,
+            }),
+        )?;
         let item = self
             .item_by_id(&item_id)?
             .expect("inserted file item must exist");
@@ -1302,6 +1439,14 @@ impl CabinetCore {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_events (
+                id TEXT PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                item_id TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS smart_folders (
@@ -1913,6 +2058,26 @@ impl CabinetCore {
             items.push(row?);
         }
         Ok(items)
+    }
+
+    fn log_event(
+        &self,
+        event_type: &str,
+        item_id: Option<&str>,
+        payload: Value,
+    ) -> CabinetResult<()> {
+        self.conn.execute(
+            "INSERT INTO cabinet_events(id, event_type, item_id, payload_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                new_id(),
+                event_type,
+                item_id,
+                payload.to_string(),
+                now_string()
+            ],
+        )?;
+        Ok(())
     }
 
     fn scalar(&self, sql: &str) -> CabinetResult<i64> {
