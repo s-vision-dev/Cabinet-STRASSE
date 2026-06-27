@@ -52,22 +52,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.removeAllViews()
         content.addView(homeHeader(dashboard))
         content.addView(searchLauncher(onOpenSearch))
-        content.addView(
-            quickActionGrid(
-                listOf(
-                    CabinetMode("Explorer", dashboard.explorerCount, "ファイルを開く"),
-                    CabinetMode("Inbox", dashboard.inboxCount, "未整理を片付ける"),
-                    CabinetMode("Library", dashboard.libraryCount, "種類で探す"),
-                    CabinetMode("Search", dashboard.favoriteCount, "全文検索"),
-                ),
-                onModeSelected,
-            ),
-        )
-        content.addView(command("SAFフォルダから取り込む", onImportFolder))
+        content.addView(fileManagerPanel(dashboard, onModeSelected, onImportFolder))
         content.addView(statusStrip(dashboard, onModeSelected))
-        content.addView(section("最近の資料"))
+        content.addView(section("ファイル"))
         if (dashboard.recentItems.isEmpty()) {
-            content.addView(emptyState("最近開いた資料はまだありません"))
+            content.addView(emptyState("最近使ったファイルはまだありません"))
         } else {
             dashboard.recentItems.take(8).forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
         }
@@ -77,7 +66,18 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 onModeSelected(CabinetMode("Inbox", dashboard.inboxCount, "未整理の一時保管"))
             })
         }
-        content.addView(section("Collection / Smart Folder"))
+        content.addView(section("保存場所"))
+        content.addView(
+            navigationList(
+                listOf(
+                    CabinetMode("Explorer", dashboard.explorerCount, "ローカルファイル"),
+                    CabinetMode("Library", dashboard.libraryCount, "Cabinet内の資料"),
+                    CabinetMode("Inbox", dashboard.inboxCount, "未整理の一時保管"),
+                ),
+                onModeSelected,
+            ),
+        )
+        content.addView(section("整理"))
         dashboard.collections.take(4).forEach { collection ->
             content.addView(collectionRow(collection) { selected ->
                 onModeSelected(CabinetMode("collection:${selected.id}", selected.itemCount, selected.title))
@@ -86,7 +86,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         dashboard.smartFolders.take(4).forEach {
             content.addView(smartFolderRow(it) { folder -> onModeSelected(CabinetMode("smart:${folder.id}", folder.itemCount, folder.condition)) })
         }
-        content.addView(section("その他"))
+        content.addView(section("管理"))
         content.addView(
             compactModeRow(
                 listOf(
@@ -519,13 +519,65 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun fileManagerPanel(
+        dashboard: CabinetDashboard,
+        onModeSelected: (CabinetMode) -> Unit,
+        onImportFolder: () -> Unit,
+    ): View {
+        return panel {
+            addView(label("ファイルマネージャー", 17, true))
+            addView(label("Explorer / Library / Inboxをここから扱います", 12, false, CabinetColors.TextSecondary))
+            addView(
+                primaryCommand("Explorerを開く") {
+                    onModeSelected(CabinetMode("Explorer", dashboard.explorerCount, "ローカルファイル"))
+                },
+            )
+            addView(command("SAFフォルダから取り込む", onImportFolder))
+        }
+    }
+
+    private fun navigationList(modes: List<CabinetMode>, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            modes.forEach { mode ->
+                addView(navigationRow(mode) { onModeSelected(mode) })
+            }
+        }
+    }
+
+    private fun navigationRow(mode: CabinetMode, onClick: () -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            setBackgroundColor(CabinetColors.Surface)
+            isClickable = true
+            setOnClickListener { onClick() }
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(label(mode.name, 15, true))
+                    addView(label(mode.description, 12, false, CabinetColors.TextSecondary))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                },
+            )
+            addView(label(mode.count.toString(), 16, true, CabinetColors.Accent))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(0, dp(3), 0, dp(3))
+            }
+        }
+    }
+
     private fun homeHeader(dashboard: CabinetDashboard): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(8))
             addView(title("Cabinet-STRASSE"))
-            addView(subtitle("The Cabinet / Powered by VIASTRASSE"))
-            addView(label("${dashboard.libraryCount} items / Inbox ${dashboard.inboxCount} / Favorites ${dashboard.favoriteCount}", 12, false, CabinetColors.TextSecondary))
+            addView(subtitle("File Manager / Powered by VIASTRASSE"))
+            addView(label("${dashboard.libraryCount} files / Inbox ${dashboard.inboxCount} / Favorites ${dashboard.favoriteCount}", 12, false, CabinetColors.TextSecondary))
         }
     }
 
@@ -710,6 +762,21 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             setPadding(0, dp(10), 0, dp(10))
             isClickable = true
             setOnClickListener { onClick() }
+        }
+    }
+
+    private fun primaryCommand(text: String, onClick: () -> Unit): TextView {
+        return label(text, 16, true, CabinetColors.TextPrimary).apply {
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setBackgroundColor(CabinetColors.Brand)
+            isClickable = true
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(0, dp(12), 0, dp(2))
+            }
         }
     }
 
