@@ -43,9 +43,31 @@ class MainActivity : Activity() {
                 "search" -> openSearch(uri.getQueryParameter("q").orEmpty())
                 "inbox" -> openMode("Inbox")
                 "collection" -> openMode("Collection")
+                "add" -> handleAddDeepLink(uri)
                 else -> renderDashboard()
             }
         } else {
+            renderDashboard()
+        }
+    }
+
+    private fun handleAddDeepLink(uri: Uri) {
+        val url = uri.getQueryParameter("url").orEmpty()
+        if (url.isBlank()) {
+            openFolderPicker()
+            return
+        }
+        runCatching {
+            repository.registerUrl(
+                url = url,
+                title = uri.getQueryParameter("title").orEmpty().ifBlank { url },
+                note = uri.getQueryParameter("note").orEmpty().ifBlank { "Deep Linkから保存" },
+            )
+        }.onSuccess { item ->
+            Toast.makeText(this, "URLを保存しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            openDetail(item.id)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "URLを保存できませんでした", Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
