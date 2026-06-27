@@ -724,6 +724,28 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_regi
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_markRemoteFileCachedJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    cached_file_path: JString,
+    size: i64,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let cached_file_path_value = match jstring_value(&mut env, &cached_file_path) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.mark_remote_file_cached_json(&item_id_value, &cached_file_path_value, size)
+    })
+}
+
 fn run_string(
     env: &mut JNIEnv,
     database_path: JString,

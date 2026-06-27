@@ -50,6 +50,7 @@ object CabinetJsonParser {
             path = root.optString("path"),
             hash = root.optString("hash"),
             note = root.optString("note"),
+            remote = root.optJSONObject("remote")?.toRemoteReference(),
             tags = root.optJSONArray("tags").toTags(),
             collections = root.optJSONArray("collections").toCollections(),
             previews = root.optJSONArray("previews").toPreviews(),
@@ -158,6 +159,22 @@ object CabinetJsonParser {
                 )
             }
         }
+    }
+
+    private fun JSONObject.toRemoteReference(): RemoteFileReferenceSummary {
+        return RemoteFileReferenceSummary(
+            id = optString("id"),
+            providerAccountId = optString("provider_account_id"),
+            remoteFileId = optString("remote_file_id"),
+            remotePath = optString("remote_path"),
+            displayName = optString("display_name"),
+            mimeType = optString("mime_type"),
+            size = optLong("size"),
+            webUrl = optString("web_url"),
+            isCached = optBoolean("is_cached"),
+            cachedFilePath = optString("cached_file_path"),
+            lastSyncedAt = optString("last_synced_at"),
+        )
     }
 
     private fun JSONArray?.toReferences(): List<CabinetReferenceSummary> {

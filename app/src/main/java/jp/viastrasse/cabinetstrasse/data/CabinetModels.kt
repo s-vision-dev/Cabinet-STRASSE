@@ -57,6 +57,7 @@ data class CabinetItemDetail(
     val path: String,
     val hash: String,
     val note: String,
+    val remote: RemoteFileReferenceSummary?,
     val tags: List<TagSummary>,
     val collections: List<CabinetCollectionSummary>,
     val previews: List<CabinetPreviewSummary>,
@@ -69,6 +70,20 @@ data class TagSummary(
     val id: String,
     val name: String,
     val color: String,
+)
+
+data class RemoteFileReferenceSummary(
+    val id: String,
+    val providerAccountId: String,
+    val remoteFileId: String,
+    val remotePath: String,
+    val displayName: String,
+    val mimeType: String,
+    val size: Long,
+    val webUrl: String,
+    val isCached: Boolean,
+    val cachedFilePath: String,
+    val lastSyncedAt: String,
 )
 
 data class CabinetPreviewSummary(

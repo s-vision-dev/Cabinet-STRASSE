@@ -203,6 +203,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onUnlockProtectedMemos: () -> Unit,
         onAddOcrText: () -> Unit,
         onRunImageOcr: () -> Unit,
+        onCacheRemoteFile: () -> Unit,
         onProtectItem: () -> Unit,
         onRestoreFromTrash: () -> Unit,
         onDeletePermanently: () -> Unit,
@@ -223,6 +224,15 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         })
         content.addView(command("開く", onOpen))
         content.addView(command("共有", onShare))
+        detail.remote?.let { remote ->
+            content.addView(panel {
+                addView(label("Remote File", 13, true, CabinetColors.Accent))
+                addView(label("${remote.providerAccountId} / ${remote.remotePath}", 12, false, CabinetColors.TextSecondary))
+                addView(label(if (remote.isCached) "cached: ${remote.cachedFilePath}" else "not cached", 12, false, CabinetColors.TextSecondary))
+                if (remote.webUrl.isNotBlank()) addView(label(remote.webUrl, 12, false, CabinetColors.TextSecondary))
+                addView(command("リモートをキャッシュ") { onCacheRemoteFile() })
+            })
+        }
         content.addView(command("複製", onDuplicate))
         content.addView(command("名前変更", onRename))
         content.addView(command("バージョンを追加", onAddVersion))

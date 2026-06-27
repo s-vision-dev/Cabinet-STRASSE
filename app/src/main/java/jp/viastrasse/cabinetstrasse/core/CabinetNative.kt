@@ -122,4 +122,11 @@ object CabinetNative {
         webUrl: String,
         note: String,
     ): String
+
+    external fun markRemoteFileCachedJson(
+        databasePath: String,
+        itemId: String,
+        cachedFilePath: String,
+        size: Long,
+    ): String
 }

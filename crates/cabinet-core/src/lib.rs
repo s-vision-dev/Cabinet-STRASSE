@@ -286,12 +286,28 @@ pub struct CabinetItemDetail {
     pub path: String,
     pub hash: String,
     pub note: String,
+    pub remote: Option<RemoteFileReferenceSummary>,
     pub tags: Vec<TagSummary>,
     pub collections: Vec<CabinetCollectionSummary>,
     pub previews: Vec<CabinetPreviewSummary>,
     pub references: Vec<CabinetReferenceSummary>,
     pub versions: Vec<CabinetVersionSummary>,
     pub memos: Vec<CabinetMemoSummary>,
+}
+
+#[derive(Serialize)]
+pub struct RemoteFileReferenceSummary {
+    pub id: String,
+    pub provider_account_id: String,
+    pub remote_file_id: String,
+    pub remote_path: String,
+    pub display_name: String,
+    pub mime_type: String,
+    pub size: i64,
+    pub web_url: String,
+    pub is_cached: bool,
+    pub cached_file_path: String,
+    pub last_synced_at: String,
 }
 
 #[derive(Serialize)]
@@ -621,6 +637,7 @@ impl CabinetCore {
             path,
             hash,
             note,
+            remote: self.remote_reference_for_item(item_id)?,
             tags: self.tags_for_item(item_id)?,
             collections: self.collections_for_item(item_id)?,
             previews: self.previews_for_item(item_id)?,
@@ -1720,6 +1737,52 @@ impl CabinetCore {
         Ok(serde_json::to_string(&item)?)
     }
 
+    pub fn mark_remote_file_cached_json(
+        &self,
+        item_id: &str,
+        cached_file_path: &str,
+        size: i64,
+    ) -> CabinetResult<String> {
+        let normalized_path = cached_file_path.trim();
+        if normalized_path.is_empty() {
+            return Err(CabinetError::Message(
+                "Cached file path is required.".to_owned(),
+            ));
+        }
+        let remote_reference_id: String = self.conn.query_row(
+            "SELECT remote_file_reference_id
+             FROM cabinet_items
+             WHERE id = ?1 AND remote_file_reference_id IS NOT NULL",
+            params![item_id],
+            |row| row.get(0),
+        )?;
+        let now = now_string();
+        let hash = hash_file(normalized_path).unwrap_or_else(|_| hash_text(normalized_path));
+        self.conn.execute(
+            "UPDATE remote_file_references
+             SET is_cached = 1, cached_file_path = ?1, size = ?2, last_synced_at = ?3
+             WHERE id = ?4",
+            params![normalized_path, size, now, remote_reference_id],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_items
+             SET path = ?1, size = ?2, hash = ?3, updated_at = ?4
+             WHERE id = ?5",
+            params![normalized_path, size, hash, now, item_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.RemoteFileCached",
+            Some(item_id),
+            serde_json::json!({
+                "remote_file_reference_id": remote_reference_id,
+                "cached_file_path": normalized_path,
+                "size": size,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
     fn migrate(&self) -> CabinetResult<()> {
         self.conn.execute_batch(
             "
@@ -2230,6 +2293,40 @@ impl CabinetCore {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    fn remote_reference_for_item(
+        &self,
+        item_id: &str,
+    ) -> CabinetResult<Option<RemoteFileReferenceSummary>> {
+        self.conn
+            .query_row(
+                "SELECT r.id, r.provider_account_id, r.remote_file_id, r.remote_path,
+                        r.display_name, r.mime_type, r.size, COALESCE(r.web_url, ''),
+                        r.is_cached, COALESCE(r.cached_file_path, ''),
+                        COALESCE(r.last_synced_at, '')
+                 FROM cabinet_items i
+                 JOIN remote_file_references r ON r.id = i.remote_file_reference_id
+                 WHERE i.id = ?1",
+                params![item_id],
+                |row| {
+                    Ok(RemoteFileReferenceSummary {
+                        id: row.get(0)?,
+                        provider_account_id: row.get(1)?,
+                        remote_file_id: row.get(2)?,
+                        remote_path: row.get(3)?,
+                        display_name: row.get(4)?,
+                        mime_type: row.get(5)?,
+                        size: row.get(6)?,
+                        web_url: row.get(7)?,
+                        is_cached: row.get::<_, i64>(8)? != 0,
+                        cached_file_path: row.get(9)?,
+                        last_synced_at: row.get(10)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(CabinetError::from)
     }
 
     fn references_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetReferenceSummary>> {
@@ -3278,6 +3375,39 @@ mod tests {
         let dashboard = core.dashboard().expect("dashboard");
         assert!(dashboard.explorer_count >= 1);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn marks_remote_file_as_cached() {
+        let path = test_db_path("remote-cache");
+        let cache_path = test_db_path("remote-cache-file");
+        fs::write(&cache_path, b"cached remote content").expect("write cache file");
+        let core = CabinetCore::open(&path).expect("open database");
+        let item_json = core
+            .register_remote_file_json(
+                "dropbox",
+                "remote-002",
+                "/Projects/Cabinet/cache-me.txt",
+                "cache-me.txt",
+                "text/plain",
+                0,
+                "https://dropbox.example/cache-me.txt",
+                "Cache target",
+            )
+            .expect("register remote file");
+        let item_id = serde_json::from_str::<Value>(&item_json)
+            .expect("item json")
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("item id")
+            .to_owned();
+        let detail = core
+            .mark_remote_file_cached_json(&item_id, &cache_path.to_string_lossy(), 21)
+            .expect("mark cached");
+        assert!(detail.contains("\"is_cached\":true"));
+        assert!(!detail.contains("cached remote content"));
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(cache_path);
     }
 
     #[test]

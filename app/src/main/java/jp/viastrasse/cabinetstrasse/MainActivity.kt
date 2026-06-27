@@ -19,10 +19,12 @@ import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
 import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
 import java.io.File
+import java.net.URL
 import java.net.URLConnection
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
     private lateinit var repository: CabinetRepository
@@ -449,6 +451,9 @@ class MainActivity : Activity() {
                 onRunImageOcr = {
                     runImageOcr(itemId, detail.path, detail.item.mimeType)
                 },
+                onCacheRemoteFile = {
+                    cacheRemoteFile(itemId, detail)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -548,6 +553,9 @@ class MainActivity : Activity() {
                 },
                 onRunImageOcr = {
                     runImageOcr(itemId, it.path, it.item.mimeType)
+                },
+                onCacheRemoteFile = {
+                    cacheRemoteFile(itemId, it)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -771,6 +779,34 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun cacheRemoteFile(itemId: String, detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+        val remote = detail.remote
+        if (remote == null || remote.webUrl.isBlank()) {
+            Toast.makeText(this, "Web URL付きのリモート参照だけキャッシュできます", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "リモートファイルを取得しています", Toast.LENGTH_SHORT).show()
+        thread(name = "cabinet-remote-cache") {
+            runCatching {
+                val cacheDir = File(filesDir, "remote-cache").apply { mkdirs() }
+                val destination = uniqueDestination(cacheDir, sanitizeFileName(remote.displayName))
+                URL(remote.webUrl).openStream().buffered().use { input ->
+                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                }
+                repository.markRemoteFileCached(itemId, destination.absolutePath, destination.length())
+            }.onSuccess {
+                runOnUiThread {
+                    Toast.makeText(this, "リモートファイルをキャッシュしました", Toast.LENGTH_SHORT).show()
+                    openDetail(itemId)
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(this, error.message ?: "リモートファイルを取得できませんでした", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun createZip(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
         runCatching {
             repository.createZipFromItem(detail)
@@ -961,6 +997,9 @@ class MainActivity : Activity() {
                 },
                 onRunImageOcr = {
                     runImageOcr(itemId, detail.path, detail.item.mimeType)
+                },
+                onCacheRemoteFile = {
+                    cacheRemoteFile(itemId, detail)
                 },
                 onProtectItem = {
                     protectItem(itemId)
