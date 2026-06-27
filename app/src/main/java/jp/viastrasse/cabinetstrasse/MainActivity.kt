@@ -326,10 +326,11 @@ class MainActivity : Activity() {
 
     private fun openSettings() {
         runCatching {
-            repository.settings()
-        }.onSuccess { settings ->
+            repository.settings() to repository.duplicateReport()
+        }.onSuccess { (settings, duplicateReport) ->
             dashboardView.renderSettings(
                 settings = settings,
+                duplicateReport = duplicateReport,
                 onBack = ::renderDashboard,
                 onExportBackup = ::exportBackup,
             )

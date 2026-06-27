@@ -75,6 +75,12 @@ object CabinetJsonParser {
         )
     }
 
+    fun duplicateReport(json: String): DuplicateReport {
+        val root = JSONObject(json)
+        root.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return DuplicateReport(groups = root.optJSONArray("groups").toDuplicateGroups())
+    }
+
     private fun JSONArray?.toItems(): List<CabinetItemSummary> {
         if (this == null) return emptyList()
         return buildList {
@@ -232,5 +238,21 @@ object CabinetJsonParser {
             previewCount = optLong("preview_count"),
             exportedAt = optString("exported_at"),
         )
+    }
+
+    private fun JSONArray?.toDuplicateGroups(): List<DuplicateGroup> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    DuplicateGroup(
+                        hash = item.optString("hash"),
+                        size = item.optLong("size"),
+                        items = item.optJSONArray("items").toItems(),
+                    ),
+                )
+            }
+        }
     }
 }

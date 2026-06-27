@@ -34,6 +34,10 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.settings(CabinetNative.settingsJson(databasePath))
     }
 
+    fun duplicateReport(): DuplicateReport {
+        return CabinetJsonParser.duplicateReport(CabinetNative.duplicateReportJson(databasePath))
+    }
+
     fun exportBackup(): File {
         val json = CabinetNative.backupExportJson(databasePath)
         val timestamp = OffsetDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))

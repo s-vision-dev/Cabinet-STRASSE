@@ -89,6 +89,15 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_back
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_duplicateReportJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+) -> jstring {
+    run_string(&mut env, database_path, |core| core.duplicate_report_json())
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_updateItemFlagsJson(
     mut env: JNIEnv,
     _class: JClass,

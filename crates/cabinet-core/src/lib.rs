@@ -174,6 +174,18 @@ pub struct BackupSummary {
 }
 
 #[derive(Serialize)]
+pub struct DuplicateReport {
+    pub groups: Vec<DuplicateGroup>,
+}
+
+#[derive(Serialize)]
+pub struct DuplicateGroup {
+    pub hash: String,
+    pub size: i64,
+    pub items: Vec<CabinetItemSummary>,
+}
+
+#[derive(Serialize)]
 pub struct EditOptions {
     pub tags: Vec<TagSummary>,
     pub collections: Vec<CabinetCollectionSummary>,
@@ -412,6 +424,12 @@ impl CabinetCore {
         Ok(serde_json::to_string(&EditOptions {
             tags: self.tags()?,
             collections: self.collections()?,
+        })?)
+    }
+
+    pub fn duplicate_report_json(&self) -> CabinetResult<String> {
+        Ok(serde_json::to_string(&DuplicateReport {
+            groups: self.duplicate_groups()?,
         })?)
     }
 
@@ -1376,6 +1394,33 @@ impl CabinetCore {
             preview_count: self.scalar("SELECT COUNT(*) FROM cabinet_previews")?,
             exported_at: now_string(),
         })
+    }
+
+    fn duplicate_groups(&self) -> CabinetResult<Vec<DuplicateGroup>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT hash, size
+             FROM cabinet_items
+             WHERE hash <> '' AND is_archived = 0
+             GROUP BY hash, size
+             HAVING COUNT(*) > 1
+             ORDER BY size DESC, hash ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut groups = Vec::new();
+        for row in rows {
+            let (hash, size) = row?;
+            let items = self.query_items(
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                 FROM cabinet_items
+                 WHERE hash = ?1 AND size = ?2 AND is_archived = 0
+                 ORDER BY updated_at DESC, title ASC",
+                params![hash, size],
+            )?;
+            groups.push(DuplicateGroup { hash, size, items });
+        }
+        Ok(groups)
     }
 
     fn item_by_id(&self, id: &str) -> CabinetResult<Option<CabinetItemSummary>> {

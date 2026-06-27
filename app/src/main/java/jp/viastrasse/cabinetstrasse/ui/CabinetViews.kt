@@ -12,6 +12,7 @@ import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetDashboard
 import jp.viastrasse.cabinetstrasse.data.CabinetItemDetail
 import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
+import jp.viastrasse.cabinetstrasse.data.DuplicateReport
 import jp.viastrasse.cabinetstrasse.data.ModeResponse
 import jp.viastrasse.cabinetstrasse.data.SearchResponse
 import jp.viastrasse.cabinetstrasse.data.SettingsSnapshot
@@ -199,7 +200,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    fun renderSettings(settings: SettingsSnapshot, onBack: () -> Unit, onExportBackup: () -> Unit) {
+    fun renderSettings(
+        settings: SettingsSnapshot,
+        duplicateReport: DuplicateReport,
+        onBack: () -> Unit,
+        onExportBackup: () -> Unit,
+    ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
         content.addView(title("Settings"))
@@ -213,6 +219,20 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(label("Last snapshot: ${settings.backup.exportedAt}", 12, false, CabinetColors.TextSecondary))
         })
         content.addView(command("バックアップを書き出す", onExportBackup))
+        content.addView(section("Duplicate"))
+        if (duplicateReport.groups.isEmpty()) {
+            content.addView(label("完全一致の重複候補はありません", 13, false, CabinetColors.TextSecondary))
+        } else {
+            duplicateReport.groups.forEach { group ->
+                content.addView(panel {
+                    addView(label("${group.items.size} items / ${group.size} bytes", 14, true))
+                    addView(label(group.hash, 11, false, CabinetColors.TextSecondary))
+                    group.items.forEach { item ->
+                        addView(label(item.displayName, 12, false, CabinetColors.TextSecondary))
+                    }
+                })
+            }
+        }
         content.addView(section("Storage Provider"))
         settings.providers.forEach { provider ->
             content.addView(panel {

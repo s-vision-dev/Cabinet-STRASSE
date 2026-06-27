@@ -122,3 +122,13 @@ data class BackupSummary(
     val previewCount: Long,
     val exportedAt: String,
 )
+
+data class DuplicateReport(
+    val groups: List<DuplicateGroup>,
+)
+
+data class DuplicateGroup(
+    val hash: String,
+    val size: Long,
+    val items: List<CabinetItemSummary>,
+)
