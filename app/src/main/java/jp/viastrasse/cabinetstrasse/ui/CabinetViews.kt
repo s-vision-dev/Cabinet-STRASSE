@@ -124,6 +124,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onRenameEntry: (File) -> Unit,
         onCopyEntry: (File) -> Unit,
         onMoveEntry: (File) -> Unit,
+        onDuplicateEntry: (File) -> Unit,
         onCreateFolder: () -> Unit,
         onDeleteEntry: (File) -> Unit,
     ) {
@@ -151,6 +152,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     onRenameEntry,
                     onCopyEntry,
                     onMoveEntry,
+                    onDuplicateEntry,
                     onDeleteEntry,
                 ),
             )
@@ -507,6 +509,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onRenameEntry: (File) -> Unit,
         onCopyEntry: (File) -> Unit,
         onMoveEntry: (File) -> Unit,
+        onDuplicateEntry: (File) -> Unit,
         onDeleteEntry: (File) -> Unit,
     ): View {
         return panel {
@@ -526,6 +529,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             }
             addView(command("Inboxへコピー") { onCopyEntry(entry.file) })
             addView(command("Inboxへ移動") { onMoveEntry(entry.file) })
+            addView(command("複製") { onDuplicateEntry(entry.file) })
             addView(command("削除") { onDeleteEntry(entry.file) })
         }
     }

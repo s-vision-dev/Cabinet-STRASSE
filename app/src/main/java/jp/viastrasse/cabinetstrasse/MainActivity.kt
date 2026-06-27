@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
@@ -256,10 +257,17 @@ class MainActivity : Activity() {
         return buildList {
             add(filesDir)
             getExternalFilesDirs(null).filterNotNull().forEach { add(it) }
+            add(Environment.getExternalStorageDirectory())
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC))
             add(File(filesDir, "inbox").apply { mkdirs() })
             add(File(filesDir, "archives").apply { mkdirs() })
             add(File(filesDir, "extracted").apply { mkdirs() })
-        }.distinctBy { it.absolutePath }
+        }.filter { it.exists() && it.isDirectory }
+            .distinctBy { it.absolutePath }
     }
 
     private fun openLocalExplorer(directory: File) {
@@ -283,6 +291,7 @@ class MainActivity : Activity() {
                 onRenameEntry = { file -> showRenameExplorerEntryDialog(file, directory) },
                 onCopyEntry = { file -> copyExplorerEntryToInbox(file, directory) },
                 onMoveEntry = { file -> moveExplorerEntryToInbox(file, directory) },
+                onDuplicateEntry = { file -> duplicateExplorerEntry(file, directory) },
                 onCreateFolder = { showCreateExplorerFolderDialog(directory) },
                 onDeleteEntry = { file -> deleteExplorerEntry(file, directory) },
             )
@@ -409,6 +418,27 @@ class MainActivity : Activity() {
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "移動できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun duplicateExplorerEntry(file: File, currentDirectory: File) {
+        runCatching {
+            require(file.exists()) { "複製対象が見つかりません" }
+            val parent = file.parentFile ?: currentDirectory
+            val destination = uniqueDestination(parent, duplicateDisplayName(file.name))
+            if (file.isDirectory) {
+                check(file.copyRecursively(destination, overwrite = false)) { "フォルダを複製できませんでした" }
+            } else {
+                file.inputStream().buffered().use { input ->
+                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                }
+            }
+            destination
+        }.onSuccess {
+            Toast.makeText(this, "複製しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(currentDirectory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "複製できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1406,6 +1436,16 @@ class MainActivity : Activity() {
             index += 1
         }
         return candidate
+    }
+
+    private fun duplicateDisplayName(displayName: String): String {
+        val base = displayName.substringBeforeLast('.', displayName)
+        val extension = displayName.substringAfterLast('.', "")
+        return if (extension.isBlank()) {
+            "$base-copy"
+        } else {
+            "$base-copy.$extension"
+        }
     }
 
     private fun sanitizeFileName(value: String): String {
