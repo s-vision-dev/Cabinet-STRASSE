@@ -289,6 +289,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onSetPin: () -> Unit,
         onVerifyPin: () -> Unit,
         onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
+        onDuplicateItemSelected: (String) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -323,7 +324,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     addView(label("${group.items.size} items / ${group.size} bytes", 14, true))
                     addView(label(group.hash, 11, false, CabinetColors.TextSecondary))
                     group.items.forEach { item ->
-                        addView(label(item.displayName, 12, false, CabinetColors.TextSecondary))
+                        addView(command(item.displayName) { onDuplicateItemSelected(item.id) })
                     }
                 })
             }

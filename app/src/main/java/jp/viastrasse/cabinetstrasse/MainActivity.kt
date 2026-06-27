@@ -911,6 +911,7 @@ class MainActivity : Activity() {
                 onSetPin = ::showSetPinDialog,
                 onVerifyPin = ::showVerifyPinDialog,
                 onConfigureProvider = ::showStorageProviderDialog,
+                onDuplicateItemSelected = ::openDetail,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
