@@ -1426,6 +1426,7 @@ class MainActivity : Activity() {
                 onVerifyPin = ::showVerifyPinDialog,
                 onConfigureProvider = ::showStorageProviderDialog,
                 onAddRemoteFile = ::showRemoteFileDialog,
+                onOpenProvider = { provider -> openMode("provider:${provider.id}") },
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 onDuplicateItemSelected = ::openDetail,
             )

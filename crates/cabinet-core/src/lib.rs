@@ -478,6 +478,9 @@ impl CabinetCore {
         if let Some(collection_id) = normalized.strip_prefix("collection:") {
             return self.collection_mode_json(collection_id);
         }
+        if let Some(provider_id) = normalized.strip_prefix("provider:") {
+            return self.provider_mode_json(provider_id);
+        }
         let response = match normalized.as_str() {
             "explorer" => ModeResponse {
                 mode: "Explorer".to_owned(),
@@ -556,6 +559,31 @@ impl CabinetCore {
                 collections: Vec::new(),
                 smart_folders: self.smart_folders()?,
             },
+        };
+        Ok(serde_json::to_string(&response)?)
+    }
+
+    fn provider_mode_json(&self, provider_id: &str) -> CabinetResult<String> {
+        let title: String = self.conn.query_row(
+            "SELECT display_name FROM storage_provider_accounts WHERE id = ?1",
+            params![provider_id],
+            |row| row.get(0),
+        )?;
+        let response = ModeResponse {
+            mode: "Storage Provider".to_owned(),
+            title,
+            items: self.query_items(
+                "SELECT i.id, i.title, i.display_name, i.mime_type, i.source_kind, i.size,
+                        i.is_favorite, i.is_unsorted, i.note, i.updated_at
+                 FROM cabinet_items i
+                 JOIN remote_file_references r ON r.id = i.remote_file_reference_id
+                 WHERE r.provider_account_id = ?1 AND i.is_archived = 0
+                 ORDER BY i.updated_at DESC, i.title ASC
+                 LIMIT 100",
+                params![provider_id],
+            )?,
+            collections: Vec::new(),
+            smart_folders: Vec::new(),
         };
         Ok(serde_json::to_string(&response)?)
     }
@@ -3440,6 +3468,8 @@ mod tests {
         );
         let dashboard = core.dashboard().expect("dashboard");
         assert!(dashboard.explorer_count >= 1);
+        let provider_mode = core.mode_json("provider:dropbox").expect("provider mode");
+        assert!(provider_mode.contains("remote-plan.pdf"));
         let _ = fs::remove_file(path);
     }
 
