@@ -1920,7 +1920,7 @@ impl CabinetCore {
                 "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                  FROM cabinet_items
                  WHERE is_archived = 0
-                 ORDER BY updated_at DESC, title ASC
+                 ORDER BY COALESCE(last_opened_at, updated_at) DESC, updated_at DESC, title ASC
                  LIMIT 12",
                 [],
             )?,
