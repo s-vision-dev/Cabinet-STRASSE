@@ -25,23 +25,37 @@ class CabinetEventProvider : ContentProvider() {
                 "item_id",
                 "payload_json",
                 "created_at",
+                "deep_link",
             ),
         )
         val context = context ?: return cursor
         val limit = uri.getQueryParameter("limit")?.toLongOrNull() ?: 100L
+        val eventTypeFilter = uri.getQueryParameter("event_type")
+            ?: selectionArgs?.getOrNull(0)
+        val itemIdFilter = uri.getQueryParameter("item_id")
+            ?: selectionArgs?.getOrNull(1)
         runCatching {
             JSONObject(CabinetRepository(context).eventsJson(limit))
         }.onSuccess { root ->
             root.optJSONArray("events")?.let { events ->
                 for (index in 0 until events.length()) {
                     val event = events.getJSONObject(index)
+                    val eventType = event.optString("event_type")
+                    val itemId = event.optString("item_id")
+                    if (!eventTypeFilter.isNullOrBlank() && eventType != eventTypeFilter) {
+                        continue
+                    }
+                    if (!itemIdFilter.isNullOrBlank() && itemId != itemIdFilter) {
+                        continue
+                    }
                     cursor.addRow(
-                        arrayOf(
+                        arrayOf<Any>(
                             event.optString("id"),
-                            event.optString("event_type"),
-                            event.optString("item_id"),
+                            eventType,
+                            itemId,
                             event.optJSONObject("payload")?.toString().orEmpty(),
                             event.optString("created_at"),
+                            if (itemId.isBlank()) "" else "strasse://cabinet/open/$itemId",
                         ),
                     )
                 }
