@@ -131,6 +131,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onRename: () -> Unit,
         onCreateZip: () -> Unit,
         onExtractZip: () -> Unit,
+        onAddMailReference: () -> Unit,
+        onAddTaskReference: () -> Unit,
+        onAddAtelierReference: () -> Unit,
+        onAddProtectedMemo: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← 戻る", onBack))
@@ -171,6 +175,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
         content.addView(command("タグを追加", onAddTag))
         content.addView(command("Collectionへ追加", onAddCollection))
+        content.addView(command("Mail参照を追加", onAddMailReference))
+        content.addView(command("Task参照を追加", onAddTaskReference))
+        content.addView(command("Atelier参照を追加", onAddAtelierReference))
+        content.addView(command("保護メモを追加", onAddProtectedMemo))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
         content.addView(section("Preview"))

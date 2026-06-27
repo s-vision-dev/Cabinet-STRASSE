@@ -579,6 +579,58 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn add_reference_json(
+        &self,
+        item_id: &str,
+        reference_type: &str,
+        source_app: &str,
+        source_id: &str,
+        title: &str,
+        uri: &str,
+        note: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        self.conn.execute(
+            "INSERT INTO cabinet_references(id, item_id, reference_type, source_app, source_id, title, uri, note, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![new_id(), item_id, reference_type, source_app, source_id, title, uri, note, now],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn add_memo_json(
+        &self,
+        item_id: &str,
+        body: &str,
+        is_protected: bool,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let normalized = body.trim();
+        if normalized.is_empty() {
+            return Err(CabinetError::Message("Memo body is empty.".to_owned()));
+        }
+        let now = now_string();
+        self.conn.execute(
+            "INSERT INTO cabinet_memos(id, item_id, body, is_protected, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![
+                new_id(),
+                item_id,
+                normalized,
+                if is_protected { 1 } else { 0 },
+                now
+            ],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_items SET note = trim(note || char(10) || ?1), updated_at = ?2 WHERE id = ?3",
+            params![if is_protected { "[protected memo]" } else { normalized }, now, item_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn duplicate_item_json(&self, item_id: &str) -> CabinetResult<String> {
         self.ensure_item_exists(item_id)?;
         let now = now_string();

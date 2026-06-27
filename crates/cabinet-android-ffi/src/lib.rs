@@ -216,6 +216,82 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_rena
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addReferenceJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    reference_type: JString,
+    source_app: JString,
+    source_id: JString,
+    title: JString,
+    uri: JString,
+    note: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let reference_type_value = match jstring_value(&mut env, &reference_type) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let source_app_value = match jstring_value(&mut env, &source_app) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let source_id_value = match jstring_value(&mut env, &source_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let title_value = match jstring_value(&mut env, &title) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let uri_value = match jstring_value(&mut env, &uri) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let note_value = match jstring_value(&mut env, &note) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.add_reference_json(
+            &item_id_value,
+            &reference_type_value,
+            &source_app_value,
+            &source_id_value,
+            &title_value,
+            &uri_value,
+            &note_value,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addMemoJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    body: JString,
+    is_protected: jboolean,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let body_value = match jstring_value(&mut env, &body) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.add_memo_json(&item_id_value, &body_value, is_protected != 0)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,

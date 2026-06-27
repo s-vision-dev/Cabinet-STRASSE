@@ -134,6 +134,18 @@ class MainActivity : Activity() {
                 onExtractZip = {
                     extractZip(detail)
                 },
+                onAddMailReference = {
+                    addReference(itemId, "mail", "Mail-STRASSE", "manual-mail", "関連メール", "strasse://mail/open/manual-mail")
+                },
+                onAddTaskReference = {
+                    addReference(itemId, "task", "Task-STRASSE", "manual-task", "関連Task", "strasse://task/open/manual-task")
+                },
+                onAddAtelierReference = {
+                    addReference(itemId, "atelier", "Atelier-STRASSE", "manual-atelier", "関連Atelier", "strasse://atelier/open/manual-atelier")
+                },
+                onAddProtectedMemo = {
+                    addProtectedMemo(itemId)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -180,6 +192,18 @@ class MainActivity : Activity() {
                 },
                 onExtractZip = {
                     extractZip(it)
+                },
+                onAddMailReference = {
+                    addReference(itemId, "mail", "Mail-STRASSE", "manual-mail", "関連メール", "strasse://mail/open/manual-mail")
+                },
+                onAddTaskReference = {
+                    addReference(itemId, "task", "Task-STRASSE", "manual-task", "関連Task", "strasse://task/open/manual-task")
+                },
+                onAddAtelierReference = {
+                    addReference(itemId, "atelier", "Atelier-STRASSE", "manual-atelier", "関連Atelier", "strasse://atelier/open/manual-atelier")
+                },
+                onAddProtectedMemo = {
+                    addProtectedMemo(itemId)
                 },
             )
         }.onFailure { error ->
@@ -281,6 +305,41 @@ class MainActivity : Activity() {
             renderDashboard()
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "ZIPを解凍できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun addReference(
+        itemId: String,
+        referenceType: String,
+        sourceApp: String,
+        sourceId: String,
+        title: String,
+        uri: String,
+    ) {
+        runCatching {
+            repository.addReference(
+                itemId = itemId,
+                referenceType = referenceType,
+                sourceApp = sourceApp,
+                sourceId = sourceId,
+                title = title,
+                uri = uri,
+                note = "Cabinet詳細画面から手動追加",
+            )
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "参照を追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun addProtectedMemo(itemId: String) {
+        runCatching {
+            repository.addMemo(itemId, "保護メモ: パスワードや機密補足をここへ保存", true)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "保護メモを追加できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

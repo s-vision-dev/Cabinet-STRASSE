@@ -82,6 +82,33 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.renameItemJson(databasePath, itemId, newDisplayName))
     }
 
+    fun addReference(
+        itemId: String,
+        referenceType: String,
+        sourceApp: String,
+        sourceId: String,
+        title: String,
+        uri: String,
+        note: String,
+    ): CabinetItemDetail {
+        return CabinetJsonParser.detail(
+            CabinetNative.addReferenceJson(
+                databasePath,
+                itemId,
+                referenceType,
+                sourceApp,
+                sourceId,
+                title,
+                uri,
+                note,
+            ),
+        )
+    }
+
+    fun addMemo(itemId: String, body: String, isProtected: Boolean): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.addMemoJson(databasePath, itemId, body, isProtected))
+    }
+
     fun createZipFromItem(detail: CabinetItemDetail): CabinetItemSummary {
         val source = File(detail.path)
         require(source.exists()) { "Source file does not exist." }

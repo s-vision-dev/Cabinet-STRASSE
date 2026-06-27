@@ -38,6 +38,19 @@ object CabinetNative {
 
     external fun renameItemJson(databasePath: String, itemId: String, newDisplayName: String): String
 
+    external fun addReferenceJson(
+        databasePath: String,
+        itemId: String,
+        referenceType: String,
+        sourceApp: String,
+        sourceId: String,
+        title: String,
+        uri: String,
+        note: String,
+    ): String
+
+    external fun addMemoJson(databasePath: String, itemId: String, body: String, isProtected: Boolean): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,
