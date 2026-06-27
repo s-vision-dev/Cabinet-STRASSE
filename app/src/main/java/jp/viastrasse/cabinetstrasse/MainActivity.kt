@@ -12,6 +12,7 @@ import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.backup.BackupWorker
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
@@ -904,10 +905,45 @@ class MainActivity : Activity() {
                 onImportBackup = ::openBackupPicker,
                 onSetPin = ::showSetPinDialog,
                 onVerifyPin = ::showVerifyPinDialog,
+                onConfigureProvider = ::showStorageProviderDialog,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showStorageProviderDialog(provider: StorageProviderAccountSummary) {
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 0)
+        }
+        val accountInput = darkInput("アカウント名").apply {
+            setText(provider.accountName)
+        }
+        val statusInput = darkInput("接続状態: connected / offline / error / not_configured").apply {
+            setText(provider.connectionStatus.ifBlank { "not_configured" })
+        }
+        container.addView(accountInput)
+        container.addView(statusInput)
+        AlertDialog.Builder(this)
+            .setTitle("${provider.displayName} を設定")
+            .setView(container)
+            .setPositiveButton("保存") { _, _ ->
+                runCatching {
+                    repository.updateStorageProvider(
+                        providerId = provider.id,
+                        accountName = accountInput.text.toString(),
+                        connectionStatus = statusInput.text.toString(),
+                    )
+                }.onSuccess {
+                    Toast.makeText(this, "Provider設定を保存しました", Toast.LENGTH_SHORT).show()
+                    openSettings()
+                }.onFailure { error ->
+                    Toast.makeText(this, error.message ?: "Provider設定を保存できませんでした", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
     }
 
     private fun exportBackup() {

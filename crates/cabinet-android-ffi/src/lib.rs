@@ -80,6 +80,36 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_sett
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_updateStorageProviderJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    provider_id: JString,
+    account_name: JString,
+    connection_status: JString,
+) -> jstring {
+    let provider_id_value = match jstring_value(&mut env, &provider_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let account_name_value = match jstring_value(&mut env, &account_name) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let connection_status_value = match jstring_value(&mut env, &connection_status) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.update_storage_provider_json(
+            &provider_id_value,
+            &account_name_value,
+            &connection_status_value,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_eventsJson(
     mut env: JNIEnv,
     _class: JClass,

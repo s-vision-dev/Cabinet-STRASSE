@@ -630,6 +630,40 @@ impl CabinetCore {
         Ok(serde_json::to_string(&snapshot)?)
     }
 
+    pub fn update_storage_provider_json(
+        &self,
+        provider_id: &str,
+        account_name: &str,
+        connection_status: &str,
+    ) -> CabinetResult<String> {
+        let status = match connection_status.trim() {
+            "connected" | "not_configured" | "error" | "offline" => connection_status.trim(),
+            _ => "not_configured",
+        };
+        let now = now_string();
+        let updated = self.conn.execute(
+            "UPDATE storage_provider_accounts
+             SET account_name = ?1, connection_status = ?2, updated_at = ?3,
+                 last_connected_at = CASE WHEN ?2 = 'connected' THEN ?3 ELSE last_connected_at END
+             WHERE id = ?4",
+            params![account_name.trim(), status, now, provider_id],
+        )?;
+        if updated == 0 {
+            return Err(CabinetError::Message(format!(
+                "Storage Provider not found: {provider_id}"
+            )));
+        }
+        self.log_event(
+            "Cabinet.StorageProviderUpdated",
+            None,
+            serde_json::json!({
+                "provider_id": provider_id,
+                "connection_status": status,
+            }),
+        )?;
+        self.settings_json()
+    }
+
     pub fn events_json(&self, limit: i64) -> CabinetResult<String> {
         let mut stmt = self.conn.prepare(
             "SELECT id, event_type, item_id, payload_json, created_at

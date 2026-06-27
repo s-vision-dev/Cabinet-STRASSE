@@ -17,6 +17,7 @@ import jp.viastrasse.cabinetstrasse.data.ModeResponse
 import jp.viastrasse.cabinetstrasse.data.SearchResponse
 import jp.viastrasse.cabinetstrasse.data.SettingsSnapshot
 import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
+import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 import java.io.File
 
@@ -282,6 +283,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onImportBackup: () -> Unit,
         onSetPin: () -> Unit,
         onVerifyPin: () -> Unit,
+        onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -326,7 +328,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             content.addView(panel {
                 addView(label(provider.displayName, 15, true))
                 addView(label("${provider.providerType} / ${provider.authType}", 12, false, CabinetColors.TextSecondary))
-                addView(label(provider.connectionStatus, 12, false, CabinetColors.TextSecondary))
+                addView(label("${provider.accountName.ifBlank { "no account" }} / ${provider.connectionStatus}", 12, false, CabinetColors.TextSecondary))
+                addView(command("Providerを設定") { onConfigureProvider(provider) })
             })
         }
     }

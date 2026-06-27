@@ -40,6 +40,16 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.settings(CabinetNative.settingsJson(databasePath))
     }
 
+    fun updateStorageProvider(
+        providerId: String,
+        accountName: String,
+        connectionStatus: String,
+    ): SettingsSnapshot {
+        return CabinetJsonParser.settings(
+            CabinetNative.updateStorageProviderJson(databasePath, providerId, accountName, connectionStatus),
+        )
+    }
+
     fun eventsJson(limit: Long = 100): String {
         return CabinetNative.eventsJson(databasePath, limit)
     }
