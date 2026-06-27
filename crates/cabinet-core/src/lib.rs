@@ -230,6 +230,7 @@ pub struct CabinetDashboard {
     pub collection_count: i64,
     pub inbox_count: i64,
     pub favorite_count: i64,
+    pub trash_count: i64,
     pub recent_items: Vec<CabinetItemSummary>,
     pub collections: Vec<CabinetCollectionSummary>,
     pub smart_folders: Vec<SmartFolderSummary>,
@@ -452,7 +453,7 @@ impl CabinetCore {
                 items: self.query_items(
                     "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                      FROM cabinet_items
-                     WHERE source_kind IN ('local', 'mail')
+                     WHERE source_kind IN ('local', 'mail') AND is_archived = 0
                      ORDER BY updated_at DESC, title ASC
                      LIMIT 100",
                     [],
@@ -466,6 +467,7 @@ impl CabinetCore {
                 items: self.query_items(
                     "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                      FROM cabinet_items
+                     WHERE is_archived = 0
                      ORDER BY mime_type ASC, title ASC
                      LIMIT 100",
                     [],
@@ -486,7 +488,7 @@ impl CabinetCore {
                 items: self.query_items(
                     "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                      FROM cabinet_items
-                     WHERE is_unsorted = 1
+                     WHERE is_unsorted = 1 AND is_archived = 0
                      ORDER BY updated_at DESC, title ASC
                      LIMIT 100",
                     [],
@@ -500,6 +502,20 @@ impl CabinetCore {
                 items: Vec::new(),
                 collections: Vec::new(),
                 smart_folders: self.smart_folders()?,
+            },
+            "trash" | "ゴミ箱" => ModeResponse {
+                mode: "Trash".to_owned(),
+                title: "Trash".to_owned(),
+                items: self.query_items(
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                     FROM cabinet_items
+                     WHERE is_archived = 1
+                     ORDER BY updated_at DESC, title ASC
+                     LIMIT 100",
+                    [],
+                )?,
+                collections: Vec::new(),
+                smart_folders: Vec::new(),
             },
             _ => ModeResponse {
                 mode: "Search".to_owned(),
@@ -1734,14 +1750,16 @@ impl CabinetCore {
             version: self
                 .conn
                 .query_row("SELECT version FROM schema_info LIMIT 1", [], |row| row.get(0))?,
-            explorer_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE source_kind IN ('local', 'mail')")?,
-            library_count: self.scalar("SELECT COUNT(*) FROM cabinet_items")?,
+            explorer_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE source_kind IN ('local', 'mail') AND is_archived = 0")?,
+            library_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_archived = 0")?,
             collection_count: self.scalar("SELECT COUNT(*) FROM cabinet_collections")?,
-            inbox_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_unsorted = 1")?,
-            favorite_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_favorite = 1")?,
+            inbox_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_unsorted = 1 AND is_archived = 0")?,
+            favorite_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_favorite = 1 AND is_archived = 0")?,
+            trash_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_archived = 1")?,
             recent_items: self.query_items(
                 "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                  FROM cabinet_items
+                 WHERE is_archived = 0
                  ORDER BY updated_at DESC, title ASC
                  LIMIT 12",
                 [],
@@ -1757,6 +1775,7 @@ impl CabinetCore {
             return self.query_items(
                 "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                  FROM cabinet_items
+                 WHERE is_archived = 0
                  ORDER BY updated_at DESC, title ASC
                  LIMIT 50",
                 [],
@@ -1773,7 +1792,7 @@ impl CabinetCore {
                     i.is_favorite, i.is_unsorted, i.note, i.updated_at
              FROM cabinet_fts f
              JOIN cabinet_items i ON i.id = f.item_id
-             WHERE cabinet_fts MATCH ?1
+             WHERE cabinet_fts MATCH ?1 AND i.is_archived = 0
              ORDER BY rank
              LIMIT 50",
         )?;

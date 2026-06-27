@@ -14,6 +14,7 @@ object CabinetJsonParser {
             collectionCount = root.optLong("collection_count"),
             inboxCount = root.optLong("inbox_count"),
             favoriteCount = root.optLong("favorite_count"),
+            trashCount = root.optLong("trash_count"),
             recentItems = root.optJSONArray("recent_items").toItems(),
             collections = root.optJSONArray("collections").toCollections(),
             smartFolders = root.optJSONArray("smart_folders").toSmartFolders(),

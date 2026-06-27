@@ -7,6 +7,7 @@ data class CabinetDashboard(
     val collectionCount: Long,
     val inboxCount: Long,
     val favoriteCount: Long,
+    val trashCount: Long,
     val recentItems: List<CabinetItemSummary>,
     val collections: List<CabinetCollectionSummary>,
     val smartFolders: List<SmartFolderSummary>,
