@@ -26,6 +26,12 @@ object CabinetNative {
         isUnsorted: Boolean,
     ): String
 
+    external fun addTagToItemJson(databasePath: String, itemId: String, tagName: String, color: String): String
+
+    external fun addItemToCollectionJson(databasePath: String, itemId: String, collectionTitle: String): String
+
+    external fun moveItemToTrashJson(databasePath: String, itemId: String): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,

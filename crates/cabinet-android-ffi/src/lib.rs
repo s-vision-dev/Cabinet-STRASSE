@@ -107,6 +107,69 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_upda
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addTagToItemJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    tag_name: JString,
+    color: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let tag_name_value = match jstring_value(&mut env, &tag_name) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let color_value = match jstring_value(&mut env, &color) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.add_tag_to_item_json(&item_id_value, &tag_name_value, &color_value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addItemToCollectionJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    collection_title: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let collection_title_value = match jstring_value(&mut env, &collection_title) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.add_item_to_collection_json(&item_id_value, &collection_title_value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_moveItemToTrashJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.move_item_to_trash_json(&item_id_value)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,
@@ -195,6 +258,13 @@ fn jstring_from(env: &mut JNIEnv, value: &str) -> jstring {
     env.new_string(value)
         .expect("failed to allocate JVM string")
         .into_raw()
+}
+
+fn jstring_value(env: &mut JNIEnv, value: &JString) -> Result<String, jstring> {
+    match env.get_string(value) {
+        Ok(value) => Ok(value.to_string_lossy().into_owned()),
+        Err(error) => Err(jstring_from(env, &error_json(error.to_string()))),
+    }
 }
 
 fn error_json(message: String) -> String {

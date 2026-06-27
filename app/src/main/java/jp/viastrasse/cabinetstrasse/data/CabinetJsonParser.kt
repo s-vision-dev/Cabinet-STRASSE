@@ -49,6 +49,8 @@ object CabinetJsonParser {
             path = root.optString("path"),
             hash = root.optString("hash"),
             note = root.optString("note"),
+            tags = root.optJSONArray("tags").toTags(),
+            collections = root.optJSONArray("collections").toCollections(),
             previews = root.optJSONArray("previews").toPreviews(),
             references = root.optJSONArray("references").toReferences(),
             versions = root.optJSONArray("versions").toVersions(),
@@ -200,6 +202,22 @@ object CabinetJsonParser {
                         authType = item.optString("auth_type"),
                         connectionStatus = item.optString("connection_status"),
                         lastConnectedAt = item.optString("last_connected_at"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun JSONArray?.toTags(): List<TagSummary> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    TagSummary(
+                        id = item.optString("id"),
+                        name = item.optString("name"),
+                        color = item.optString("color"),
                     ),
                 )
             }

@@ -56,9 +56,17 @@ data class CabinetItemDetail(
     val path: String,
     val hash: String,
     val note: String,
+    val tags: List<TagSummary>,
+    val collections: List<CabinetCollectionSummary>,
     val previews: List<CabinetPreviewSummary>,
     val references: List<CabinetReferenceSummary>,
     val versions: List<CabinetVersionSummary>,
+)
+
+data class TagSummary(
+    val id: String,
+    val name: String,
+    val color: String,
 )
 
 data class CabinetPreviewSummary(

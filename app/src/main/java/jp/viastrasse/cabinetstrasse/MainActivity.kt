@@ -87,6 +87,15 @@ class MainActivity : Activity() {
                         isUnsorted = false,
                     )
                 },
+                onAddTag = {
+                    addTag(itemId, "参考資料")
+                },
+                onAddCollection = {
+                    addToCollection(itemId, "未整理から確認")
+                },
+                onMoveTrash = {
+                    moveToTrash(itemId)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -110,9 +119,49 @@ class MainActivity : Activity() {
                 onMarkSorted = {
                     updateItemFlags(itemId, it.item.isFavorite, false)
                 },
+                onAddTag = {
+                    addTag(itemId, "参考資料")
+                },
+                onAddCollection = {
+                    addToCollection(itemId, "未整理から確認")
+                },
+                onMoveTrash = {
+                    moveToTrash(itemId)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "資料を更新できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun addTag(itemId: String, tagName: String) {
+        runCatching {
+            repository.addTag(itemId, tagName)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "タグを追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun addToCollection(itemId: String, collectionTitle: String) {
+        runCatching {
+            repository.addToCollection(itemId, collectionTitle)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "Collectionへ追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun moveToTrash(itemId: String) {
+        runCatching {
+            repository.moveToTrash(itemId)
+        }.onSuccess {
+            Toast.makeText(this, "ゴミ箱へ移動しました", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

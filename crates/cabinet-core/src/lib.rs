@@ -105,6 +105,8 @@ pub struct CabinetItemDetail {
     pub path: String,
     pub hash: String,
     pub note: String,
+    pub tags: Vec<TagSummary>,
+    pub collections: Vec<CabinetCollectionSummary>,
     pub previews: Vec<CabinetPreviewSummary>,
     pub references: Vec<CabinetReferenceSummary>,
     pub versions: Vec<CabinetVersionSummary>,
@@ -169,6 +171,19 @@ pub struct BackupSummary {
     pub tag_count: i64,
     pub preview_count: i64,
     pub exported_at: String,
+}
+
+#[derive(Serialize)]
+pub struct EditOptions {
+    pub tags: Vec<TagSummary>,
+    pub collections: Vec<CabinetCollectionSummary>,
+}
+
+#[derive(Serialize)]
+pub struct TagSummary {
+    pub id: String,
+    pub name: String,
+    pub color: String,
 }
 
 pub struct CabinetCore {
@@ -284,6 +299,8 @@ impl CabinetCore {
             path,
             hash,
             note,
+            tags: self.tags_for_item(item_id)?,
+            collections: self.collections_for_item(item_id)?,
             previews: self.previews_for_item(item_id)?,
             references: self.references_for_item(item_id)?,
             versions: match document_id {
@@ -387,6 +404,159 @@ impl CabinetCore {
         if changed == 0 {
             return Err(CabinetError::Message(format!("Item not found: {item_id}")));
         }
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn edit_options_json(&self) -> CabinetResult<String> {
+        Ok(serde_json::to_string(&EditOptions {
+            tags: self.tags()?,
+            collections: self.collections()?,
+        })?)
+    }
+
+    pub fn add_tag_to_item_json(
+        &self,
+        item_id: &str,
+        tag_name: &str,
+        color: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        let normalized = tag_name.trim();
+        if normalized.is_empty() {
+            return Err(CabinetError::Message("Tag name is empty.".to_owned()));
+        }
+        let tag_id = self
+            .conn
+            .query_row(
+                "SELECT id FROM cabinet_tags WHERE name = ?1",
+                params![normalized],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(new_id);
+        self.conn.execute(
+            "INSERT OR IGNORE INTO cabinet_tags(id, name, color, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![tag_id, normalized, color, now],
+        )?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO cabinet_item_tags(item_id, tag_id) VALUES (?1, ?2)",
+            params![item_id, tag_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn add_item_to_collection_json(
+        &self,
+        item_id: &str,
+        collection_title: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        let normalized = collection_title.trim();
+        if normalized.is_empty() {
+            return Err(CabinetError::Message(
+                "Collection title is empty.".to_owned(),
+            ));
+        }
+        let collection_id = self
+            .conn
+            .query_row(
+                "SELECT id FROM cabinet_collections WHERE title = ?1",
+                params![normalized],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(new_id);
+        self.conn.execute(
+            "INSERT OR IGNORE INTO cabinet_collections(id, title, description, created_at, updated_at)
+             VALUES (?1, ?2, '', ?3, ?3)",
+            params![collection_id, normalized, now],
+        )?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO cabinet_collection_items(collection_id, item_id, added_at) VALUES (?1, ?2, ?3)",
+            params![collection_id, item_id, now],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_collections SET updated_at = ?1 WHERE id = ?2",
+            params![now, collection_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn add_version_json(
+        &self,
+        item_id: &str,
+        path: &str,
+        display_name: &str,
+        mime_type: &str,
+        size: i64,
+        note: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        let document_id: Option<String> = self.conn.query_row(
+            "SELECT document_id FROM cabinet_items WHERE id = ?1",
+            params![item_id],
+            |row| row.get(0),
+        )?;
+        let document_id = document_id.ok_or_else(|| {
+            CabinetError::Message("This item is not attached to a Cabinet Document.".to_owned())
+        })?;
+        let next_version: i64 = self.conn.query_row(
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM cabinet_versions WHERE document_id = ?1",
+            params![document_id],
+            |row| row.get(0),
+        )?;
+        let file_id = new_id();
+        let version_id = new_id();
+        let hash = hash_file(path).unwrap_or_else(|_| hash_text(path));
+        self.conn.execute(
+            "INSERT INTO cabinet_files(id, path, original_file_name, mime_type, size, hash, created_at, updated_at, storage_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'local')",
+            params![file_id, path, display_name, mime_type, size, hash, now],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_versions SET is_current = 0 WHERE document_id = ?1",
+            params![document_id],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_versions(
+                id, document_id, version_number, file_id, display_name, original_file_name,
+                registered_at, source_app, source_id, note, is_current
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, 'Cabinet-STRASSE', NULL, ?7, 1)",
+            params![
+                version_id,
+                document_id,
+                next_version,
+                file_id,
+                display_name,
+                now,
+                note
+            ],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_documents SET current_version_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![version_id, now, document_id],
+        )?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn move_item_to_trash_json(&self, item_id: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        self.conn.execute(
+            "UPDATE cabinet_items SET is_archived = 1, is_unsorted = 0, updated_at = ?1 WHERE id = ?2",
+            params![now, item_id],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_memos(id, item_id, body, is_protected, created_at, updated_at)
+             VALUES (?1, ?2, 'Moved to Cabinet trash', 0, ?3, ?3)",
+            params![new_id(), item_id, now],
+        )?;
         self.rebuild_fts_for_item(item_id)?;
         self.item_detail_json(item_id)
     }
@@ -1057,6 +1227,70 @@ impl CabinetCore {
         Ok(result)
     }
 
+    fn tags(&self) -> CabinetResult<Vec<TagSummary>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, color FROM cabinet_tags ORDER BY name ASC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TagSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn tags_for_item(&self, item_id: &str) -> CabinetResult<Vec<TagSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.name, t.color
+             FROM cabinet_tags t
+             JOIN cabinet_item_tags it ON it.tag_id = t.id
+             WHERE it.item_id = ?1
+             ORDER BY t.name ASC",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| {
+            Ok(TagSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn collections_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetCollectionSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.title, COUNT(ci2.item_id)
+             FROM cabinet_collections c
+             JOIN cabinet_collection_items ci ON ci.collection_id = c.id
+             LEFT JOIN cabinet_collection_items ci2 ON ci2.collection_id = c.id
+             WHERE ci.item_id = ?1
+             GROUP BY c.id, c.title
+             ORDER BY c.title ASC",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| {
+            Ok(CabinetCollectionSummary {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                item_count: row.get(2)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     fn backup_summary(&self) -> CabinetResult<BackupSummary> {
         Ok(BackupSummary {
             item_count: self.scalar("SELECT COUNT(*) FROM cabinet_items")?,
@@ -1077,6 +1311,18 @@ impl CabinetCore {
             )
             .optional()
             .map_err(CabinetError::from)
+    }
+
+    fn ensure_item_exists(&self, item_id: &str) -> CabinetResult<()> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM cabinet_items WHERE id = ?1",
+            params![item_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            return Err(CabinetError::Message(format!("Item not found: {item_id}")));
+        }
+        Ok(())
     }
 
     fn query_items<P>(&self, sql: &str, params: P) -> CabinetResult<Vec<CabinetItemSummary>>

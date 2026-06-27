@@ -48,6 +48,22 @@ class CabinetRepository(context: Context) {
         )
     }
 
+    fun addTag(itemId: String, tagName: String, color: String = "#607D8B"): CabinetItemDetail {
+        return CabinetJsonParser.detail(
+            CabinetNative.addTagToItemJson(databasePath, itemId, tagName, color),
+        )
+    }
+
+    fun addToCollection(itemId: String, collectionTitle: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(
+            CabinetNative.addItemToCollectionJson(databasePath, itemId, collectionTitle),
+        )
+    }
+
+    fun moveToTrash(itemId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.moveItemToTrashJson(databasePath, itemId))
+    }
+
     fun registerUrl(url: String, title: String, note: String): CabinetItemSummary {
         val json = CabinetNative.registerUrlJson(databasePath, url, title, note)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
