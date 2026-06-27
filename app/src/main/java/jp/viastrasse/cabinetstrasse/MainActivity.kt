@@ -13,6 +13,7 @@ import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.backup.BackupWorker
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
+import jp.viastrasse.cabinetstrasse.preview.OcrTextRecognizer
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
@@ -445,6 +446,9 @@ class MainActivity : Activity() {
                 onAddOcrText = {
                     showOcrTextDialog(itemId)
                 },
+                onRunImageOcr = {
+                    runImageOcr(itemId, detail.path, detail.item.mimeType)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -541,6 +545,9 @@ class MainActivity : Activity() {
                 },
                 onAddOcrText = {
                     showOcrTextDialog(itemId)
+                },
+                onRunImageOcr = {
+                    runImageOcr(itemId, it.path, it.item.mimeType)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -952,6 +959,9 @@ class MainActivity : Activity() {
                 onAddOcrText = {
                     showOcrTextDialog(itemId)
                 },
+                onRunImageOcr = {
+                    runImageOcr(itemId, detail.path, detail.item.mimeType)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -997,6 +1007,36 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "OCR本文を追加できませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun runImageOcr(itemId: String, path: String, mimeType: String) {
+        val file = File(path)
+        if (!mimeType.startsWith("image/") || !file.exists()) {
+            Toast.makeText(this, "画像ファイルだけOCRを実行できます", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "OCRを実行しています", Toast.LENGTH_SHORT).show()
+        OcrTextRecognizer.recognizeImage(
+            context = this,
+            file = file,
+            onSuccess = { text ->
+                if (text.isBlank()) {
+                    Toast.makeText(this, "文字を検出できませんでした", Toast.LENGTH_SHORT).show()
+                    return@recognizeImage
+                }
+                runCatching {
+                    repository.addOcrText(itemId, text, "mlkit-japanese")
+                }.onSuccess {
+                    Toast.makeText(this, "OCR本文を保存しました", Toast.LENGTH_SHORT).show()
+                    openDetail(itemId)
+                }.onFailure { error ->
+                    Toast.makeText(this, error.message ?: "OCR本文を保存できませんでした", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onFailure = { error ->
+                Toast.makeText(this, error.message ?: "OCRを実行できませんでした", Toast.LENGTH_SHORT).show()
+            },
+        )
     }
 
     private fun addProtectedMemo(itemId: String, body: String) {
