@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 use uuid::Uuid;
+use zip::read::ZipArchive;
 
 const SCHEMA_VERSION: i64 = 1;
 const BACKUP_TABLES: &[(&str, &[&str])] = &[
@@ -2305,31 +2306,37 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
         return generated_preview(summary, None, None);
     }
     if mime_type == "application/zip" || lower_name.ends_with(".zip") {
-        return generated_preview(
-            format!("{display_name}: ZIP archive. 解凍操作で中のファイルをCabinetへ登録できます。"),
-            None,
-            None,
-        );
+        let summary = zip_preview(path).unwrap_or_else(|| {
+            format!("{display_name}: ZIP archive. 解凍操作で中のファイルをCabinetへ登録できます。")
+        });
+        return generated_preview(summary, None, None);
     }
     if lower_name.ends_with(".docx") {
+        let summary = office_preview(path, OfficeKind::Word).unwrap_or_else(|| {
+            format!("{display_name}: Word document. Office XMLプレビュー解析の対象です。")
+        });
         return generated_preview(
-            format!("{display_name}: Word document. Office XMLプレビュー解析の対象です。"),
+            format!("{display_name}: Word document\n{summary}"),
             None,
             None,
         );
     }
     if lower_name.ends_with(".xlsx") {
+        let summary = office_preview(path, OfficeKind::Excel).unwrap_or_else(|| {
+            format!("{display_name}: Excel workbook. Office XMLプレビュー解析の対象です。")
+        });
         return generated_preview(
-            format!("{display_name}: Excel workbook. Office XMLプレビュー解析の対象です。"),
+            format!("{display_name}: Excel workbook\n{summary}"),
             None,
             None,
         );
     }
     if lower_name.ends_with(".pptx") {
+        let summary = office_preview(path, OfficeKind::PowerPoint).unwrap_or_else(|| {
+            format!("{display_name}: PowerPoint presentation. Office XMLプレビュー解析の対象です。")
+        });
         return generated_preview(
-            format!(
-                "{display_name}: PowerPoint presentation. Office XMLプレビュー解析の対象です。"
-            ),
+            format!("{display_name}: PowerPoint presentation\n{summary}"),
             None,
             None,
         );
@@ -2411,6 +2418,133 @@ fn text_preview(text: &str) -> String {
     }
     let joined = lines.join("\n");
     joined.chars().take(2000).collect()
+}
+
+enum OfficeKind {
+    Word,
+    Excel,
+    PowerPoint,
+}
+
+fn zip_preview(path: &str) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+    let mut names = Vec::new();
+    let mut total_uncompressed = 0_u64;
+    for index in 0..archive.len().min(30) {
+        let entry = archive.by_index(index).ok()?;
+        total_uncompressed = total_uncompressed.saturating_add(entry.size());
+        names.push(entry.name().to_owned());
+    }
+    if names.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "ZIP archive: {} entries, {} bytes unpacked\n{}",
+        archive.len(),
+        total_uncompressed,
+        names.join("\n")
+    ))
+}
+
+fn office_preview(path: &str, kind: OfficeKind) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+    let mut text = String::new();
+    match kind {
+        OfficeKind::Word => {
+            read_zip_text(&mut archive, "word/document.xml", &mut text);
+        }
+        OfficeKind::Excel => {
+            read_zip_text(&mut archive, "xl/sharedStrings.xml", &mut text);
+            if text.is_empty() {
+                read_first_matching_zip_text(&mut archive, "xl/worksheets/sheet", &mut text);
+            }
+        }
+        OfficeKind::PowerPoint => {
+            read_first_matching_zip_text(&mut archive, "ppt/slides/slide", &mut text);
+        }
+    }
+    let plain = xml_text_preview(&text);
+    if plain.is_empty() { None } else { Some(plain) }
+}
+
+fn read_zip_text<R: std::io::Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+    name: &str,
+    output: &mut String,
+) {
+    if let Ok(mut entry) = archive.by_name(name) {
+        let mut buffer = String::new();
+        if entry.read_to_string(&mut buffer).is_ok() {
+            output.push_str(&buffer);
+        }
+    }
+}
+
+fn read_first_matching_zip_text<R: std::io::Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+    prefix: &str,
+    output: &mut String,
+) {
+    let index = (0..archive.len()).find(|index| {
+        archive
+            .by_index(*index)
+            .map(|entry| entry.name().starts_with(prefix) && entry.name().ends_with(".xml"))
+            .unwrap_or(false)
+    });
+    if let Some(index) = index {
+        if let Ok(mut entry) = archive.by_index(index) {
+            let mut buffer = String::new();
+            if entry.read_to_string(&mut buffer).is_ok() {
+                output.push_str(&buffer);
+            }
+        }
+    }
+}
+
+fn xml_text_preview(xml: &str) -> String {
+    let mut result = String::new();
+    let mut in_tag = false;
+    let mut last_was_space = true;
+    for ch in xml.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                if !last_was_space {
+                    result.push(' ');
+                    last_was_space = true;
+                }
+            }
+            _ if in_tag => {}
+            _ if ch.is_whitespace() => {
+                if !last_was_space {
+                    result.push(' ');
+                    last_was_space = true;
+                }
+            }
+            _ => {
+                result.push(ch);
+                last_was_space = false;
+            }
+        }
+        if result.len() >= 4000 {
+            break;
+        }
+    }
+    decode_xml_entities(&result).chars().take(2000).collect()
+}
+
+fn decode_xml_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .trim()
+        .to_owned()
 }
 
 fn image_dimensions(path: &str) -> Option<(i64, i64)> {
