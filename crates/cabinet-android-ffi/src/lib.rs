@@ -308,6 +308,55 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addM
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setSecurityPinJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    pin: JString,
+) -> jstring {
+    let pin_value = match jstring_value(&mut env, &pin) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.set_security_pin_json(&pin_value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_verifySecurityPinJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    pin: JString,
+) -> jstring {
+    let pin_value = match jstring_value(&mut env, &pin) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.verify_security_pin_json(&pin_value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setItemProtectedJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    is_protected: jboolean,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.set_item_protected_json(&item_id_value, is_protected != 0)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,

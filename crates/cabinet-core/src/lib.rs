@@ -162,6 +162,17 @@ const BACKUP_TABLES: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "cabinet_item_security",
+        &[
+            "item_id",
+            "is_protected",
+            "hidden_when_locked",
+            "encrypted_hint",
+            "updated_at",
+        ],
+    ),
+    ("security_settings", &["key", "value", "updated_at"]),
+    (
         "smart_folders",
         &[
             "id",
@@ -315,6 +326,7 @@ pub struct PreviewProcessReport {
 pub struct SettingsSnapshot {
     pub providers: Vec<StorageProviderAccountSummary>,
     pub backup: BackupSummary,
+    pub security: SecuritySummary,
 }
 
 #[derive(Serialize)]
@@ -344,6 +356,18 @@ pub struct BackupImportReport {
     pub collection_count: i64,
     pub tag_count: i64,
     pub preview_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct SecuritySummary {
+    pub pin_enabled: bool,
+    pub protected_item_count: i64,
+    pub protected_memo_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct SecurityCheckResult {
+    pub verified: bool,
 }
 
 #[derive(Deserialize)]
@@ -571,6 +595,7 @@ impl CabinetCore {
         let snapshot = SettingsSnapshot {
             providers: self.storage_provider_accounts()?,
             backup: self.backup_summary()?,
+            security: self.security_summary()?,
         };
         Ok(serde_json::to_string(&snapshot)?)
     }
@@ -863,6 +888,59 @@ impl CabinetCore {
             params![if is_protected { "[protected memo]" } else { normalized }, now, item_id],
         )?;
         self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn set_security_pin_json(&self, pin: &str) -> CabinetResult<String> {
+        let normalized = pin.trim();
+        if normalized.len() < 4 {
+            return Err(CabinetError::Message(
+                "PIN must contain at least 4 characters.".to_owned(),
+            ));
+        }
+        let now = now_string();
+        let hash = hash_text(normalized);
+        self.conn.execute(
+            "INSERT INTO security_settings(key, value, updated_at)
+             VALUES ('pin_hash', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![hash, now],
+        )?;
+        self.settings_json()
+    }
+
+    pub fn verify_security_pin_json(&self, pin: &str) -> CabinetResult<String> {
+        let expected: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM security_settings WHERE key = 'pin_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let verified = expected
+            .map(|hash| hash == hash_text(pin.trim()))
+            .unwrap_or(false);
+        Ok(serde_json::to_string(&SecurityCheckResult { verified })?)
+    }
+
+    pub fn set_item_protected_json(
+        &self,
+        item_id: &str,
+        is_protected: bool,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        self.conn.execute(
+            "INSERT INTO cabinet_item_security(
+                item_id, is_protected, hidden_when_locked, encrypted_hint, updated_at
+             ) VALUES (?1, ?2, ?2, 'metadata-protected', ?3)
+             ON CONFLICT(item_id) DO UPDATE SET
+                is_protected = excluded.is_protected,
+                hidden_when_locked = excluded.hidden_when_locked,
+                updated_at = excluded.updated_at",
+            params![item_id, if is_protected { 1 } else { 0 }, now],
+        )?;
         self.item_detail_json(item_id)
     }
 
@@ -1209,6 +1287,21 @@ impl CabinetCore {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_item_security (
+                item_id TEXT PRIMARY KEY,
+                is_protected INTEGER NOT NULL DEFAULT 0,
+                hidden_when_locked INTEGER NOT NULL DEFAULT 0,
+                encrypted_hint TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS security_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS smart_folders (
@@ -1680,6 +1773,18 @@ impl CabinetCore {
             tag_count: self.scalar("SELECT COUNT(*) FROM cabinet_tags")?,
             preview_count: self.scalar("SELECT COUNT(*) FROM cabinet_previews")?,
             exported_at: now_string(),
+        })
+    }
+
+    fn security_summary(&self) -> CabinetResult<SecuritySummary> {
+        let pin_count =
+            self.scalar("SELECT COUNT(*) FROM security_settings WHERE key = 'pin_hash'")?;
+        Ok(SecuritySummary {
+            pin_enabled: pin_count > 0,
+            protected_item_count: self
+                .scalar("SELECT COUNT(*) FROM cabinet_item_security WHERE is_protected = 1")?,
+            protected_memo_count: self
+                .scalar("SELECT COUNT(*) FROM cabinet_memos WHERE is_protected = 1")?,
         })
     }
 

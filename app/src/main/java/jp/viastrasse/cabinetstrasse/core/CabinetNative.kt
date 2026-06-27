@@ -53,6 +53,12 @@ object CabinetNative {
 
     external fun addMemoJson(databasePath: String, itemId: String, body: String, isProtected: Boolean): String
 
+    external fun setSecurityPinJson(databasePath: String, pin: String): String
+
+    external fun verifySecurityPinJson(databasePath: String, pin: String): String
+
+    external fun setItemProtectedJson(databasePath: String, itemId: String, isProtected: Boolean): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,

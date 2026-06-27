@@ -72,6 +72,7 @@ object CabinetJsonParser {
         return SettingsSnapshot(
             providers = root.optJSONArray("providers").toProviders(),
             backup = root.getJSONObject("backup").toBackup(),
+            security = root.getJSONObject("security").toSecurity(),
         )
     }
 
@@ -237,6 +238,14 @@ object CabinetJsonParser {
             tagCount = optLong("tag_count"),
             previewCount = optLong("preview_count"),
             exportedAt = optString("exported_at"),
+        )
+    }
+
+    private fun JSONObject.toSecurity(): SecuritySummary {
+        return SecuritySummary(
+            pinEnabled = optBoolean("pin_enabled"),
+            protectedItemCount = optLong("protected_item_count"),
+            protectedMemoCount = optLong("protected_memo_count"),
         )
     }
 

@@ -135,6 +135,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddTaskReference: () -> Unit,
         onAddAtelierReference: () -> Unit,
         onAddProtectedMemo: () -> Unit,
+        onProtectItem: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← 戻る", onBack))
@@ -178,6 +179,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("Mail参照を追加", onAddMailReference))
         content.addView(command("Task参照を追加", onAddTaskReference))
         content.addView(command("Atelier参照を追加", onAddAtelierReference))
+        content.addView(command("保護領域へ追加", onProtectItem))
         content.addView(command("保護メモを追加", onAddProtectedMemo))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
@@ -220,6 +222,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onBack: () -> Unit,
         onExportBackup: () -> Unit,
         onImportBackup: () -> Unit,
+        onSetPin: () -> Unit,
+        onVerifyPin: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -235,6 +239,14 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         })
         content.addView(command("バックアップを書き出す", onExportBackup))
         content.addView(command("バックアップを復元", onImportBackup))
+        content.addView(section("Security"))
+        content.addView(panel {
+            addView(label("PIN: ${if (settings.security.pinEnabled) "有効" else "未設定"}", 14, true))
+            addView(label("Protected items: ${settings.security.protectedItemCount}", 13, false, CabinetColors.TextSecondary))
+            addView(label("Protected memos: ${settings.security.protectedMemoCount}", 13, false, CabinetColors.TextSecondary))
+        })
+        content.addView(command("PINを設定", onSetPin))
+        content.addView(command("PINを確認", onVerifyPin))
         content.addView(section("Duplicate"))
         if (duplicateReport.groups.isEmpty()) {
             content.addView(label("完全一致の重複候補はありません", 13, false, CabinetColors.TextSecondary))

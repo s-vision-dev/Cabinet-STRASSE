@@ -116,6 +116,20 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.addMemoJson(databasePath, itemId, body, isProtected))
     }
 
+    fun setSecurityPin(pin: String): SettingsSnapshot {
+        return CabinetJsonParser.settings(CabinetNative.setSecurityPinJson(databasePath, pin))
+    }
+
+    fun verifySecurityPin(pin: String): Boolean {
+        val result = JSONObject(CabinetNative.verifySecurityPinJson(databasePath, pin))
+        result.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return result.optBoolean("verified")
+    }
+
+    fun setItemProtected(itemId: String, isProtected: Boolean): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.setItemProtectedJson(databasePath, itemId, isProtected))
+    }
+
     fun createZipFromItem(detail: CabinetItemDetail): CabinetItemSummary {
         val source = File(detail.path)
         require(source.exists()) { "Source file does not exist." }

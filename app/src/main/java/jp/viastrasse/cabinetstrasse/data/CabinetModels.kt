@@ -103,6 +103,7 @@ data class PreviewProcessReport(
 data class SettingsSnapshot(
     val providers: List<StorageProviderAccountSummary>,
     val backup: BackupSummary,
+    val security: SecuritySummary,
 )
 
 data class StorageProviderAccountSummary(
@@ -121,6 +122,12 @@ data class BackupSummary(
     val tagCount: Long,
     val previewCount: Long,
     val exportedAt: String,
+)
+
+data class SecuritySummary(
+    val pinEnabled: Boolean,
+    val protectedItemCount: Long,
+    val protectedMemoCount: Long,
 )
 
 data class DuplicateReport(

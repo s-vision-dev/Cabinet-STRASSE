@@ -1,9 +1,12 @@
 package jp.viastrasse.cabinetstrasse
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.InputType
+import android.widget.EditText
 import android.widget.Toast
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
@@ -168,6 +171,9 @@ class MainActivity : Activity() {
                 onAddProtectedMemo = {
                     addProtectedMemo(itemId)
                 },
+                onProtectItem = {
+                    protectItem(itemId)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -226,6 +232,9 @@ class MainActivity : Activity() {
                 },
                 onAddProtectedMemo = {
                     addProtectedMemo(itemId)
+                },
+                onProtectItem = {
+                    protectItem(itemId)
                 },
             )
         }.onFailure { error ->
@@ -365,6 +374,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun protectItem(itemId: String) {
+        runCatching {
+            repository.setItemProtected(itemId, true)
+        }.onSuccess {
+            Toast.makeText(this, "保護領域へ追加しました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "保護領域へ追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun openFolderPicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -454,6 +474,8 @@ class MainActivity : Activity() {
                 onBack = ::renderDashboard,
                 onExportBackup = ::exportBackup,
                 onImportBackup = ::openBackupPicker,
+                onSetPin = ::showSetPinDialog,
+                onVerifyPin = ::showVerifyPinDialog,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -469,6 +491,49 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "バックアップに失敗しました", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showSetPinDialog() {
+        showPinDialog(
+            title = "PINを設定",
+            positiveLabel = "設定",
+        ) { pin ->
+            runCatching {
+                repository.setSecurityPin(pin)
+            }.onSuccess {
+                Toast.makeText(this, "PINを設定しました", Toast.LENGTH_SHORT).show()
+                openSettings()
+            }.onFailure { error ->
+                Toast.makeText(this, error.message ?: "PINを設定できませんでした", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showVerifyPinDialog() {
+        showPinDialog(
+            title = "PINを確認",
+            positiveLabel = "確認",
+        ) { pin ->
+            runCatching {
+                repository.verifySecurityPin(pin)
+            }.onSuccess { verified ->
+                Toast.makeText(this, if (verified) "PINは一致しました" else "PINが一致しません", Toast.LENGTH_SHORT).show()
+            }.onFailure { error ->
+                Toast.makeText(this, error.message ?: "PINを確認できませんでした", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showPinDialog(title: String, positiveLabel: String, onPin: (String) -> Unit) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton(positiveLabel) { _, _ -> onPin(input.text.toString()) }
+            .setNegativeButton("キャンセル", null)
+            .show()
     }
 
     private fun openBackupPicker() {
