@@ -50,6 +50,7 @@ object CabinetJsonParser {
             path = root.optString("path"),
             hash = root.optString("hash"),
             note = root.optString("note"),
+            isProtected = root.optBoolean("is_protected"),
             remote = root.optJSONObject("remote")?.toRemoteReference(),
             tags = root.optJSONArray("tags").toTags(),
             collections = root.optJSONArray("collections").toCollections(),

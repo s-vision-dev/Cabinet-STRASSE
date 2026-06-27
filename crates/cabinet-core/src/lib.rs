@@ -286,6 +286,7 @@ pub struct CabinetItemDetail {
     pub path: String,
     pub hash: String,
     pub note: String,
+    pub is_protected: bool,
     pub remote: Option<RemoteFileReferenceSummary>,
     pub tags: Vec<TagSummary>,
     pub collections: Vec<CabinetCollectionSummary>,
@@ -637,6 +638,7 @@ impl CabinetCore {
             path,
             hash,
             note,
+            is_protected: self.item_is_protected(item_id)?,
             remote: self.remote_reference_for_item(item_id)?,
             tags: self.tags_for_item(item_id)?,
             collections: self.collections_for_item(item_id)?,
@@ -2703,6 +2705,18 @@ impl CabinetCore {
         Ok(())
     }
 
+    fn item_is_protected(&self, item_id: &str) -> CabinetResult<bool> {
+        let value: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT is_protected FROM cabinet_item_security WHERE item_id = ?1",
+                params![item_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value.unwrap_or(0) != 0)
+    }
+
     fn file_paths_for_item(&self, item_id: &str) -> CabinetResult<Vec<String>> {
         let mut paths = Vec::new();
         if let Some(path) = self
@@ -3428,6 +3442,20 @@ mod tests {
             .expect("unlocked detail");
         assert!(unlocked.contains("Secret memo body"));
         assert!(core.item_detail_unlocked_json(&first_item, "9999").is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn exposes_item_protection_in_detail() {
+        let path = test_db_path("protected-item");
+        let core = CabinetCore::open(&path).expect("open database");
+        let first_item = core.dashboard().expect("dashboard").recent_items[0]
+            .id
+            .clone();
+        let detail = core
+            .set_item_protected_json(&first_item, true)
+            .expect("protect item");
+        assert!(detail.contains("\"is_protected\":true"));
         let _ = fs::remove_file(path);
     }
 

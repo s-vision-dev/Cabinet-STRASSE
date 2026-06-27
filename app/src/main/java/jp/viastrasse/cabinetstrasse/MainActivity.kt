@@ -403,10 +403,10 @@ class MainActivity : Activity() {
                     moveToTrash(itemId)
                 },
                 onOpen = {
-                    openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
+                    openProtectedAwareItem(itemId, detail)
                 },
                 onShare = {
-                    shareItem(detail)
+                    shareProtectedAwareItem(detail)
                 },
                 onDuplicate = {
                     duplicateItem(itemId)
@@ -506,10 +506,10 @@ class MainActivity : Activity() {
                     moveToTrash(itemId)
                 },
                 onOpen = {
-                    openRegisteredItem(itemId, it.path, it.item.mimeType, it.item.title)
+                    openProtectedAwareItem(itemId, it)
                 },
                 onShare = {
-                    shareItem(it)
+                    shareProtectedAwareItem(it)
                 },
                 onDuplicate = {
                     duplicateItem(itemId)
@@ -749,6 +749,47 @@ class MainActivity : Activity() {
         openViewer(path, mimeType, title)
     }
 
+    private fun openProtectedAwareItem(
+        itemId: String,
+        detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail,
+    ) {
+        runAfterProtectionCheck(detail) {
+            openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
+        }
+    }
+
+    private fun shareProtectedAwareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+        runAfterProtectionCheck(detail) {
+            shareItem(detail)
+        }
+    }
+
+    private fun runAfterProtectionCheck(
+        detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail,
+        action: () -> Unit,
+    ) {
+        if (!detail.isProtected) {
+            action()
+            return
+        }
+        showPinDialog(
+            title = "保護資料のPIN確認",
+            positiveLabel = "確認",
+        ) { pin ->
+            runCatching {
+                repository.verifySecurityPin(pin)
+            }.onSuccess { verified ->
+                if (verified) {
+                    action()
+                } else {
+                    Toast.makeText(this, "PINが一致しません", Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure { error ->
+                Toast.makeText(this, error.message ?: "PINを確認できませんでした", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun shareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
         runCatching {
             if (detail.item.sourceKind == "url" || detail.item.sourceKind == "remote") {
@@ -950,10 +991,10 @@ class MainActivity : Activity() {
                     moveToTrash(itemId)
                 },
                 onOpen = {
-                    openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
+                    openProtectedAwareItem(itemId, detail)
                 },
                 onShare = {
-                    shareItem(detail)
+                    shareProtectedAwareItem(detail)
                 },
                 onDuplicate = {
                     duplicateItem(itemId)

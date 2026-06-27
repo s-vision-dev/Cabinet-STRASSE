@@ -57,6 +57,7 @@ data class CabinetItemDetail(
     val path: String,
     val hash: String,
     val note: String,
+    val isProtected: Boolean,
     val remote: RemoteFileReferenceSummary?,
     val tags: List<TagSummary>,
     val collections: List<CabinetCollectionSummary>,

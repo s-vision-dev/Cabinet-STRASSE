@@ -217,6 +217,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(label(detail.path, 12, false, CabinetColors.TextSecondary))
             addView(label("Hash", 13, true, CabinetColors.Accent))
             addView(label(detail.hash, 11, false, CabinetColors.TextSecondary))
+            addView(label("Security", 13, true, CabinetColors.Accent))
+            addView(label(if (detail.isProtected) "Protected" else "Normal", 12, false, CabinetColors.TextSecondary))
             if (detail.note.isNotBlank()) {
                 addView(label("メモ", 13, true, CabinetColors.Accent))
                 addView(label(detail.note, 13, false, CabinetColors.TextSecondary))
