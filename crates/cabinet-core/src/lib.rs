@@ -1268,6 +1268,43 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn add_ocr_text_json(
+        &self,
+        item_id: &str,
+        body: &str,
+        source: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let normalized = body.trim();
+        if normalized.is_empty() {
+            return Err(CabinetError::Message("OCR text is required.".to_owned()));
+        }
+        let now = now_string();
+        let source_label = {
+            let value = source.trim();
+            if value.is_empty() { "manual" } else { value }
+        };
+        let title = format!("OCR / {source_label}");
+        let summary = text_preview(normalized);
+        self.conn.execute(
+            "INSERT INTO cabinet_previews (
+                id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                page_count, duration, width, height, generated_at, status
+            ) VALUES (?1, ?2, 'ocr', ?3, ?4, NULL, ?5, NULL, NULL, NULL, NULL, ?6, 'ready')",
+            params![new_id(), item_id, title, summary, normalized, now],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.OcrTextAdded",
+            Some(item_id),
+            serde_json::json!({
+                "source": source_label,
+                "text_length": normalized.chars().count(),
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn set_security_pin_json(&self, pin: &str) -> CabinetResult<String> {
         let normalized = pin.trim();
         if normalized.len() < 4 {
@@ -3261,6 +3298,22 @@ mod tests {
             .expect("unlocked detail");
         assert!(unlocked.contains("Secret memo body"));
         assert!(core.item_detail_unlocked_json(&first_item, "9999").is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn adds_ocr_text_to_preview_and_search() {
+        let path = test_db_path("ocr");
+        let core = CabinetCore::open(&path).expect("open database");
+        let first_item = core.dashboard().expect("dashboard").recent_items[0]
+            .id
+            .clone();
+        let detail = core
+            .add_ocr_text_json(&first_item, "Invoice OCR Unique Phrase", "manual-test")
+            .expect("add ocr text");
+        assert!(detail.contains("\"preview_type\":\"ocr\""));
+        let search = core.search("Unique Phrase").expect("search");
+        assert!(search.iter().any(|item| item.id == first_item));
         let _ = fs::remove_file(path);
     }
 

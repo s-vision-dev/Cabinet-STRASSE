@@ -442,6 +442,9 @@ class MainActivity : Activity() {
                 onUnlockProtectedMemos = {
                     showUnlockProtectedMemosDialog(itemId)
                 },
+                onAddOcrText = {
+                    showOcrTextDialog(itemId)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -535,6 +538,9 @@ class MainActivity : Activity() {
                 },
                 onUnlockProtectedMemos = {
                     showUnlockProtectedMemosDialog(itemId)
+                },
+                onAddOcrText = {
+                    showOcrTextDialog(itemId)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -943,6 +949,9 @@ class MainActivity : Activity() {
                 onUnlockProtectedMemos = {
                     showUnlockProtectedMemosDialog(itemId)
                 },
+                onAddOcrText = {
+                    showOcrTextDialog(itemId)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -964,6 +973,12 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showOcrTextDialog(itemId: String) {
+        showTextDialog("OCR本文を追加", "抽出テキスト", "追加", multiline = true) { body ->
+            addOcrText(itemId, body)
+        }
+    }
+
     private fun addMemo(itemId: String, body: String) {
         runCatching {
             repository.addMemo(itemId, body, false)
@@ -971,6 +986,16 @@ class MainActivity : Activity() {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "メモを追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun addOcrText(itemId: String, body: String) {
+        runCatching {
+            repository.addOcrText(itemId, body, "manual")
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "OCR本文を追加できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

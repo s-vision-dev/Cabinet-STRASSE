@@ -201,6 +201,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddMemo: () -> Unit,
         onAddProtectedMemo: () -> Unit,
         onUnlockProtectedMemos: () -> Unit,
+        onAddOcrText: () -> Unit,
         onProtectItem: () -> Unit,
         onRestoreFromTrash: () -> Unit,
         onDeletePermanently: () -> Unit,
@@ -265,6 +266,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("メモを追加", onAddMemo))
         content.addView(command("保護メモを追加", onAddProtectedMemo))
         content.addView(command("PINで保護メモを表示", onUnlockProtectedMemos))
+        content.addView(command("OCR本文を追加", onAddOcrText))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
         content.addView(command("ゴミ箱から復元", onRestoreFromTrash))

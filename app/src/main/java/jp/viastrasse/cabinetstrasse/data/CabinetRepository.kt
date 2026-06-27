@@ -175,6 +175,10 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.addMemoJson(databasePath, itemId, body, isProtected))
     }
 
+    fun addOcrText(itemId: String, body: String, source: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.addOcrTextJson(databasePath, itemId, body, source))
+    }
+
     fun setSecurityPin(pin: String): SettingsSnapshot {
         return CabinetJsonParser.settings(CabinetNative.setSecurityPinJson(databasePath, pin))
     }
