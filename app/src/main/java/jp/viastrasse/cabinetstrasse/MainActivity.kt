@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 
 class MainActivity : Activity() {
@@ -228,6 +229,7 @@ class MainActivity : Activity() {
 
     private fun processPreviewQueue() {
         runCatching {
+            PreviewWorker.enqueue(applicationContext)
             repository.processPreviewQueue()
         }.onSuccess { report ->
             Toast.makeText(

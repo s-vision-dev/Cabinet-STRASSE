@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.widget.Toast
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import java.io.File
 
 class ShareReceiverActivity : Activity() {
@@ -27,6 +28,7 @@ class ShareReceiverActivity : Activity() {
                     note = "Android共有から保存",
                 )
             }.onSuccess {
+                PreviewWorker.enqueue(applicationContext)
                 Toast.makeText(this, "Cabinet Inbox に保存しました", Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Toast.makeText(this, "Cabinet への保存に失敗しました", Toast.LENGTH_SHORT).show()

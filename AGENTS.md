@@ -24,6 +24,12 @@
 - `version.properties` stores the app version name.
 - `build-number.txt` stores the next build number used by the release script.
 
+## Git Commit Messages
+
+- Commit messages must be written in Japanese.
+- Use about three lines of meaningful detail, not only a short title.
+- Mention the implemented feature, the main technical change, and the verification or version/build-number update when relevant.
+
 ## Release Build
 
 - When the user says `リリースビルド`, run `pwsh -ExecutionPolicy Bypass -File scripts/release_build.ps1`.
@@ -41,4 +47,3 @@
 - Use LF line endings throughout this repository.
 - Keep generated build artifacts, logs, and local temporary files out of commits.
 - Do not commit files under `Documents` unless the user explicitly requests it.
-
