@@ -64,6 +64,15 @@ object CabinetJsonParser {
         )
     }
 
+    fun settings(json: String): SettingsSnapshot {
+        val root = JSONObject(json)
+        root.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return SettingsSnapshot(
+            providers = root.optJSONArray("providers").toProviders(),
+            backup = root.getJSONObject("backup").toBackup(),
+        )
+    }
+
     private fun JSONArray?.toItems(): List<CabinetItemSummary> {
         if (this == null) return emptyList()
         return buildList {
@@ -175,5 +184,35 @@ object CabinetJsonParser {
                 )
             }
         }
+    }
+
+    private fun JSONArray?.toProviders(): List<StorageProviderAccountSummary> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    StorageProviderAccountSummary(
+                        id = item.optString("id"),
+                        providerType = item.optString("provider_type"),
+                        displayName = item.optString("display_name"),
+                        accountName = item.optString("account_name"),
+                        authType = item.optString("auth_type"),
+                        connectionStatus = item.optString("connection_status"),
+                        lastConnectedAt = item.optString("last_connected_at"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun JSONObject.toBackup(): BackupSummary {
+        return BackupSummary(
+            itemCount = optLong("item_count"),
+            collectionCount = optLong("collection_count"),
+            tagCount = optLong("tag_count"),
+            previewCount = optLong("preview_count"),
+            exportedAt = optString("exported_at"),
+        )
     }
 }

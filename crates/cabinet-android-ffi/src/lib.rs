@@ -71,6 +71,24 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_proc
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_settingsJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+) -> jstring {
+    run_string(&mut env, database_path, |core| core.settings_json())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_backupExportJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+) -> jstring {
+    run_string(&mut env, database_path, |core| core.backup_export_json())
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,

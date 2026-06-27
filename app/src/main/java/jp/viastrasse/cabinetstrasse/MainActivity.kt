@@ -39,6 +39,10 @@ class MainActivity : Activity() {
             openSearch("")
             return
         }
+        if (mode == "Settings") {
+            openSettings()
+            return
+        }
         runCatching {
             repository.mode(mode)
         }.onSuccess {
@@ -86,6 +90,31 @@ class MainActivity : Activity() {
             ).show()
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "プレビュー処理に失敗しました", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openSettings() {
+        runCatching {
+            repository.settings()
+        }.onSuccess { settings ->
+            dashboardView.renderSettings(
+                settings = settings,
+                onBack = ::renderDashboard,
+                onExportBackup = ::exportBackup,
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun exportBackup() {
+        runCatching {
+            repository.exportBackup()
+        }.onSuccess { file ->
+            Toast.makeText(this, "Backup: ${file.name}", Toast.LENGTH_SHORT).show()
+            openSettings()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "バックアップに失敗しました", Toast.LENGTH_SHORT).show()
         }
     }
 }

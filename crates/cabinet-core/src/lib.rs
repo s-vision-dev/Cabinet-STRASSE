@@ -145,6 +145,32 @@ pub struct PreviewProcessReport {
     pub remaining: i64,
 }
 
+#[derive(Serialize)]
+pub struct SettingsSnapshot {
+    pub providers: Vec<StorageProviderAccountSummary>,
+    pub backup: BackupSummary,
+}
+
+#[derive(Serialize)]
+pub struct StorageProviderAccountSummary {
+    pub id: String,
+    pub provider_type: String,
+    pub display_name: String,
+    pub account_name: String,
+    pub auth_type: String,
+    pub connection_status: String,
+    pub last_connected_at: String,
+}
+
+#[derive(Serialize)]
+pub struct BackupSummary {
+    pub item_count: i64,
+    pub collection_count: i64,
+    pub tag_count: i64,
+    pub preview_count: i64,
+    pub exported_at: String,
+}
+
 pub struct CabinetCore {
     conn: Connection,
 }
@@ -318,6 +344,28 @@ impl CabinetCore {
         })?)
     }
 
+    pub fn settings_json(&self) -> CabinetResult<String> {
+        let snapshot = SettingsSnapshot {
+            providers: self.storage_provider_accounts()?,
+            backup: self.backup_summary()?,
+        };
+        Ok(serde_json::to_string(&snapshot)?)
+    }
+
+    pub fn backup_export_json(&self) -> CabinetResult<String> {
+        let value = serde_json::json!({
+            "app": "Cabinet-STRASSE",
+            "schema_version": SCHEMA_VERSION,
+            "exported_at": now_string(),
+            "summary": self.backup_summary()?,
+            "items": self.search("")?,
+            "collections": self.collections()?,
+            "smart_folders": self.smart_folders()?,
+            "providers": self.storage_provider_accounts()?,
+        });
+        Ok(serde_json::to_string_pretty(&value)?)
+    }
+
     pub fn register_url_json(&self, url: &str, title: &str, note: &str) -> CabinetResult<String> {
         let now = now_string();
         let id = new_id();
@@ -450,6 +498,18 @@ impl CabinetCore {
                 is_cached INTEGER NOT NULL DEFAULT 0,
                 cached_file_path TEXT,
                 last_synced_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS storage_provider_accounts (
+                id TEXT PRIMARY KEY,
+                provider_type TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                account_name TEXT NOT NULL DEFAULT '',
+                auth_type TEXT NOT NULL DEFAULT 'none',
+                connection_status TEXT NOT NULL DEFAULT 'not_configured',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_connected_at TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS cabinet_documents (
@@ -619,6 +679,9 @@ impl CabinetCore {
     }
 
     fn seed_reference_data(&self) -> CabinetResult<()> {
+        let now = now_string();
+        self.ensure_storage_providers(&now)?;
+
         let count: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM cabinet_items", [], |row| row.get(0))?;
@@ -626,7 +689,6 @@ impl CabinetCore {
             return Ok(());
         }
 
-        let now = now_string();
         let samples = [
             (
                 "Cabinet-STRASSE 理想形設計書",
@@ -727,6 +789,34 @@ impl CabinetCore {
             self.conn.execute(
                 "INSERT OR IGNORE INTO smart_folders(id, title, condition_sql, display_condition, created_at) VALUES (?1, ?2, ?3, ?3, ?4)",
                 params![id, title, sql, now],
+            )?;
+        }
+
+        self.ensure_storage_providers(&now)?;
+
+        Ok(())
+    }
+
+    fn ensure_storage_providers(&self, now: &str) -> CabinetResult<()> {
+        let providers = [
+            ("local", "Local Storage", "device"),
+            ("usb", "USB Storage", "saf"),
+            ("sdcard", "SD Card", "saf"),
+            ("google_drive", "Google Drive", "oauth2"),
+            ("dropbox", "Dropbox", "oauth2"),
+            ("onedrive", "OneDrive", "oauth2"),
+            ("box", "Box", "oauth2"),
+            ("nextcloud", "Nextcloud", "webdav"),
+            ("smb", "SMB / NAS", "password"),
+            ("webdav", "WebDAV", "password"),
+        ];
+        for (provider_type, display_name, auth_type) in providers {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO storage_provider_accounts(
+                    id, provider_type, display_name, account_name, auth_type,
+                    connection_status, created_at, updated_at, last_connected_at
+                ) VALUES (?1, ?2, ?3, '', ?4, 'not_configured', ?5, ?5, '')",
+                params![provider_type, provider_type, display_name, auth_type, now],
             )?;
         }
 
@@ -909,6 +999,47 @@ impl CabinetCore {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    fn storage_provider_accounts(&self) -> CabinetResult<Vec<StorageProviderAccountSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, provider_type, display_name, account_name, auth_type, connection_status, last_connected_at
+             FROM storage_provider_accounts
+             ORDER BY
+                CASE provider_type
+                    WHEN 'local' THEN 0
+                    WHEN 'usb' THEN 1
+                    WHEN 'sdcard' THEN 2
+                    ELSE 3
+                END,
+                display_name ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(StorageProviderAccountSummary {
+                id: row.get(0)?,
+                provider_type: row.get(1)?,
+                display_name: row.get(2)?,
+                account_name: row.get(3)?,
+                auth_type: row.get(4)?,
+                connection_status: row.get(5)?,
+                last_connected_at: row.get(6)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn backup_summary(&self) -> CabinetResult<BackupSummary> {
+        Ok(BackupSummary {
+            item_count: self.scalar("SELECT COUNT(*) FROM cabinet_items")?,
+            collection_count: self.scalar("SELECT COUNT(*) FROM cabinet_collections")?,
+            tag_count: self.scalar("SELECT COUNT(*) FROM cabinet_tags")?,
+            preview_count: self.scalar("SELECT COUNT(*) FROM cabinet_previews")?,
+            exported_at: now_string(),
+        })
     }
 
     fn item_by_id(&self, id: &str) -> CabinetResult<Option<CabinetItemSummary>> {

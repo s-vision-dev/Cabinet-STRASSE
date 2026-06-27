@@ -15,6 +15,10 @@ object CabinetNative {
 
     external fun processPreviewQueueJson(databasePath: String, limit: Long): String
 
+    external fun settingsJson(databasePath: String): String
+
+    external fun backupExportJson(databasePath: String): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,

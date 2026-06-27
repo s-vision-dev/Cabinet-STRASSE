@@ -14,6 +14,7 @@ import jp.viastrasse.cabinetstrasse.data.CabinetItemDetail
 import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
 import jp.viastrasse.cabinetstrasse.data.ModeResponse
 import jp.viastrasse.cabinetstrasse.data.SearchResponse
+import jp.viastrasse.cabinetstrasse.data.SettingsSnapshot
 import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 
@@ -159,6 +160,30 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     addView(label(reference.uri, 12, false, CabinetColors.TextSecondary))
                 })
             }
+        }
+    }
+
+    fun renderSettings(settings: SettingsSnapshot, onBack: () -> Unit, onExportBackup: () -> Unit) {
+        content.removeAllViews()
+        content.addView(command("← Cabinet", onBack))
+        content.addView(title("Settings"))
+        content.addView(subtitle("Storage Provider / Backup / Security"))
+        content.addView(section("Backup"))
+        content.addView(panel {
+            addView(label("Items: ${settings.backup.itemCount}", 14, true))
+            addView(label("Collections: ${settings.backup.collectionCount}", 13, false, CabinetColors.TextSecondary))
+            addView(label("Tags: ${settings.backup.tagCount}", 13, false, CabinetColors.TextSecondary))
+            addView(label("Previews: ${settings.backup.previewCount}", 13, false, CabinetColors.TextSecondary))
+            addView(label("Last snapshot: ${settings.backup.exportedAt}", 12, false, CabinetColors.TextSecondary))
+        })
+        content.addView(command("バックアップを書き出す", onExportBackup))
+        content.addView(section("Storage Provider"))
+        settings.providers.forEach { provider ->
+            content.addView(panel {
+                addView(label(provider.displayName, 15, true))
+                addView(label("${provider.providerType} / ${provider.authType}", 12, false, CabinetColors.TextSecondary))
+                addView(label(provider.connectionStatus, 12, false, CabinetColors.TextSecondary))
+            })
         }
     }
 

@@ -91,3 +91,26 @@ data class PreviewProcessReport(
     val processed: Long,
     val remaining: Long,
 )
+
+data class SettingsSnapshot(
+    val providers: List<StorageProviderAccountSummary>,
+    val backup: BackupSummary,
+)
+
+data class StorageProviderAccountSummary(
+    val id: String,
+    val providerType: String,
+    val displayName: String,
+    val accountName: String,
+    val authType: String,
+    val connectionStatus: String,
+    val lastConnectedAt: String,
+)
+
+data class BackupSummary(
+    val itemCount: Long,
+    val collectionCount: Long,
+    val tagCount: Long,
+    val previewCount: Long,
+    val exportedAt: String,
+)
