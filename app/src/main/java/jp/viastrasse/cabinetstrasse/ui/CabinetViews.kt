@@ -18,6 +18,7 @@ import jp.viastrasse.cabinetstrasse.data.SearchResponse
 import jp.viastrasse.cabinetstrasse.data.SettingsSnapshot
 import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
+import java.io.File
 
 class CabinetDashboardView(context: Context) : ScrollView(context) {
     private val content = LinearLayout(context).apply {
@@ -90,6 +91,36 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         if (mode.smartFolders.isNotEmpty()) {
             content.addView(section("Smart Folder"))
             mode.smartFolders.forEach { content.addView(smartFolderRow(it)) }
+        }
+    }
+
+    fun renderLocalExplorer(
+        currentDirectory: File,
+        entries: List<LocalFileEntry>,
+        onBack: () -> Unit,
+        onParent: (() -> Unit)?,
+        onOpenDirectory: (File) -> Unit,
+        onOpenFile: (File) -> Unit,
+        onRegisterFile: (File) -> Unit,
+        onCreateFolder: () -> Unit,
+        onDeleteFile: (File) -> Unit,
+    ) {
+        content.removeAllViews()
+        content.addView(command("← Cabinet", onBack))
+        content.addView(title("Explorer"))
+        content.addView(subtitle(currentDirectory.absolutePath))
+        content.addView(command("新規フォルダ作成", onCreateFolder))
+        if (onParent != null) {
+            content.addView(command("親フォルダへ移動", onParent))
+        }
+        if (entries.isEmpty()) {
+            content.addView(section("Files"))
+            content.addView(label("表示できるファイルはありません", 13, false, CabinetColors.TextSecondary))
+            return
+        }
+        content.addView(section("Files"))
+        entries.forEach { entry ->
+            content.addView(fileRow(entry, onOpenDirectory, onOpenFile, onRegisterFile, onDeleteFile))
         }
     }
 
@@ -337,6 +368,31 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun fileRow(
+        entry: LocalFileEntry,
+        onOpenDirectory: (File) -> Unit,
+        onOpenFile: (File) -> Unit,
+        onRegisterFile: (File) -> Unit,
+        onDeleteFile: (File) -> Unit,
+    ): View {
+        return panel {
+            isClickable = true
+            setOnClickListener {
+                if (entry.isDirectory) {
+                    onOpenDirectory(entry.file)
+                } else {
+                    onOpenFile(entry.file)
+                }
+            }
+            addView(label(if (entry.isDirectory) "[DIR] ${entry.name}" else entry.name, 16, true))
+            addView(label("${entry.kind} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary))
+            if (!entry.isDirectory) {
+                addView(command("Cabinetへ登録") { onRegisterFile(entry.file) })
+                addView(command("削除") { onDeleteFile(entry.file) })
+            }
+        }
+    }
+
     private fun panel(block: LinearLayout.() -> Unit): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -404,4 +460,13 @@ data class CabinetMode(
     val name: String,
     val count: Long,
     val description: String,
+)
+
+data class LocalFileEntry(
+    val file: File,
+    val name: String,
+    val isDirectory: Boolean,
+    val kind: String,
+    val sizeLabel: String,
+    val updatedLabel: String,
 )

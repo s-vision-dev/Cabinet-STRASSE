@@ -13,8 +13,13 @@ import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
+import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
 import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
 import java.io.File
+import java.net.URLConnection
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class MainActivity : Activity() {
     private lateinit var repository: CabinetRepository
@@ -114,6 +119,10 @@ class MainActivity : Activity() {
             openSettings()
             return
         }
+        if (mode == "Explorer") {
+            openLocalExplorer(explorerRoots().first())
+            return
+        }
         runCatching {
             repository.mode(mode)
         }.onSuccess {
@@ -121,6 +130,118 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun explorerRoots(): List<File> {
+        return buildList {
+            add(filesDir)
+            getExternalFilesDirs(null).filterNotNull().forEach { add(it) }
+            add(File(filesDir, "inbox").apply { mkdirs() })
+            add(File(filesDir, "archives").apply { mkdirs() })
+            add(File(filesDir, "extracted").apply { mkdirs() })
+        }.distinctBy { it.absolutePath }
+    }
+
+    private fun openLocalExplorer(directory: File) {
+        runCatching {
+            require(directory.exists() && directory.isDirectory) { "フォルダを開けませんでした" }
+            directory.listFiles()
+                ?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
+                ?.map(::toLocalFileEntry)
+                .orEmpty()
+        }.onSuccess { entries ->
+            val rootPaths = explorerRoots().map { it.absolutePath }.toSet()
+            val parent = directory.parentFile?.takeIf { directory.absolutePath !in rootPaths }
+            dashboardView.renderLocalExplorer(
+                currentDirectory = directory,
+                entries = entries,
+                onBack = ::renderDashboard,
+                onParent = parent?.let { { openLocalExplorer(it) } },
+                onOpenDirectory = ::openLocalExplorer,
+                onOpenFile = { file -> openViewer(file.absolutePath, mimeTypeFor(file), file.name) },
+                onRegisterFile = { file -> registerLocalExplorerFile(file, directory) },
+                onCreateFolder = { createExplorerFolder(directory) },
+                onDeleteFile = { file -> deleteExplorerFile(file, directory) },
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "Explorerを開けませんでした", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }
+    }
+
+    private fun toLocalFileEntry(file: File): LocalFileEntry {
+        val updated = Instant.ofEpochMilli(file.lastModified())
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        return LocalFileEntry(
+            file = file,
+            name = file.name.ifBlank { file.absolutePath },
+            isDirectory = file.isDirectory,
+            kind = if (file.isDirectory) "folder" else mimeTypeFor(file),
+            sizeLabel = if (file.isDirectory) "${file.listFiles()?.size ?: 0} items" else readableSize(file.length()),
+            updatedLabel = updated,
+        )
+    }
+
+    private fun registerLocalExplorerFile(file: File, currentDirectory: File) {
+        runCatching {
+            require(file.exists() && file.isFile) { "登録対象ファイルが見つかりません" }
+            repository.registerFile(
+                path = file.absolutePath,
+                displayName = file.name,
+                mimeType = mimeTypeFor(file),
+                size = file.length(),
+                sourceKind = "local-explorer",
+                note = "Explorerから登録",
+            )
+        }.onSuccess { item ->
+            PreviewWorker.enqueue(applicationContext)
+            Toast.makeText(this, "登録しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(currentDirectory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun createExplorerFolder(directory: File) {
+        runCatching {
+            val folder = uniqueDirectory(directory, "New Folder")
+            check(folder.mkdirs()) { "フォルダを作成できませんでした" }
+            folder
+        }.onSuccess {
+            Toast.makeText(this, "フォルダを作成しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(directory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "フォルダを作成できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun deleteExplorerFile(file: File, currentDirectory: File) {
+        runCatching {
+            require(file.exists() && file.isFile) { "削除対象ファイルが見つかりません" }
+            check(file.delete()) { "ファイルを削除できませんでした" }
+        }.onSuccess {
+            Toast.makeText(this, "削除しました: ${file.name}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(currentDirectory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "削除できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun mimeTypeFor(file: File): String {
+        return URLConnection.guessContentTypeFromName(file.name) ?: "application/octet-stream"
+    }
+
+    private fun readableSize(size: Long): String {
+        if (size < 1024L) return "$size B"
+        val units = listOf("KB", "MB", "GB", "TB")
+        var value = size / 1024.0
+        var unitIndex = 0
+        while (value >= 1024.0 && unitIndex < units.lastIndex) {
+            value /= 1024.0
+            unitIndex += 1
+        }
+        return "%.1f %s".format(value, units[unitIndex])
     }
 
     private fun openSearch(query: String) {
@@ -533,6 +654,16 @@ class MainActivity : Activity() {
             } else {
                 File(directory, "$base-$index.$extension")
             }
+            index += 1
+        }
+        return candidate
+    }
+
+    private fun uniqueDirectory(directory: File, displayName: String): File {
+        var candidate = File(directory, displayName)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = File(directory, "$displayName-$index")
             index += 1
         }
         return candidate
