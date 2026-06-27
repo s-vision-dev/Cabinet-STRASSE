@@ -1217,3 +1217,61 @@ fn escape_fts_token(value: &str) -> String {
         .filter(|c| c.is_alphanumeric() || *c == '_' || *c as u32 >= 0x80)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn test_db_path(name: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("cabinet-strasse-{name}-{}.db", Uuid::new_v4()));
+        path
+    }
+
+    #[test]
+    fn seeds_dashboard_and_settings() {
+        let path = test_db_path("dashboard");
+        let core = CabinetCore::open(&path).expect("open database");
+        let dashboard = core.dashboard().expect("dashboard");
+        assert!(dashboard.library_count >= 4);
+        assert!(dashboard.collection_count >= 1);
+        let settings = core.settings_json().expect("settings json");
+        assert!(settings.contains("Google Drive"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn registers_url_and_searches_fts() {
+        let path = test_db_path("url");
+        let core = CabinetCore::open(&path).expect("open database");
+        let item_json = core
+            .register_url_json(
+                "https://example.com/cabinet",
+                "Example Cabinet",
+                "Searchable memo",
+            )
+            .expect("register url");
+        assert!(item_json.contains("Example Cabinet"));
+        let search = core.search("Searchable").expect("search");
+        assert!(search.iter().any(|item| item.title == "Example Cabinet"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn updates_flags_and_exports_backup() {
+        let path = test_db_path("flags");
+        let core = CabinetCore::open(&path).expect("open database");
+        let first_item = core.dashboard().expect("dashboard").recent_items[0]
+            .id
+            .clone();
+        let detail_json = core
+            .update_item_flags_json(&first_item, true, false)
+            .expect("update flags");
+        assert!(detail_json.contains("\"is_favorite\":true"));
+        assert!(detail_json.contains("\"is_unsorted\":false"));
+        let backup = core.backup_export_json().expect("backup");
+        assert!(backup.contains("Cabinet-STRASSE"));
+        let _ = fs::remove_file(path);
+    }
+}
