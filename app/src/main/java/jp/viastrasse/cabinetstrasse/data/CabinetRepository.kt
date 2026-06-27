@@ -102,6 +102,23 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.renameItemJson(databasePath, itemId, newDisplayName))
     }
 
+    fun addVersion(
+        itemId: String,
+        path: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        note: String,
+    ): CabinetItemDetail {
+        return CabinetJsonParser.detail(
+            CabinetNative.addVersionJson(databasePath, itemId, path, displayName, mimeType, size, note),
+        )
+    }
+
+    fun setCurrentVersion(itemId: String, versionId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.setCurrentVersionJson(databasePath, itemId, versionId))
+    }
+
     fun addReference(
         itemId: String,
         referenceType: String,

@@ -881,6 +881,7 @@ impl CabinetCore {
             "UPDATE cabinet_documents SET current_version_id = ?1, updated_at = ?2 WHERE id = ?3",
             params![version_id, now, document_id],
         )?;
+        self.apply_version_to_item(item_id, &version_id, &now)?;
         self.log_event(
             "Cabinet.VersionAdded",
             Some(item_id),
@@ -888,6 +889,44 @@ impl CabinetCore {
                 "document_id": document_id,
                 "version_id": version_id,
                 "version_number": next_version,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn set_current_version_json(
+        &self,
+        item_id: &str,
+        version_id: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        let item_document_id: Option<String> = self.conn.query_row(
+            "SELECT document_id FROM cabinet_items WHERE id = ?1",
+            params![item_id],
+            |row| row.get(0),
+        )?;
+        let item_document_id = item_document_id.ok_or_else(|| {
+            CabinetError::Message("This item is not attached to a Cabinet Document.".to_owned())
+        })?;
+        let version_document_id: String = self.conn.query_row(
+            "SELECT document_id FROM cabinet_versions WHERE id = ?1",
+            params![version_id],
+            |row| row.get(0),
+        )?;
+        if item_document_id != version_document_id {
+            return Err(CabinetError::Message(
+                "Version does not belong to this Cabinet item.".to_owned(),
+            ));
+        }
+        self.apply_version_to_item(item_id, version_id, &now)?;
+        self.log_event(
+            "Cabinet.VersionUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "document_id": item_document_id,
+                "version_id": version_id,
+                "is_current": true,
             }),
         )?;
         self.item_detail_json(item_id)
@@ -1866,6 +1905,54 @@ impl CabinetCore {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    fn apply_version_to_item(
+        &self,
+        item_id: &str,
+        version_id: &str,
+        now: &str,
+    ) -> CabinetResult<()> {
+        let (document_id, file_id, display_name, mime_type, size, hash): (
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+        ) = self.conn.query_row(
+            "SELECT v.document_id, v.file_id, v.display_name, f.mime_type, f.size, f.hash
+             FROM cabinet_versions v
+             JOIN cabinet_files f ON f.id = v.file_id
+             WHERE v.id = ?1",
+            params![version_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_versions SET is_current = CASE WHEN id = ?1 THEN 1 ELSE 0 END WHERE document_id = ?2",
+            params![version_id, document_id],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_documents SET current_version_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![version_id, now, document_id],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_items
+             SET file_id = ?1, title = ?2, display_name = ?2, mime_type = ?3, size = ?4, hash = ?5, updated_at = ?6
+             WHERE id = ?7",
+            params![file_id, display_name, mime_type, size, hash, now, item_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        Ok(())
     }
 
     fn storage_provider_accounts(&self) -> CabinetResult<Vec<StorageProviderAccountSummary>> {

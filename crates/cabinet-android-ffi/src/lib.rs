@@ -274,6 +274,71 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_rena
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addVersionJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    path: JString,
+    display_name: JString,
+    mime_type: JString,
+    size: i64,
+    note: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let path_value = match jstring_value(&mut env, &path) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let display_name_value = match jstring_value(&mut env, &display_name) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let mime_type_value = match jstring_value(&mut env, &mime_type) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let note_value = match jstring_value(&mut env, &note) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.add_version_json(
+            &item_id_value,
+            &path_value,
+            &display_name_value,
+            &mime_type_value,
+            size,
+            &note_value,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setCurrentVersionJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    version_id: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let version_id_value = match jstring_value(&mut env, &version_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.set_current_version_json(&item_id_value, &version_id_value)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addReferenceJson(
     mut env: JNIEnv,
     _class: JClass,

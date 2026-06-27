@@ -161,6 +161,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onShare: () -> Unit,
         onDuplicate: () -> Unit,
         onRename: () -> Unit,
+        onAddVersion: () -> Unit,
+        onSetCurrentVersion: (String) -> Unit,
         onCreateZip: () -> Unit,
         onExtractZip: () -> Unit,
         onAddMailReference: () -> Unit,
@@ -189,6 +191,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("共有", onShare))
         content.addView(command("複製", onDuplicate))
         content.addView(command("名前変更", onRename))
+        content.addView(command("バージョンを追加", onAddVersion))
         content.addView(command("ZIPを作成", onCreateZip))
         if (detail.item.mimeType == "application/zip" || detail.item.displayName.endsWith(".zip")) {
             content.addView(command("ZIPを解凍", onExtractZip))
@@ -236,6 +239,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     addView(label("v${version.versionNumber} ${version.displayName}", 14, true))
                     addView(label(if (version.isCurrent) "Current" else "Old", 12, false, CabinetColors.TextSecondary))
                     if (version.note.isNotBlank()) addView(label(version.note, 12, false, CabinetColors.TextSecondary))
+                    if (!version.isCurrent) {
+                        addView(command("最新版に設定") { onSetCurrentVersion(version.id) })
+                    }
                 })
             }
         }

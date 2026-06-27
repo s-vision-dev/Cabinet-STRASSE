@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter
 class MainActivity : Activity() {
     private lateinit var repository: CabinetRepository
     private lateinit var dashboardView: CabinetDashboardView
+    private var pendingVersionItemId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,6 +108,11 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_OPEN_BACKUP && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             importBackup(uri)
+            return
+        }
+        if (requestCode == REQUEST_ADD_VERSION && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            importVersionFile(uri)
         }
     }
 
@@ -300,6 +306,12 @@ class MainActivity : Activity() {
                 onRename = {
                     renameItem(itemId, renamedName(detail.item.displayName))
                 },
+                onAddVersion = {
+                    openVersionFilePicker(itemId)
+                },
+                onSetCurrentVersion = { versionId ->
+                    setCurrentVersion(itemId, versionId)
+                },
                 onCreateZip = {
                     createZip(detail)
                 },
@@ -370,6 +382,12 @@ class MainActivity : Activity() {
                 },
                 onRename = {
                     renameItem(itemId, renamedName(it.item.displayName))
+                },
+                onAddVersion = {
+                    openVersionFilePicker(itemId)
+                },
+                onSetCurrentVersion = { versionId ->
+                    setCurrentVersion(itemId, versionId)
                 },
                 onCreateZip = {
                     createZip(it)
@@ -475,6 +493,59 @@ class MainActivity : Activity() {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "名前変更できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openVersionFilePicker(itemId: String) {
+        pendingVersionItemId = itemId
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivityForResult(intent, REQUEST_ADD_VERSION)
+    }
+
+    private fun importVersionFile(uri: Uri) {
+        val itemId = pendingVersionItemId.also { pendingVersionItemId = null }
+        if (itemId.isNullOrBlank()) {
+            Toast.makeText(this, "バージョン追加先が見つかりません", Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            val displayName = sanitizeFileName(displayNameForUri(uri))
+            val versionsDir = File(filesDir, "versions").apply { mkdirs() }
+            val destination = uniqueDestination(versionsDir, displayName)
+            contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "ファイルを開けませんでした" }
+                destination.outputStream().use { output -> input.copyTo(output) }
+            }
+            repository.addVersion(
+                itemId = itemId,
+                path = destination.absolutePath,
+                displayName = destination.name,
+                mimeType = contentResolver.getType(uri) ?: mimeTypeFor(destination),
+                size = destination.length(),
+                note = "詳細画面から追加",
+            )
+        }.onSuccess {
+            PreviewWorker.enqueue(applicationContext)
+            Toast.makeText(this, "新しいバージョンを追加しました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "バージョンを追加できませんでした", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }
+    }
+
+    private fun setCurrentVersion(itemId: String, versionId: String) {
+        runCatching {
+            repository.setCurrentVersion(itemId, versionId)
+        }.onSuccess {
+            Toast.makeText(this, "最新版を切り替えました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "最新版を切り替えられませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -673,6 +744,17 @@ class MainActivity : Activity() {
         return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "document" }
     }
 
+    private fun displayNameForUri(uri: Uri): String {
+        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) return cursor.getString(index)
+                }
+            }
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "version-file"
+    }
+
     private fun processPreviewQueue() {
         runCatching {
             PreviewWorker.enqueue(applicationContext)
@@ -786,5 +868,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_OPEN_TREE = 2401
         private const val REQUEST_OPEN_BACKUP = 2402
+        private const val REQUEST_ADD_VERSION = 2403
     }
 }
