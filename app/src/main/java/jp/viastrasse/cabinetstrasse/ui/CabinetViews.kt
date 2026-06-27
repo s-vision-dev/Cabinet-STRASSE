@@ -195,6 +195,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddMailReference: () -> Unit,
         onAddTaskReference: () -> Unit,
         onAddAtelierReference: () -> Unit,
+        onOpenReference: (String) -> Unit,
         onAddMemo: () -> Unit,
         onAddProtectedMemo: () -> Unit,
         onProtectItem: () -> Unit,
@@ -295,6 +296,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     addView(label("${reference.referenceType} / ${reference.sourceApp}", 14, true))
                     addView(label(reference.title, 13, false, CabinetColors.TextSecondary))
                     addView(label(reference.uri, 12, false, CabinetColors.TextSecondary))
+                    addView(command("参照を開く") { onOpenReference(reference.uri) })
                 })
             }
         }

@@ -385,6 +385,7 @@ class MainActivity : Activity() {
                 onAddAtelierReference = {
                     showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
                 },
+                onOpenReference = ::openReferenceUri,
                 onAddMemo = {
                     showMemoDialog(itemId)
                 },
@@ -475,6 +476,7 @@ class MainActivity : Activity() {
                 onAddAtelierReference = {
                     showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
                 },
+                onOpenReference = ::openReferenceUri,
                 onAddMemo = {
                     showMemoDialog(itemId)
                 },
@@ -740,6 +742,14 @@ class MainActivity : Activity() {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "参照を追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openReferenceUri(uri: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "参照を開けませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
