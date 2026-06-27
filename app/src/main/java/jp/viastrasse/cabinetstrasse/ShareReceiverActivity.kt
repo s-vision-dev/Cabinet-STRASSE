@@ -1,32 +1,76 @@
 package jp.viastrasse.cabinetstrasse
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.text.InputType
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
+import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
+import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 import java.io.File
 
 class ShareReceiverActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleShare(intent)
-        finish()
+        showShareOptions(intent)
     }
 
-    private fun handleShare(intent: Intent) {
+    private fun showShareOptions(intent: Intent) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 0)
+        }
+        val tagInput = darkInput("タグ").apply {
+            setText(intent.getStringExtra(EXTRA_TAG).orEmpty())
+        }
+        val collectionInput = darkInput("Collection").apply {
+            setText(intent.getStringExtra(EXTRA_COLLECTION).orEmpty())
+        }
+        val memoInput = darkInput("メモ").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 3
+            setText(intent.getStringExtra(EXTRA_NOTE).orEmpty())
+        }
+        container.addView(tagInput)
+        container.addView(collectionInput)
+        container.addView(memoInput)
+        AlertDialog.Builder(this)
+            .setTitle("Cabinet Inboxへ保存")
+            .setView(container)
+            .setPositiveButton("保存") { _, _ ->
+                handleShare(
+                    intent,
+                    ShareOptions(
+                        tag = tagInput.text.toString().trim(),
+                        collection = collectionInput.text.toString().trim(),
+                        memo = memoInput.text.toString().trim(),
+                    ),
+                )
+                finish()
+            }
+            .setNegativeButton("キャンセル") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
+    }
+
+    private fun handleShare(intent: Intent, options: ShareOptions) {
         val repository = CabinetRepository(applicationContext)
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
         if (sharedText.startsWith("http://") || sharedText.startsWith("https://")) {
             runCatching {
-                repository.registerUrl(
+                val item = repository.registerUrl(
                     url = sharedText,
                     title = intent.getStringExtra(Intent.EXTRA_TITLE)?.ifBlank { null } ?: sharedText,
-                    note = "Android共有から保存",
+                    note = options.memo.ifBlank { "Android共有から保存" },
                 )
+                applyOptions(repository, item, options)
             }.onSuccess {
                 PreviewWorker.enqueue(applicationContext)
                 Toast.makeText(this, "Cabinet Inbox に保存しました", Toast.LENGTH_SHORT).show()
@@ -34,9 +78,9 @@ class ShareReceiverActivity : Activity() {
                 Toast.makeText(this, "Cabinet への保存に失敗しました", Toast.LENGTH_SHORT).show()
             }
         } else {
-            val imported = importSharedFiles(intent, repository)
-            val message = if (imported > 0) {
-                "${imported}件を Cabinet Inbox に保存しました"
+            val imported = importSharedFiles(intent, repository, options)
+            val message = if (imported.isNotEmpty()) {
+                "${imported.size}件を Cabinet Inbox に保存しました"
             } else {
                 "共有内容を保存できませんでした"
             }
@@ -44,7 +88,11 @@ class ShareReceiverActivity : Activity() {
         }
     }
 
-    private fun importSharedFiles(intent: Intent, repository: CabinetRepository): Int {
+    private fun importSharedFiles(
+        intent: Intent,
+        repository: CabinetRepository,
+        options: ShareOptions,
+    ): List<CabinetItemSummary> {
         val uris = when (intent.action) {
             Intent.ACTION_SEND_MULTIPLE -> {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
@@ -53,7 +101,7 @@ class ShareReceiverActivity : Activity() {
                 listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
             }
         }
-        var imported = 0
+        val imported = mutableListOf<CabinetItemSummary>()
         uris.forEach { uri ->
             runCatching {
                 val info = queryOpenable(uri)
@@ -63,19 +111,43 @@ class ShareReceiverActivity : Activity() {
                     requireNotNull(input) { "Input stream is null." }
                     destination.outputStream().use { output -> input.copyTo(output) }
                 }
-                repository.registerFile(
+                val item = repository.registerFile(
                     path = destination.absolutePath,
                     displayName = info.displayName,
                     mimeType = info.mimeType,
                     size = destination.length(),
                     sourceKind = "android-share",
-                    note = "Android共有からInboxへ保存",
+                    note = options.memo.ifBlank { "Android共有からInboxへ保存" },
                 )
+                applyOptions(repository, item, options)
+                item
             }.onSuccess {
-                imported += 1
+                imported += it
             }
         }
         return imported
+    }
+
+    private fun applyOptions(repository: CabinetRepository, item: CabinetItemSummary, options: ShareOptions) {
+        if (options.tag.isNotBlank()) {
+            repository.addTag(item.id, options.tag)
+        }
+        if (options.collection.isNotBlank()) {
+            repository.addToCollection(item.id, options.collection)
+        }
+        if (options.memo.isNotBlank()) {
+            repository.addMemo(item.id, options.memo, false)
+        }
+    }
+
+    private fun darkInput(hintText: String): EditText {
+        return EditText(this).apply {
+            hint = hintText
+            setTextColor(CabinetColors.TextPrimary)
+            setHintTextColor(CabinetColors.TextSecondary)
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            setPadding(24, 18, 24, 18)
+        }
     }
 
     private fun queryOpenable(uri: Uri): SharedFileInfo {
@@ -119,4 +191,16 @@ class ShareReceiverActivity : Activity() {
         val mimeType: String,
         val size: Long,
     )
+
+    private data class ShareOptions(
+        val tag: String,
+        val collection: String,
+        val memo: String,
+    )
+
+    companion object {
+        private const val EXTRA_TAG = "jp.viastrasse.cabinetstrasse.extra.TAG"
+        private const val EXTRA_COLLECTION = "jp.viastrasse.cabinetstrasse.extra.COLLECTION"
+        private const val EXTRA_NOTE = "jp.viastrasse.cabinetstrasse.extra.NOTE"
+    }
 }
