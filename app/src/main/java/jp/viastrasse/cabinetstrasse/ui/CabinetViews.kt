@@ -278,6 +278,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         duplicateReport: DuplicateReport,
         onBack: () -> Unit,
         onExportBackup: () -> Unit,
+        onRunBackupNow: () -> Unit,
         onImportBackup: () -> Unit,
         onSetPin: () -> Unit,
         onVerifyPin: () -> Unit,
@@ -293,8 +294,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(label("Tags: ${settings.backup.tagCount}", 13, false, CabinetColors.TextSecondary))
             addView(label("Previews: ${settings.backup.previewCount}", 13, false, CabinetColors.TextSecondary))
             addView(label("Last snapshot: ${settings.backup.exportedAt}", 12, false, CabinetColors.TextSecondary))
+            addView(label("Generations: keep latest 10 / periodic every 12 hours", 12, false, CabinetColors.TextSecondary))
         })
         content.addView(command("バックアップを書き出す", onExportBackup))
+        content.addView(command("定期バックアップを今すぐ実行", onRunBackupNow))
         content.addView(command("バックアップを復元", onImportBackup))
         content.addView(section("Security"))
         content.addView(panel {

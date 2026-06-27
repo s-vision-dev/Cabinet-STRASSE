@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
+import jp.viastrasse.cabinetstrasse.backup.BackupWorker
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
@@ -32,6 +33,7 @@ class MainActivity : Activity() {
         dashboardView = CabinetDashboardView(this)
         setContentView(dashboardView)
         FolderWatchWorker.enqueuePeriodic(applicationContext)
+        BackupWorker.enqueuePeriodic(applicationContext)
         handleDeepLink(intent)
     }
 
@@ -898,6 +900,7 @@ class MainActivity : Activity() {
                 duplicateReport = duplicateReport,
                 onBack = ::renderDashboard,
                 onExportBackup = ::exportBackup,
+                onRunBackupNow = ::runBackupNow,
                 onImportBackup = ::openBackupPicker,
                 onSetPin = ::showSetPinDialog,
                 onVerifyPin = ::showVerifyPinDialog,
@@ -916,6 +919,12 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "バックアップに失敗しました", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun runBackupNow() {
+        BackupWorker.enqueueNow(applicationContext)
+        Toast.makeText(this, "定期バックアップを実行キューへ追加しました", Toast.LENGTH_SHORT).show()
+        openSettings()
     }
 
     private fun showSetPinDialog() {

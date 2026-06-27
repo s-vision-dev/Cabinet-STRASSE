@@ -53,6 +53,7 @@ class CabinetRepository(context: Context) {
         val timestamp = OffsetDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
         val file = File(backupDir, "cabinet-strasse-backup-$timestamp.json")
         file.writeText(json, Charsets.UTF_8)
+        pruneBackups(maxGenerations = 10)
         return file
     }
 
@@ -258,6 +259,13 @@ class CabinetRepository(context: Context) {
             index += 1
         }
         return candidate
+    }
+
+    private fun pruneBackups(maxGenerations: Int) {
+        backupDir.listFiles { file -> file.isFile && file.name.startsWith("cabinet-strasse-backup-") && file.name.endsWith(".json") }
+            ?.sortedByDescending { it.lastModified() }
+            ?.drop(maxGenerations)
+            ?.forEach { it.delete() }
     }
 
     private fun sanitizeZipEntry(name: String): String {
