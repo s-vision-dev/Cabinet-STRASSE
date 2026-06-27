@@ -60,6 +60,7 @@ class MainActivity : Activity() {
                 "smart" -> uri.pathSegments.getOrNull(1)
                     ?.let { openMode("smart:$it") }
                     ?: openMode("Smart Folder")
+                "reference" -> handleReferenceDeepLink(uri)
                 "add" -> handleAddDeepLink(uri)
                 else -> renderDashboard()
             }
@@ -85,6 +86,42 @@ class MainActivity : Activity() {
             openDetail(item.id)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "URLを保存できませんでした", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }
+    }
+
+    private fun handleReferenceDeepLink(uri: Uri) {
+        if (uri.pathSegments.getOrNull(1) != "add") {
+            renderDashboard()
+            return
+        }
+        val itemId = uri.getQueryParameter("itemId").orEmpty()
+        if (itemId.isBlank()) {
+            Toast.makeText(this, "参照追加先のitemIdが必要です", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+            return
+        }
+        val referenceType = uri.getQueryParameter("type").orEmpty().ifBlank { "external" }
+        val sourceApp = uri.getQueryParameter("sourceApp").orEmpty().ifBlank { "STRASSE" }
+        val sourceId = uri.getQueryParameter("sourceId").orEmpty().ifBlank { "deeplink-${System.currentTimeMillis()}" }
+        val title = uri.getQueryParameter("title").orEmpty().ifBlank { "$sourceApp 参照" }
+        val referenceUri = uri.getQueryParameter("uri").orEmpty().ifBlank { "strasse://${sourceApp.lowercase()}/open/$sourceId" }
+        val note = uri.getQueryParameter("note").orEmpty().ifBlank { "Deep Linkから参照追加" }
+        runCatching {
+            repository.addReference(
+                itemId = itemId,
+                referenceType = referenceType,
+                sourceApp = sourceApp,
+                sourceId = sourceId,
+                title = title,
+                uri = referenceUri,
+                note = note,
+            )
+        }.onSuccess {
+            Toast.makeText(this, "参照を追加しました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "参照を追加できませんでした", Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
