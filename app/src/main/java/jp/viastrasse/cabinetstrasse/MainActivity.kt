@@ -1449,6 +1449,7 @@ class MainActivity : Activity() {
                 onExportBackup = ::exportBackup,
                 onRunBackupNow = ::runBackupNow,
                 onImportBackup = ::openBackupPicker,
+                onRestoreLatestBackup = ::restoreLatestLocalBackup,
                 onSetPin = ::showSetPinDialog,
                 onVerifyPin = ::showVerifyPinDialog,
                 onConfigureProvider = ::showStorageProviderDialog,
@@ -1625,6 +1626,17 @@ class MainActivity : Activity() {
         BackupWorker.enqueueNow(applicationContext)
         Toast.makeText(this, "定期バックアップを実行キューへ追加しました", Toast.LENGTH_SHORT).show()
         openSettings()
+    }
+
+    private fun restoreLatestLocalBackup() {
+        runCatching {
+            repository.restoreLatestLocalBackup()
+        }.onSuccess {
+            Toast.makeText(this, "最新ローカルバックアップを復元しました", Toast.LENGTH_SHORT).show()
+            openSettings()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "最新ローカルバックアップを復元できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showSetPinDialog() {

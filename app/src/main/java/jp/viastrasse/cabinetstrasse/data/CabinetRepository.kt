@@ -81,6 +81,14 @@ class CabinetRepository(context: Context) {
         return settings()
     }
 
+    fun restoreLatestLocalBackup(): SettingsSnapshot {
+        val backup = backupDir
+            .listFiles { file -> file.isFile && file.name.startsWith("cabinet-strasse-backup-") && file.name.endsWith(".json") }
+            ?.maxByOrNull { it.lastModified() }
+            ?: error("ローカルバックアップがありません")
+        return importBackup(backup.readText(Charsets.UTF_8))
+    }
+
     fun updateItemFlags(itemId: String, isFavorite: Boolean, isUnsorted: Boolean): CabinetItemDetail {
         return CabinetJsonParser.detail(
             CabinetNative.updateItemFlagsJson(databasePath, itemId, isFavorite, isUnsorted),

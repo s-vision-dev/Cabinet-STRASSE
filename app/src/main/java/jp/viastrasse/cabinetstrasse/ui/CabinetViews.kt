@@ -352,6 +352,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onExportBackup: () -> Unit,
         onRunBackupNow: () -> Unit,
         onImportBackup: () -> Unit,
+        onRestoreLatestBackup: () -> Unit,
         onSetPin: () -> Unit,
         onVerifyPin: () -> Unit,
         onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
@@ -376,6 +377,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("バックアップを書き出す", onExportBackup))
         content.addView(command("定期バックアップを今すぐ実行", onRunBackupNow))
         content.addView(command("バックアップを復元", onImportBackup))
+        content.addView(command("最新ローカルバックアップを復元", onRestoreLatestBackup))
         content.addView(section("Security"))
         content.addView(panel {
             addView(label("PIN: ${if (settings.security.pinEnabled) "有効" else "未設定"}", 14, true))
