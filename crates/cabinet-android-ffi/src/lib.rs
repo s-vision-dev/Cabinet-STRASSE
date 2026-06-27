@@ -1,7 +1,7 @@
 use cabinet_core::CabinetCore;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
-use jni::sys::jstring;
+use jni::sys::{jboolean, jstring};
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_dashboardJson(
@@ -86,6 +86,24 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_back
     database_path: JString,
 ) -> jstring {
     run_string(&mut env, database_path, |core| core.backup_export_json())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_updateItemFlagsJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    is_favorite: jboolean,
+    is_unsorted: jboolean,
+) -> jstring {
+    let item_id_value = match env.get_string(&item_id) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    run_string(&mut env, database_path, |core| {
+        core.update_item_flags_json(&item_id_value, is_favorite != 0, is_unsorted != 0)
+    })
 }
 
 #[unsafe(no_mangle)]

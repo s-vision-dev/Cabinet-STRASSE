@@ -42,6 +42,12 @@ class CabinetRepository(context: Context) {
         return file
     }
 
+    fun updateItemFlags(itemId: String, isFavorite: Boolean, isUnsorted: Boolean): CabinetItemDetail {
+        return CabinetJsonParser.detail(
+            CabinetNative.updateItemFlagsJson(databasePath, itemId, isFavorite, isUnsorted),
+        )
+    }
+
     fun registerUrl(url: String, title: String, note: String): CabinetItemSummary {
         val json = CabinetNative.registerUrlJson(databasePath, url, title, note)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()

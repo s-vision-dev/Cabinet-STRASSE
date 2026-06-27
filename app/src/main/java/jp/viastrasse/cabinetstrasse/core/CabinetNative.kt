@@ -19,6 +19,13 @@ object CabinetNative {
 
     external fun backupExportJson(databasePath: String): String
 
+    external fun updateItemFlagsJson(
+        databasePath: String,
+        itemId: String,
+        isFavorite: Boolean,
+        isUnsorted: Boolean,
+    ): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,

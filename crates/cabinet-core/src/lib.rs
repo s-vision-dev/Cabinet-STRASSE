@@ -366,6 +366,31 @@ impl CabinetCore {
         Ok(serde_json::to_string_pretty(&value)?)
     }
 
+    pub fn update_item_flags_json(
+        &self,
+        item_id: &str,
+        is_favorite: bool,
+        is_unsorted: bool,
+    ) -> CabinetResult<String> {
+        let updated_at = now_string();
+        let changed = self.conn.execute(
+            "UPDATE cabinet_items
+             SET is_favorite = ?1, is_unsorted = ?2, updated_at = ?3
+             WHERE id = ?4",
+            params![
+                if is_favorite { 1 } else { 0 },
+                if is_unsorted { 1 } else { 0 },
+                updated_at,
+                item_id
+            ],
+        )?;
+        if changed == 0 {
+            return Err(CabinetError::Message(format!("Item not found: {item_id}")));
+        }
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn register_url_json(&self, url: &str, title: &str, note: &str) -> CabinetResult<String> {
         let now = now_string();
         let id = new_id();

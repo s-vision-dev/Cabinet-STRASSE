@@ -114,6 +114,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         detail: CabinetItemDetail,
         onBack: () -> Unit,
         onProcessPreview: () -> Unit,
+        onToggleFavorite: () -> Unit,
+        onMarkSorted: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← 戻る", onBack))
@@ -129,6 +131,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(label(detail.note, 13, false, CabinetColors.TextSecondary))
             }
         })
+        content.addView(command(if (detail.item.isFavorite) "お気に入りを解除" else "お気に入りに追加", onToggleFavorite))
+        if (detail.item.isUnsorted) {
+            content.addView(command("未整理を解除", onMarkSorted))
+        }
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(section("Preview"))
         detail.previews.forEach { preview ->

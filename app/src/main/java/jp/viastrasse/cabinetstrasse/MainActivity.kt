@@ -73,9 +73,46 @@ class MainActivity : Activity() {
                     processPreviewQueue()
                     openDetail(itemId)
                 },
+                onToggleFavorite = {
+                    updateItemFlags(
+                        itemId = itemId,
+                        isFavorite = !detail.item.isFavorite,
+                        isUnsorted = detail.item.isUnsorted,
+                    )
+                },
+                onMarkSorted = {
+                    updateItemFlags(
+                        itemId = itemId,
+                        isFavorite = detail.item.isFavorite,
+                        isUnsorted = false,
+                    )
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateItemFlags(itemId: String, isFavorite: Boolean, isUnsorted: Boolean) {
+        runCatching {
+            repository.updateItemFlags(itemId, isFavorite, isUnsorted)
+        }.onSuccess {
+            dashboardView.renderDetail(
+                detail = it,
+                onBack = ::renderDashboard,
+                onProcessPreview = {
+                    processPreviewQueue()
+                    openDetail(itemId)
+                },
+                onToggleFavorite = {
+                    updateItemFlags(itemId, !it.item.isFavorite, it.item.isUnsorted)
+                },
+                onMarkSorted = {
+                    updateItemFlags(itemId, it.item.isFavorite, false)
+                },
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "資料を更新できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
