@@ -55,6 +55,7 @@ object CabinetJsonParser {
             previews = root.optJSONArray("previews").toPreviews(),
             references = root.optJSONArray("references").toReferences(),
             versions = root.optJSONArray("versions").toVersions(),
+            memos = root.optJSONArray("memos").toMemos(),
         )
     }
 
@@ -190,6 +191,23 @@ object CabinetJsonParser {
                         displayName = item.optString("display_name"),
                         note = item.optString("note"),
                         isCurrent = item.optBoolean("is_current"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun JSONArray?.toMemos(): List<CabinetMemoSummary> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    CabinetMemoSummary(
+                        id = item.optString("id"),
+                        body = item.optString("body"),
+                        isProtected = item.optBoolean("is_protected"),
+                        updatedAt = item.optString("updated_at"),
                     ),
                 )
             }

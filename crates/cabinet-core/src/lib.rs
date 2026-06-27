@@ -291,6 +291,7 @@ pub struct CabinetItemDetail {
     pub previews: Vec<CabinetPreviewSummary>,
     pub references: Vec<CabinetReferenceSummary>,
     pub versions: Vec<CabinetVersionSummary>,
+    pub memos: Vec<CabinetMemoSummary>,
 }
 
 #[derive(Serialize)]
@@ -320,6 +321,14 @@ pub struct CabinetVersionSummary {
     pub display_name: String,
     pub note: String,
     pub is_current: bool,
+}
+
+#[derive(Serialize)]
+pub struct CabinetMemoSummary {
+    pub id: String,
+    pub body: String,
+    pub is_protected: bool,
+    pub updated_at: String,
 }
 
 #[derive(Serialize)]
@@ -605,6 +614,7 @@ impl CabinetCore {
                 Some(id) => self.versions_for_document(&id)?,
                 None => Vec::new(),
             },
+            memos: self.memos_for_item(item_id)?,
         };
         Ok(serde_json::to_string(&detail)?)
     }
@@ -2050,6 +2060,33 @@ impl CabinetCore {
                 display_name: row.get(2)?,
                 note: row.get(3)?,
                 is_current: row.get::<_, i64>(4)? != 0,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn memos_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetMemoSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, body, is_protected, updated_at
+             FROM cabinet_memos
+             WHERE item_id = ?1
+             ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| {
+            let is_protected = row.get::<_, i64>(2)? != 0;
+            Ok(CabinetMemoSummary {
+                id: row.get(0)?,
+                body: if is_protected {
+                    "[protected memo]".to_owned()
+                } else {
+                    row.get(1)?
+                },
+                is_protected,
+                updated_at: row.get(3)?,
             })
         })?;
         let mut result = Vec::new();

@@ -62,6 +62,7 @@ data class CabinetItemDetail(
     val previews: List<CabinetPreviewSummary>,
     val references: List<CabinetReferenceSummary>,
     val versions: List<CabinetVersionSummary>,
+    val memos: List<CabinetMemoSummary>,
 )
 
 data class TagSummary(
@@ -94,6 +95,13 @@ data class CabinetVersionSummary(
     val displayName: String,
     val note: String,
     val isCurrent: Boolean,
+)
+
+data class CabinetMemoSummary(
+    val id: String,
+    val body: String,
+    val isProtected: Boolean,
+    val updatedAt: String,
 )
 
 data class PreviewProcessReport(

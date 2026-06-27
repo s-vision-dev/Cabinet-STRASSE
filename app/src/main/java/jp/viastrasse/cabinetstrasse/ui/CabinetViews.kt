@@ -195,6 +195,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddMailReference: () -> Unit,
         onAddTaskReference: () -> Unit,
         onAddAtelierReference: () -> Unit,
+        onAddMemo: () -> Unit,
         onAddProtectedMemo: () -> Unit,
         onProtectItem: () -> Unit,
         onRestoreFromTrash: () -> Unit,
@@ -257,6 +258,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("Task参照を追加", onAddTaskReference))
         content.addView(command("Atelier参照を追加", onAddAtelierReference))
         content.addView(command("保護領域へ追加", onProtectItem))
+        content.addView(command("メモを追加", onAddMemo))
         content.addView(command("保護メモを追加", onAddProtectedMemo))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
@@ -293,6 +295,18 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     addView(label("${reference.referenceType} / ${reference.sourceApp}", 14, true))
                     addView(label(reference.title, 13, false, CabinetColors.TextSecondary))
                     addView(label(reference.uri, 12, false, CabinetColors.TextSecondary))
+                })
+            }
+        }
+        content.addView(section("Memo"))
+        if (detail.memos.isEmpty()) {
+            content.addView(label("保存メモはまだありません", 13, false, CabinetColors.TextSecondary))
+        } else {
+            detail.memos.forEach { memo ->
+                content.addView(panel {
+                    addView(label(if (memo.isProtected) "Protected" else "Memo", 14, true))
+                    addView(label(memo.body, 13, false, CabinetColors.TextSecondary))
+                    addView(label(memo.updatedAt, 11, false, CabinetColors.TextSecondary))
                 })
             }
         }

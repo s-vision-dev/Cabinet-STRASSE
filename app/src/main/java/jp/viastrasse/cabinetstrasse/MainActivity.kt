@@ -385,6 +385,9 @@ class MainActivity : Activity() {
                 onAddAtelierReference = {
                     showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
                 },
+                onAddMemo = {
+                    showMemoDialog(itemId)
+                },
                 onAddProtectedMemo = {
                     showProtectedMemoDialog(itemId)
                 },
@@ -471,6 +474,9 @@ class MainActivity : Activity() {
                 },
                 onAddAtelierReference = {
                     showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
+                },
+                onAddMemo = {
+                    showMemoDialog(itemId)
                 },
                 onAddProtectedMemo = {
                     showProtectedMemoDialog(itemId)
@@ -766,6 +772,22 @@ class MainActivity : Activity() {
     private fun showProtectedMemoDialog(itemId: String) {
         showTextDialog("保護メモを追加", "メモ本文", "追加", multiline = true) { body ->
             addProtectedMemo(itemId, body)
+        }
+    }
+
+    private fun showMemoDialog(itemId: String) {
+        showTextDialog("メモを追加", "メモ本文", "追加", multiline = true) { body ->
+            addMemo(itemId, body)
+        }
+    }
+
+    private fun addMemo(itemId: String, body: String) {
+        runCatching {
+            repository.addMemo(itemId, body, false)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "メモを追加できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
