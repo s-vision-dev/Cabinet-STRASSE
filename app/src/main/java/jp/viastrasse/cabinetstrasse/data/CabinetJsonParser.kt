@@ -29,6 +29,18 @@ object CabinetJsonParser {
         )
     }
 
+    fun mode(json: String): ModeResponse {
+        val root = JSONObject(json)
+        root.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return ModeResponse(
+            mode = root.optString("mode"),
+            title = root.optString("title"),
+            items = root.optJSONArray("items").toItems(),
+            collections = root.optJSONArray("collections").toCollections(),
+            smartFolders = root.optJSONArray("smart_folders").toSmartFolders(),
+        )
+    }
+
     private fun JSONArray?.toItems(): List<CabinetItemSummary> {
         if (this == null) return emptyList()
         return buildList {
@@ -85,4 +97,3 @@ object CabinetJsonParser {
         }
     }
 }
-

@@ -29,11 +29,34 @@ class MainActivity : Activity() {
             repository.dashboard()
         }.onSuccess { dashboard ->
             dashboardView.render(dashboard) { mode ->
-                Toast.makeText(this, "${mode.name} を開きます", Toast.LENGTH_SHORT).show()
+                openMode(mode.name)
             }
         }.onFailure { error ->
             dashboardView.renderError(error.message ?: "Cabinet core の初期化に失敗しました。")
         }
     }
-}
 
+    private fun openMode(mode: String) {
+        if (mode == "Search") {
+            openSearch("")
+            return
+        }
+        runCatching {
+            repository.mode(mode)
+        }.onSuccess {
+            dashboardView.renderMode(it, ::renderDashboard)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openSearch(query: String) {
+        runCatching {
+            repository.search(query)
+        }.onSuccess {
+            dashboardView.renderSearch(it, ::renderDashboard, ::openSearch)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "検索できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+}

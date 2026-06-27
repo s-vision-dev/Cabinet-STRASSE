@@ -9,6 +9,8 @@ object CabinetNative {
 
     external fun searchJson(databasePath: String, query: String): String
 
+    external fun modeJson(databasePath: String, mode: String): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,
@@ -16,4 +18,3 @@ object CabinetNative {
         note: String,
     ): String
 }
-

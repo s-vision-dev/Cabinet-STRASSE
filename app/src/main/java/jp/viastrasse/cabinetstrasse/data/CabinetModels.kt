@@ -43,3 +43,10 @@ data class SearchResponse(
     val results: List<CabinetItemSummary>,
 )
 
+data class ModeResponse(
+    val mode: String,
+    val title: String,
+    val items: List<CabinetItemSummary>,
+    val collections: List<CabinetCollectionSummary>,
+    val smartFolders: List<SmartFolderSummary>,
+)

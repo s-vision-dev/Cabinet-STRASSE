@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.bat text eol=lf
+*.ps1 text eol=lf
+*.jar binary
+*.apk binary
+*.aab binary
+*.so binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+

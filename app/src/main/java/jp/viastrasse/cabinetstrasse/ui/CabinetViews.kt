@@ -11,6 +11,8 @@ import android.widget.TextView
 import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetDashboard
 import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
+import jp.viastrasse.cabinetstrasse.data.ModeResponse
+import jp.viastrasse.cabinetstrasse.data.SearchResponse
 import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 
@@ -61,6 +63,44 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.removeAllViews()
         content.addView(title("Cabinet-STRASSE"))
         content.addView(errorText(message))
+    }
+
+    fun renderMode(mode: ModeResponse, onBack: () -> Unit) {
+        content.removeAllViews()
+        content.addView(command("← Cabinet", onBack))
+        content.addView(title(mode.title))
+        content.addView(subtitle(mode.mode))
+        if (mode.items.isNotEmpty()) {
+            content.addView(section("資料"))
+            mode.items.forEach { content.addView(itemRow(it)) }
+        }
+        if (mode.collections.isNotEmpty()) {
+            content.addView(section("Collection"))
+            mode.collections.forEach { content.addView(collectionRow(it)) }
+        }
+        if (mode.smartFolders.isNotEmpty()) {
+            content.addView(section("Smart Folder"))
+            mode.smartFolders.forEach { content.addView(smartFolderRow(it)) }
+        }
+    }
+
+    fun renderSearch(response: SearchResponse, onBack: () -> Unit, onSearch: (String) -> Unit) {
+        content.removeAllViews()
+        content.addView(command("← Cabinet", onBack))
+        content.addView(title("Search"))
+        val input = android.widget.EditText(context).apply {
+            setText(response.query)
+            hint = "Cabinet内を検索"
+            setTextColor(CabinetColors.TextPrimary)
+            setHintTextColor(CabinetColors.TextSecondary)
+            setSingleLine(true)
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        content.addView(input)
+        content.addView(command("検索", onClick = { onSearch(input.text.toString()) }))
+        content.addView(section("検索結果"))
+        response.results.forEach { content.addView(itemRow(it)) }
     }
 
     private fun modeGrid(modes: List<CabinetMode>, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
@@ -150,6 +190,14 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         setPadding(0, dp(16), 0, 0)
     }
 
+    private fun command(text: String, onClick: () -> Unit): TextView {
+        return label(text, 15, true, CabinetColors.Accent).apply {
+            setPadding(0, dp(10), 0, dp(10))
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
     private fun label(
         text: String,
         sp: Int,
@@ -181,4 +229,3 @@ data class CabinetMode(
     val count: Long,
     val description: String,
 )
-

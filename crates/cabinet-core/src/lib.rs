@@ -86,6 +86,15 @@ pub struct SearchResponse {
     pub results: Vec<CabinetItemSummary>,
 }
 
+#[derive(Serialize)]
+pub struct ModeResponse {
+    pub mode: String,
+    pub title: String,
+    pub items: Vec<CabinetItemSummary>,
+    pub collections: Vec<CabinetCollectionSummary>,
+    pub smart_folders: Vec<SmartFolderSummary>,
+}
+
 pub struct CabinetCore {
     conn: Connection,
 }
@@ -111,6 +120,75 @@ impl CabinetCore {
         let response = SearchResponse {
             query: query.to_owned(),
             results: self.search(query)?,
+        };
+        Ok(serde_json::to_string(&response)?)
+    }
+
+    pub fn mode_json(&self, mode: &str) -> CabinetResult<String> {
+        let normalized = mode.trim().to_ascii_lowercase();
+        let response = match normalized.as_str() {
+            "explorer" => ModeResponse {
+                mode: "Explorer".to_owned(),
+                title: "Explorer".to_owned(),
+                items: self.query_items(
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                     FROM cabinet_items
+                     WHERE source_kind IN ('local', 'mail')
+                     ORDER BY updated_at DESC, title ASC
+                     LIMIT 100",
+                    [],
+                )?,
+                collections: Vec::new(),
+                smart_folders: Vec::new(),
+            },
+            "library" => ModeResponse {
+                mode: "Library".to_owned(),
+                title: "Library".to_owned(),
+                items: self.query_items(
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                     FROM cabinet_items
+                     ORDER BY mime_type ASC, title ASC
+                     LIMIT 100",
+                    [],
+                )?,
+                collections: Vec::new(),
+                smart_folders: Vec::new(),
+            },
+            "collection" => ModeResponse {
+                mode: "Collection".to_owned(),
+                title: "Collection".to_owned(),
+                items: Vec::new(),
+                collections: self.collections()?,
+                smart_folders: Vec::new(),
+            },
+            "inbox" => ModeResponse {
+                mode: "Inbox".to_owned(),
+                title: "Inbox".to_owned(),
+                items: self.query_items(
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                     FROM cabinet_items
+                     WHERE is_unsorted = 1
+                     ORDER BY updated_at DESC, title ASC
+                     LIMIT 100",
+                    [],
+                )?,
+                collections: Vec::new(),
+                smart_folders: Vec::new(),
+            },
+            "smart folder" | "smartfolder" | "settings" => ModeResponse {
+                mode: mode.to_owned(),
+                title: mode.to_owned(),
+                items: Vec::new(),
+                collections: Vec::new(),
+                smart_folders: self.smart_folders()?,
+            },
+            _ => ModeResponse {
+                mode: "Search".to_owned(),
+                title: "Search".to_owned(),
+                items: self.search("")?,
+                collections: Vec::new(),
+                smart_folders: self.smart_folders()?,
+            },
         };
         Ok(serde_json::to_string(&response)?)
     }

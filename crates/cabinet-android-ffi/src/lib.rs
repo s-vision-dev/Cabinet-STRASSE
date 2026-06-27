@@ -29,6 +29,20 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_sear
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_modeJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    mode: JString,
+) -> jstring {
+    let mode_value = match env.get_string(&mode) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    run_string(&mut env, database_path, |core| core.mode_json(&mode_value))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,
