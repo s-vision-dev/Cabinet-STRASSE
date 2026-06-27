@@ -930,6 +930,33 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn remove_item_from_collection_json(
+        &self,
+        item_id: &str,
+        collection_id: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        self.conn.execute(
+            "DELETE FROM cabinet_collection_items WHERE collection_id = ?1 AND item_id = ?2",
+            params![collection_id, item_id],
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_collections SET updated_at = ?1 WHERE id = ?2",
+            params![now, collection_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.CollectionUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "collection_id": collection_id,
+                "removed": true,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn add_version_json(
         &self,
         item_id: &str,

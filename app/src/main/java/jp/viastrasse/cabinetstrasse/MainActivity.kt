@@ -343,6 +343,9 @@ class MainActivity : Activity() {
                         addToCollection(itemId, collectionTitle)
                     }
                 },
+                onRemoveCollection = { collectionId ->
+                    removeFromCollection(itemId, collectionId)
+                },
                 onMoveTrash = {
                     moveToTrash(itemId)
                 },
@@ -424,6 +427,9 @@ class MainActivity : Activity() {
                         addToCollection(itemId, collectionTitle)
                     }
                 },
+                onRemoveCollection = { collectionId ->
+                    removeFromCollection(itemId, collectionId)
+                },
                 onMoveTrash = {
                     moveToTrash(itemId)
                 },
@@ -495,6 +501,16 @@ class MainActivity : Activity() {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "Collectionへ追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun removeFromCollection(itemId: String, collectionId: String) {
+        runCatching {
+            repository.removeFromCollection(itemId, collectionId)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "Collectionから外せませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

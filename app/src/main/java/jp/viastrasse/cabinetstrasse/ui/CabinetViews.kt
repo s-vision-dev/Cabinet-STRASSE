@@ -181,6 +181,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onMarkSorted: () -> Unit,
         onAddTag: () -> Unit,
         onAddCollection: () -> Unit,
+        onRemoveCollection: (String) -> Unit,
         onMoveTrash: () -> Unit,
         onOpen: () -> Unit,
         onShare: () -> Unit,
@@ -231,7 +232,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         if (detail.collections.isEmpty()) {
             content.addView(label("Collectionには未登録です", 13, false, CabinetColors.TextSecondary))
         } else {
-            detail.collections.forEach { collection -> content.addView(collectionRow(collection)) }
+            detail.collections.forEach { collection ->
+                content.addView(panel {
+                    addView(label(collection.title, 15, true))
+                    addView(label("${collection.itemCount} items", 12, false, CabinetColors.TextSecondary))
+                    addView(command("Collectionから外す") { onRemoveCollection(collection.id) })
+                })
+            }
         }
         content.addView(command(if (detail.item.isFavorite) "お気に入りを解除" else "お気に入りに追加", onToggleFavorite))
         if (detail.item.isUnsorted) {

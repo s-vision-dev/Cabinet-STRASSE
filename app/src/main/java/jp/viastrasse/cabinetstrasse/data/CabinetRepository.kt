@@ -91,6 +91,12 @@ class CabinetRepository(context: Context) {
         )
     }
 
+    fun removeFromCollection(itemId: String, collectionId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(
+            CabinetNative.removeItemFromCollectionJson(databasePath, itemId, collectionId),
+        )
+    }
+
     fun moveToTrash(itemId: String): CabinetItemDetail {
         return CabinetJsonParser.detail(CabinetNative.moveItemToTrashJson(databasePath, itemId))
     }
