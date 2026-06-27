@@ -120,6 +120,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddCollection: () -> Unit,
         onMoveTrash: () -> Unit,
         onOpen: () -> Unit,
+        onDuplicate: () -> Unit,
+        onRename: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← 戻る", onBack))
@@ -136,6 +138,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             }
         })
         content.addView(command("開く", onOpen))
+        content.addView(command("複製", onDuplicate))
+        content.addView(command("名前変更", onRename))
         content.addView(section("Tags"))
         if (detail.tags.isEmpty()) {
             content.addView(label("タグはまだありません", 13, false, CabinetColors.TextSecondary))

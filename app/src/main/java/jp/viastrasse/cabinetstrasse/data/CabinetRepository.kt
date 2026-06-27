@@ -64,6 +64,15 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.moveItemToTrashJson(databasePath, itemId))
     }
 
+    fun duplicateItem(itemId: String): CabinetItemSummary {
+        val json = CabinetNative.duplicateItemJson(databasePath, itemId)
+        return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
+    }
+
+    fun renameItem(itemId: String, newDisplayName: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.renameItemJson(databasePath, itemId, newDisplayName))
+    }
+
     fun registerUrl(url: String, title: String, note: String): CabinetItemSummary {
         val json = CabinetNative.registerUrlJson(databasePath, url, title, note)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()

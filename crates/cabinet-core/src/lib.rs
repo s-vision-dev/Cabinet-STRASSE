@@ -3,7 +3,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -557,6 +557,83 @@ impl CabinetCore {
              VALUES (?1, ?2, 'Moved to Cabinet trash', 0, ?3, ?3)",
             params![new_id(), item_id, now],
         )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn duplicate_item_json(&self, item_id: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        let (path, display_name, mime_type, source_kind, note): (String, String, String, String, String) =
+            self.conn.query_row(
+                "SELECT path, display_name, mime_type, source_kind, note FROM cabinet_items WHERE id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )?;
+        let source = PathBuf::from(&path);
+        if !source.exists() {
+            return Err(CabinetError::Message(
+                "Source file does not exist.".to_owned(),
+            ));
+        }
+        let duplicate_path = duplicate_path(&source);
+        std::fs::copy(&source, &duplicate_path)
+            .map_err(|error| CabinetError::Message(error.to_string()))?;
+        let duplicate_name = duplicate_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("duplicate")
+            .to_owned();
+        let json = self.register_file_json(
+            duplicate_path.to_string_lossy().as_ref(),
+            &duplicate_name,
+            &mime_type,
+            duplicate_path
+                .metadata()
+                .map(|m| m.len() as i64)
+                .unwrap_or_default(),
+            &source_kind,
+            &format!("Duplicated from {display_name}. {note}"),
+        )?;
+        self.conn.execute(
+            "UPDATE cabinet_items SET updated_at = ?1 WHERE id = ?2",
+            params![now, item_id],
+        )?;
+        Ok(json)
+    }
+
+    pub fn rename_item_json(&self, item_id: &str, new_display_name: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let normalized = new_display_name.trim();
+        if normalized.is_empty() {
+            return Err(CabinetError::Message("New name is empty.".to_owned()));
+        }
+        let (path, file_id): (String, Option<String>) = self.conn.query_row(
+            "SELECT path, file_id FROM cabinet_items WHERE id = ?1",
+            params![item_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let source = PathBuf::from(&path);
+        let mut destination_path = path.clone();
+        if source.exists() {
+            let destination = source.with_file_name(normalized);
+            std::fs::rename(&source, &destination)
+                .map_err(|error| CabinetError::Message(error.to_string()))?;
+            destination_path = destination.to_string_lossy().into_owned();
+        }
+        let now = now_string();
+        self.conn.execute(
+            "UPDATE cabinet_items
+             SET title = ?1, display_name = ?1, path = ?2, updated_at = ?3
+             WHERE id = ?4",
+            params![normalized, destination_path, now, item_id],
+        )?;
+        if let Some(file_id) = file_id {
+            self.conn.execute(
+                "UPDATE cabinet_files SET path = ?1, original_file_name = ?2, updated_at = ?3 WHERE id = ?4",
+                params![destination_path, normalized, now, file_id],
+            )?;
+        }
         self.rebuild_fts_for_item(item_id)?;
         self.item_detail_json(item_id)
     }
@@ -1455,6 +1532,26 @@ fn preview_text_for_file(path: &str, mime_type: &str, display_name: &str) -> Str
         return format!("{display_name} is an audio file queued for duration and tag extraction.");
     }
     String::new()
+}
+
+fn duplicate_path(source: &Path) -> PathBuf {
+    let parent = source.parent().unwrap_or_else(|| Path::new(""));
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("copy");
+    let extension = source.extension().and_then(|value| value.to_str());
+    for index in 1..1000 {
+        let file_name = match extension {
+            Some(extension) if !extension.is_empty() => format!("{stem}-copy-{index}.{extension}"),
+            _ => format!("{stem}-copy-{index}"),
+        };
+        let candidate = parent.join(file_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{stem}-copy"))
 }
 
 fn escape_fts_token(value: &str) -> String {

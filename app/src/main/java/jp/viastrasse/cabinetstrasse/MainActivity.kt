@@ -100,6 +100,12 @@ class MainActivity : Activity() {
                 onOpen = {
                     openViewer(detail.path, detail.item.mimeType, detail.item.title)
                 },
+                onDuplicate = {
+                    duplicateItem(itemId)
+                },
+                onRename = {
+                    renameItem(itemId, renamedName(detail.item.displayName))
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -135,6 +141,12 @@ class MainActivity : Activity() {
                 onOpen = {
                     openViewer(it.path, it.item.mimeType, it.item.title)
                 },
+                onDuplicate = {
+                    duplicateItem(itemId)
+                },
+                onRename = {
+                    renameItem(itemId, renamedName(it.item.displayName))
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "資料を更新できませんでした", Toast.LENGTH_SHORT).show()
@@ -169,6 +181,38 @@ class MainActivity : Activity() {
             renderDashboard()
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun duplicateItem(itemId: String) {
+        runCatching {
+            repository.duplicateItem(itemId)
+        }.onSuccess { item ->
+            Toast.makeText(this, "複製しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "複製できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun renameItem(itemId: String, newDisplayName: String) {
+        runCatching {
+            repository.renameItem(itemId, newDisplayName)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "名前変更できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun renamedName(displayName: String): String {
+        val dotIndex = displayName.lastIndexOf('.')
+        return if (dotIndex > 0) {
+            val stem = displayName.substring(0, dotIndex)
+            val extension = displayName.substring(dotIndex)
+            "$stem-renamed$extension"
+        } else {
+            "$displayName-renamed"
         }
     }
 
