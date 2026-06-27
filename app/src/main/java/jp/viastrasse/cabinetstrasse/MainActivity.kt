@@ -325,10 +325,14 @@ class MainActivity : Activity() {
                     )
                 },
                 onAddTag = {
-                    addTag(itemId, "参考資料")
+                    showTextDialog("タグを追加", "タグ名", "追加") { tagName ->
+                        addTag(itemId, tagName)
+                    }
                 },
                 onAddCollection = {
-                    addToCollection(itemId, "未整理から確認")
+                    showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
+                        addToCollection(itemId, collectionTitle)
+                    }
                 },
                 onMoveTrash = {
                     moveToTrash(itemId)
@@ -358,16 +362,16 @@ class MainActivity : Activity() {
                     extractZip(detail)
                 },
                 onAddMailReference = {
-                    addReference(itemId, "mail", "Mail-STRASSE", "manual-mail", "関連メール", "strasse://mail/open/manual-mail")
+                    showReferenceDialog(itemId, "mail", "Mail-STRASSE", "strasse://mail/open/")
                 },
                 onAddTaskReference = {
-                    addReference(itemId, "task", "Task-STRASSE", "manual-task", "関連Task", "strasse://task/open/manual-task")
+                    showReferenceDialog(itemId, "task", "Task-STRASSE", "strasse://task/open/")
                 },
                 onAddAtelierReference = {
-                    addReference(itemId, "atelier", "Atelier-STRASSE", "manual-atelier", "関連Atelier", "strasse://atelier/open/manual-atelier")
+                    showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
                 },
                 onAddProtectedMemo = {
-                    addProtectedMemo(itemId)
+                    showProtectedMemoDialog(itemId)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -402,10 +406,14 @@ class MainActivity : Activity() {
                     updateItemFlags(itemId, it.item.isFavorite, false)
                 },
                 onAddTag = {
-                    addTag(itemId, "参考資料")
+                    showTextDialog("タグを追加", "タグ名", "追加") { tagName ->
+                        addTag(itemId, tagName)
+                    }
                 },
                 onAddCollection = {
-                    addToCollection(itemId, "未整理から確認")
+                    showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
+                        addToCollection(itemId, collectionTitle)
+                    }
                 },
                 onMoveTrash = {
                     moveToTrash(itemId)
@@ -435,16 +443,16 @@ class MainActivity : Activity() {
                     extractZip(it)
                 },
                 onAddMailReference = {
-                    addReference(itemId, "mail", "Mail-STRASSE", "manual-mail", "関連メール", "strasse://mail/open/manual-mail")
+                    showReferenceDialog(itemId, "mail", "Mail-STRASSE", "strasse://mail/open/")
                 },
                 onAddTaskReference = {
-                    addReference(itemId, "task", "Task-STRASSE", "manual-task", "関連Task", "strasse://task/open/manual-task")
+                    showReferenceDialog(itemId, "task", "Task-STRASSE", "strasse://task/open/")
                 },
                 onAddAtelierReference = {
-                    addReference(itemId, "atelier", "Atelier-STRASSE", "manual-atelier", "関連Atelier", "strasse://atelier/open/manual-atelier")
+                    showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
                 },
                 onAddProtectedMemo = {
-                    addProtectedMemo(itemId)
+                    showProtectedMemoDialog(itemId)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -688,13 +696,85 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun addProtectedMemo(itemId: String) {
+    private fun showReferenceDialog(itemId: String, referenceType: String, sourceApp: String, uriPrefix: String) {
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 0)
+        }
+        val sourceIdInput = darkInput("参照ID")
+        val titleInput = darkInput("表示名")
+        val uriInput = darkInput("URI").apply {
+            setText(uriPrefix)
+        }
+        container.addView(sourceIdInput)
+        container.addView(titleInput)
+        container.addView(uriInput)
+        AlertDialog.Builder(this)
+            .setTitle("$sourceApp 参照を追加")
+            .setView(container)
+            .setPositiveButton("追加") { _, _ ->
+                val sourceId = sourceIdInput.text.toString().trim().ifBlank { "manual-${System.currentTimeMillis()}" }
+                val title = titleInput.text.toString().trim().ifBlank { "$sourceApp 参照" }
+                val uri = uriInput.text.toString().trim().ifBlank { "$uriPrefix$sourceId" }
+                addReference(itemId, referenceType, sourceApp, sourceId, title, uri)
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
+    }
+
+    private fun showProtectedMemoDialog(itemId: String) {
+        showTextDialog("保護メモを追加", "メモ本文", "追加", multiline = true) { body ->
+            addProtectedMemo(itemId, body)
+        }
+    }
+
+    private fun addProtectedMemo(itemId: String, body: String) {
         runCatching {
-            repository.addMemo(itemId, "保護メモ: パスワードや機密補足をここへ保存", true)
+            repository.addMemo(itemId, body, true)
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "保護メモを追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showTextDialog(
+        title: String,
+        hint: String,
+        positiveLabel: String,
+        multiline: Boolean = false,
+        onText: (String) -> Unit,
+    ) {
+        val input = darkInput(hint).apply {
+            inputType = if (multiline) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            } else {
+                InputType.TYPE_CLASS_TEXT
+            }
+            if (multiline) {
+                minLines = 3
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton(positiveLabel) { _, _ ->
+                val value = input.text.toString().trim()
+                if (value.isNotBlank()) {
+                    onText(value)
+                }
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
+    }
+
+    private fun darkInput(hintText: String): EditText {
+        return EditText(this).apply {
+            hint = hintText
+            setTextColor(jp.viastrasse.cabinetstrasse.theme.CabinetColors.TextPrimary)
+            setHintTextColor(jp.viastrasse.cabinetstrasse.theme.CabinetColors.TextSecondary)
+            setBackgroundColor(jp.viastrasse.cabinetstrasse.theme.CabinetColors.SurfaceAlt)
+            setPadding(24, 18, 24, 18)
         }
     }
 
@@ -870,7 +950,7 @@ class MainActivity : Activity() {
     }
 
     private fun showPinDialog(title: String, positiveLabel: String, onPin: (String) -> Unit) {
-        val input = EditText(this).apply {
+        val input = darkInput("PIN").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
         }
         AlertDialog.Builder(this)
