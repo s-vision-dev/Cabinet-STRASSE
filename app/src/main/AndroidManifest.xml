@@ -71,6 +71,11 @@
             android:exported="true" />
 
         <provider
+            android:name=".integration.CabinetSearchProvider"
+            android:authorities="jp.viastrasse.cabinetstrasse.provider.search"
+            android:exported="true" />
+
+        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="jp.viastrasse.cabinetstrasse.fileprovider"
             android:exported="false"

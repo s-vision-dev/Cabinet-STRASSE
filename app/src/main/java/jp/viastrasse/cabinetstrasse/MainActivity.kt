@@ -20,13 +20,28 @@ class MainActivity : Activity() {
         repository = CabinetRepository(applicationContext)
         dashboardView = CabinetDashboardView(this)
         setContentView(dashboardView)
-        renderDashboard()
+        handleDeepLink(intent)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        renderDashboard()
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent) {
+        val uri = intent.data
+        if (uri?.scheme == "strasse" && uri.host == "cabinet") {
+            when (uri.pathSegments.firstOrNull()) {
+                "open" -> uri.pathSegments.getOrNull(1)?.let(::openDetail) ?: renderDashboard()
+                "search" -> openSearch(uri.getQueryParameter("q").orEmpty())
+                "inbox" -> openMode("Inbox")
+                "collection" -> openMode("Collection")
+                else -> renderDashboard()
+            }
+        } else {
+            renderDashboard()
+        }
     }
 
     private fun renderDashboard() {
