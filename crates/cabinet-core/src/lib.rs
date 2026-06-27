@@ -378,6 +378,13 @@ pub struct TagSummary {
     pub color: String,
 }
 
+struct GeneratedPreview {
+    summary_text: String,
+    width: Option<i64>,
+    height: Option<i64>,
+    status: &'static str,
+}
+
 pub struct CabinetCore {
     conn: Connection,
 }
@@ -529,17 +536,24 @@ impl CabinetCore {
 
         let mut processed = 0_i64;
         for (preview_id, item_id, path, mime_type, display_name) in queue {
-            let text = preview_text_for_file(&path, &mime_type, &display_name);
-            let status = if text.is_empty() {
-                "unsupported"
-            } else {
-                "ready"
-            };
+            let preview = preview_for_file(&path, &mime_type, &display_name);
             self.conn.execute(
                 "UPDATE cabinet_previews
-                 SET summary_text = ?1, extracted_text = ?1, generated_at = ?2, status = ?3
-                 WHERE id = ?4",
-                params![text, now_string(), status, preview_id],
+                 SET summary_text = ?1,
+                     extracted_text = ?1,
+                     width = ?2,
+                     height = ?3,
+                     generated_at = ?4,
+                     status = ?5
+                 WHERE id = ?6",
+                params![
+                    preview.summary_text,
+                    preview.width,
+                    preview.height,
+                    now_string(),
+                    preview.status,
+                    preview_id
+                ],
             )?;
             self.rebuild_fts_for_item(&item_id)?;
             processed += 1;
@@ -1914,6 +1928,9 @@ fn hash_file(path: &str) -> std::io::Result<String> {
 fn preview_type_for_mime(mime_type: &str) -> &'static str {
     match mime_type {
         "application/pdf" => "pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "office",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "office",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => "office",
         "text/markdown" => "markdown",
         "text/uri-list" => "url",
         "application/zip" => "archive",
@@ -1924,35 +1941,192 @@ fn preview_type_for_mime(mime_type: &str) -> &'static str {
     }
 }
 
-fn preview_text_for_file(path: &str, mime_type: &str, display_name: &str) -> String {
+fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> GeneratedPreview {
+    let lower_name = display_name.to_ascii_lowercase();
     if mime_type.starts_with("text/")
-        || display_name.ends_with(".md")
-        || display_name.ends_with(".txt")
+        || lower_name.ends_with(".md")
+        || lower_name.ends_with(".markdown")
+        || lower_name.ends_with(".txt")
     {
-        return std::fs::read_to_string(path)
-            .map(|text| text.chars().take(2000).collect())
+        let summary = std::fs::read_to_string(path)
+            .map(|text| text_preview(&text))
             .unwrap_or_default();
+        return generated_preview(summary, None, None);
     }
-    if mime_type == "application/zip" {
-        return format!("{display_name} is an archive stored in Cabinet Inbox.");
+    if mime_type == "application/zip" || lower_name.ends_with(".zip") {
+        return generated_preview(
+            format!("{display_name}: ZIP archive. 解凍操作で中のファイルをCabinetへ登録できます。"),
+            None,
+            None,
+        );
     }
-    if mime_type == "application/pdf" {
-        return format!(
-            "{display_name} is queued as a PDF document. Full PDF text extraction is handled by the preview pipeline."
+    if lower_name.ends_with(".docx") {
+        return generated_preview(
+            format!("{display_name}: Word document. Office XMLプレビュー解析の対象です。"),
+            None,
+            None,
+        );
+    }
+    if lower_name.ends_with(".xlsx") {
+        return generated_preview(
+            format!("{display_name}: Excel workbook. Office XMLプレビュー解析の対象です。"),
+            None,
+            None,
+        );
+    }
+    if lower_name.ends_with(".pptx") {
+        return generated_preview(
+            format!(
+                "{display_name}: PowerPoint presentation. Office XMLプレビュー解析の対象です。"
+            ),
+            None,
+            None,
+        );
+    }
+    if mime_type == "application/pdf" || lower_name.ends_with(".pdf") {
+        return generated_preview(
+            format!("{display_name}: PDF document. 本文抽出とページプレビュー生成の対象です。"),
+            None,
+            None,
         );
     }
     if mime_type.starts_with("image/") {
-        return format!("{display_name} is an image file queued for thumbnail and OCR processing.");
+        let dimensions = image_dimensions(path);
+        let summary = match dimensions {
+            Some((width, height)) => {
+                format!(
+                    "{display_name}: image file, {width} x {height}px. OCRとサムネイル生成の対象です。"
+                )
+            }
+            None => format!("{display_name}: image file. OCRとサムネイル生成の対象です。"),
+        };
+        return generated_preview(
+            summary,
+            dimensions.map(|value| value.0),
+            dimensions.map(|value| value.1),
+        );
     }
     if mime_type.starts_with("video/") {
-        return format!(
-            "{display_name} is a video file queued for duration and thumbnail extraction."
+        return generated_preview(
+            format!("{display_name}: video file. サムネイル、長さ、解像度抽出の対象です。"),
+            None,
+            None,
         );
     }
     if mime_type.starts_with("audio/") {
-        return format!("{display_name} is an audio file queued for duration and tag extraction.");
+        return generated_preview(
+            format!("{display_name}: audio file. 長さとタグ情報抽出の対象です。"),
+            None,
+            None,
+        );
     }
-    String::new()
+    GeneratedPreview {
+        summary_text: String::new(),
+        width: None,
+        height: None,
+        status: "unsupported",
+    }
+}
+
+fn generated_preview(
+    summary_text: String,
+    width: Option<i64>,
+    height: Option<i64>,
+) -> GeneratedPreview {
+    let status = if summary_text.is_empty() {
+        "unsupported"
+    } else {
+        "ready"
+    };
+    GeneratedPreview {
+        summary_text,
+        width,
+        height,
+        status,
+    }
+}
+
+fn text_preview(text: &str) -> String {
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let normalized = line.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+        lines.push(normalized.to_owned());
+        if lines.len() >= 12 {
+            break;
+        }
+    }
+    let joined = lines.join("\n");
+    joined.chars().take(2000).collect()
+}
+
+fn image_dimensions(path: &str) -> Option<(i64, i64)> {
+    let mut buffer = [0_u8; 32];
+    let mut file = File::open(path).ok()?;
+    let read = file.read(&mut buffer).ok()?;
+    let bytes = &buffer[..read];
+    if bytes.len() >= 24 && &bytes[0..8] == b"\x89PNG\r\n\x1a\n" {
+        let width = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
+        let height = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+        return Some((i64::from(width), i64::from(height)));
+    }
+    if bytes.len() >= 10 && &bytes[0..6] == b"GIF87a"
+        || bytes.len() >= 10 && &bytes[0..6] == b"GIF89a"
+    {
+        let width = u16::from_le_bytes(bytes[6..8].try_into().ok()?);
+        let height = u16::from_le_bytes(bytes[8..10].try_into().ok()?);
+        return Some((i64::from(width), i64::from(height)));
+    }
+    jpeg_dimensions(path)
+}
+
+fn jpeg_dimensions(path: &str) -> Option<(i64, i64)> {
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() < 4 || bytes[0] != 0xff || bytes[1] != 0xd8 {
+        return None;
+    }
+    let mut index = 2;
+    while index + 9 < bytes.len() {
+        if bytes[index] != 0xff {
+            index += 1;
+            continue;
+        }
+        let marker = bytes[index + 1];
+        index += 2;
+        if marker == 0xd9 || marker == 0xda {
+            break;
+        }
+        if index + 2 > bytes.len() {
+            break;
+        }
+        let length = usize::from(u16::from_be_bytes(bytes[index..index + 2].try_into().ok()?));
+        if length < 2 || index + length > bytes.len() {
+            break;
+        }
+        if matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        ) {
+            let height = u16::from_be_bytes(bytes[index + 3..index + 5].try_into().ok()?);
+            let width = u16::from_be_bytes(bytes[index + 5..index + 7].try_into().ok()?);
+            return Some((i64::from(width), i64::from(height)));
+        }
+        index += length;
+    }
+    None
 }
 
 fn duplicate_path(source: &Path) -> PathBuf {
