@@ -30,6 +30,9 @@ class CabinetSearchProvider : ContentProvider() {
                 "source_kind",
                 "summary",
                 "deep_link",
+                "updated_at",
+                "is_favorite",
+                "is_unsorted",
             ),
         )
         val context = context ?: return cursor
@@ -38,7 +41,7 @@ class CabinetSearchProvider : ContentProvider() {
         }.onSuccess { response ->
             response.results.forEach { item ->
                 cursor.addRow(
-                    arrayOf(
+                    arrayOf<Any>(
                         "Cabinet-STRASSE",
                         item.id,
                         item.title,
@@ -47,6 +50,9 @@ class CabinetSearchProvider : ContentProvider() {
                         item.sourceKind,
                         item.summaryText,
                         "strasse://cabinet/open/${item.id}",
+                        item.updatedAt,
+                        if (item.isFavorite) 1 else 0,
+                        if (item.isUnsorted) 1 else 0,
                     ),
                 )
             }

@@ -5,9 +5,26 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
+import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
+import org.json.JSONArray
+import org.json.JSONObject
 
 class CabinetHomeSummaryProvider : ContentProvider() {
+    private val columns = arrayOf(
+        "app",
+        "recent_count",
+        "inbox_count",
+        "favorite_count",
+        "collection_count",
+        "trash_count",
+        "recent_items_json",
+        "collections_json",
+        "smart_folders_json",
+    )
+
     override fun onCreate(): Boolean = true
 
     override fun query(
@@ -22,15 +39,7 @@ class CabinetHomeSummaryProvider : ContentProvider() {
             CabinetRepository(context).dashboard()
         }.getOrNull()
 
-        return MatrixCursor(
-            arrayOf(
-                "app",
-                "recent_count",
-                "inbox_count",
-                "favorite_count",
-                "collection_count",
-            ),
-        ).apply {
+        return MatrixCursor(columns).apply {
             addRow(
                 arrayOf<Any>(
                     "Cabinet-STRASSE",
@@ -38,6 +47,10 @@ class CabinetHomeSummaryProvider : ContentProvider() {
                     dashboard?.inboxCount ?: 0,
                     dashboard?.favoriteCount ?: 0,
                     dashboard?.collectionCount ?: 0,
+                    dashboard?.trashCount ?: 0,
+                    dashboard?.recentItems.toJson(),
+                    dashboard?.collections.toCollectionJson(),
+                    dashboard?.smartFolders.toSmartFolderJson(),
                 ),
             )
         }
@@ -57,14 +70,50 @@ class CabinetHomeSummaryProvider : ContentProvider() {
     ): Int = 0
 
     private fun emptyCursor(): Cursor {
-        return MatrixCursor(
-            arrayOf(
-                "app",
-                "recent_count",
-                "inbox_count",
-                "favorite_count",
-                "collection_count",
-            ),
-        )
+        return MatrixCursor(columns)
+    }
+
+    private fun List<CabinetItemSummary>?.toJson(): String {
+        val items = this ?: emptyList()
+        return JSONArray(
+            items.map { item ->
+                JSONObject()
+                    .put("id", item.id)
+                    .put("title", item.title)
+                    .put("display_name", item.displayName)
+                    .put("mime_type", item.mimeType)
+                    .put("source_kind", item.sourceKind)
+                    .put("summary", item.summaryText)
+                    .put("updated_at", item.updatedAt)
+                    .put("deep_link", "strasse://cabinet/open/${item.id}")
+            },
+        ).toString()
+    }
+
+    private fun List<CabinetCollectionSummary>?.toCollectionJson(): String {
+        val items = this ?: emptyList()
+        return JSONArray(
+            items.map { collection ->
+                JSONObject()
+                    .put("id", collection.id)
+                    .put("title", collection.title)
+                    .put("item_count", collection.itemCount)
+                    .put("deep_link", "strasse://cabinet/collection/${collection.id}")
+            },
+        ).toString()
+    }
+
+    private fun List<SmartFolderSummary>?.toSmartFolderJson(): String {
+        val items = this ?: emptyList()
+        return JSONArray(
+            items.map { folder ->
+                JSONObject()
+                    .put("id", folder.id)
+                    .put("title", folder.title)
+                    .put("condition", folder.condition)
+                    .put("item_count", folder.itemCount)
+                    .put("deep_link", "strasse://cabinet/smart/${folder.id}")
+            },
+        ).toString()
     }
 }
