@@ -175,10 +175,11 @@ class MainActivity : Activity() {
                 onOpenDirectory = ::openLocalExplorer,
                 onOpenFile = { file -> openViewer(file.absolutePath, mimeTypeFor(file), file.name) },
                 onRegisterFile = { file -> registerLocalExplorerFile(file, directory) },
-                onCopyFile = { file -> copyExplorerFileToInbox(file, directory) },
-                onMoveFile = { file -> moveExplorerFileToInbox(file, directory) },
+                onRenameEntry = { file -> showRenameExplorerEntryDialog(file, directory) },
+                onCopyEntry = { file -> copyExplorerEntryToInbox(file, directory) },
+                onMoveEntry = { file -> moveExplorerEntryToInbox(file, directory) },
                 onCreateFolder = { showCreateExplorerFolderDialog(directory) },
-                onDeleteFile = { file -> deleteExplorerFile(file, directory) },
+                onDeleteEntry = { file -> deleteExplorerEntry(file, directory) },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "Explorerを開けませんでした", Toast.LENGTH_SHORT).show()
@@ -239,13 +240,38 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun copyExplorerFileToInbox(file: File, currentDirectory: File) {
+    private fun showRenameExplorerEntryDialog(file: File, currentDirectory: File) {
+        showTextDialog("名前変更", "新しい名前", "変更") { newName ->
+            renameExplorerEntry(file, currentDirectory, newName)
+        }
+    }
+
+    private fun renameExplorerEntry(file: File, currentDirectory: File, newName: String) {
         runCatching {
-            require(file.exists() && file.isFile) { "コピー対象ファイルが見つかりません" }
+            require(file.exists()) { "名前変更対象が見つかりません" }
+            val parent = file.parentFile ?: currentDirectory
+            val destination = uniqueDestination(parent, sanitizeFileName(newName))
+            check(file.renameTo(destination)) { "名前を変更できませんでした" }
+            destination
+        }.onSuccess {
+            Toast.makeText(this, "名前を変更しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(currentDirectory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "名前を変更できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun copyExplorerEntryToInbox(file: File, currentDirectory: File) {
+        runCatching {
+            require(file.exists()) { "コピー対象が見つかりません" }
             val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
             val destination = uniqueDestination(inboxDir, file.name)
-            file.inputStream().buffered().use { input ->
-                destination.outputStream().buffered().use { output -> input.copyTo(output) }
+            if (file.isDirectory) {
+                check(file.copyRecursively(destination, overwrite = false)) { "フォルダをコピーできませんでした" }
+            } else {
+                file.inputStream().buffered().use { input ->
+                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                }
             }
             destination
         }.onSuccess {
@@ -256,16 +282,21 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun moveExplorerFileToInbox(file: File, currentDirectory: File) {
+    private fun moveExplorerEntryToInbox(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists() && file.isFile) { "移動対象ファイルが見つかりません" }
+            require(file.exists()) { "移動対象が見つかりません" }
             val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
             val destination = uniqueDestination(inboxDir, file.name)
             if (!file.renameTo(destination)) {
-                file.inputStream().buffered().use { input ->
-                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                if (file.isDirectory) {
+                    check(file.copyRecursively(destination, overwrite = false)) { "フォルダを移動できませんでした" }
+                    check(file.deleteRecursively()) { "移動元フォルダを削除できませんでした" }
+                } else {
+                    file.inputStream().buffered().use { input ->
+                        destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                    }
+                    check(file.delete()) { "移動元ファイルを削除できませんでした" }
                 }
-                check(file.delete()) { "移動元ファイルを削除できませんでした" }
             }
             destination
         }.onSuccess {
@@ -276,10 +307,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun deleteExplorerFile(file: File, currentDirectory: File) {
+    private fun deleteExplorerEntry(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists() && file.isFile) { "削除対象ファイルが見つかりません" }
-            check(file.delete()) { "ファイルを削除できませんでした" }
+            require(file.exists()) { "削除対象が見つかりません" }
+            val deleted = if (file.isDirectory) {
+                file.deleteRecursively()
+            } else {
+                file.delete()
+            }
+            check(deleted) { "削除できませんでした" }
         }.onSuccess {
             Toast.makeText(this, "削除しました: ${file.name}", Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)

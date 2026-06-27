@@ -115,10 +115,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenDirectory: (File) -> Unit,
         onOpenFile: (File) -> Unit,
         onRegisterFile: (File) -> Unit,
-        onCopyFile: (File) -> Unit,
-        onMoveFile: (File) -> Unit,
+        onRenameEntry: (File) -> Unit,
+        onCopyEntry: (File) -> Unit,
+        onMoveEntry: (File) -> Unit,
         onCreateFolder: () -> Unit,
-        onDeleteFile: (File) -> Unit,
+        onDeleteEntry: (File) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -141,9 +142,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     onOpenDirectory,
                     onOpenFile,
                     onRegisterFile,
-                    onCopyFile,
-                    onMoveFile,
-                    onDeleteFile,
+                    onRenameEntry,
+                    onCopyEntry,
+                    onMoveEntry,
+                    onDeleteEntry,
                 ),
             )
         }
@@ -455,9 +457,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenDirectory: (File) -> Unit,
         onOpenFile: (File) -> Unit,
         onRegisterFile: (File) -> Unit,
-        onCopyFile: (File) -> Unit,
-        onMoveFile: (File) -> Unit,
-        onDeleteFile: (File) -> Unit,
+        onRenameEntry: (File) -> Unit,
+        onCopyEntry: (File) -> Unit,
+        onMoveEntry: (File) -> Unit,
+        onDeleteEntry: (File) -> Unit,
     ): View {
         return panel {
             isClickable = true
@@ -470,12 +473,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             }
             addView(label(if (entry.isDirectory) "[DIR] ${entry.name}" else entry.name, 16, true))
             addView(label("${entry.kind} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary))
+            addView(command("名前変更") { onRenameEntry(entry.file) })
             if (!entry.isDirectory) {
                 addView(command("Cabinetへ登録") { onRegisterFile(entry.file) })
-                addView(command("Inboxへコピー") { onCopyFile(entry.file) })
-                addView(command("Inboxへ移動") { onMoveFile(entry.file) })
-                addView(command("削除") { onDeleteFile(entry.file) })
             }
+            addView(command("Inboxへコピー") { onCopyEntry(entry.file) })
+            addView(command("Inboxへ移動") { onMoveEntry(entry.file) })
+            addView(command("削除") { onDeleteEntry(entry.file) })
         }
     }
 
