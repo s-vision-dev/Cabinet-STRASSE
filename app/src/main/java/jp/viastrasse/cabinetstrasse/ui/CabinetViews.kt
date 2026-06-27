@@ -286,7 +286,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("保護メモを追加", onAddProtectedMemo))
         content.addView(command("PINで保護メモを表示", onUnlockProtectedMemos))
         content.addView(command("OCR本文を追加", onAddOcrText))
-        content.addView(command("画像OCRを実行", onRunImageOcr))
+        content.addView(command("画像/PDF OCRを実行", onRunImageOcr))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
         content.addView(command("ゴミ箱から復元", onRestoreFromTrash))

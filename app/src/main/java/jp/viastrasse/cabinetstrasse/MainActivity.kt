@@ -1216,32 +1216,38 @@ class MainActivity : Activity() {
 
     private fun runImageOcr(itemId: String, path: String, mimeType: String) {
         val file = File(path)
-        if (!mimeType.startsWith("image/") || !file.exists()) {
-            Toast.makeText(this, "画像ファイルだけOCRを実行できます", Toast.LENGTH_SHORT).show()
+        val isPdf = mimeType == "application/pdf" || file.name.endsWith(".pdf", ignoreCase = true)
+        if ((!mimeType.startsWith("image/") && !isPdf) || !file.exists()) {
+            Toast.makeText(this, "画像またはPDFだけOCRを実行できます", Toast.LENGTH_SHORT).show()
             return
         }
         Toast.makeText(this, "OCRを実行しています", Toast.LENGTH_SHORT).show()
-        OcrTextRecognizer.recognizeImage(
-            context = this,
-            file = file,
-            onSuccess = { text ->
-                if (text.isBlank()) {
-                    Toast.makeText(this, "文字を検出できませんでした", Toast.LENGTH_SHORT).show()
-                    return@recognizeImage
-                }
-                runCatching {
-                    repository.addOcrText(itemId, text, "mlkit-japanese")
-                }.onSuccess {
-                    Toast.makeText(this, "OCR本文を保存しました", Toast.LENGTH_SHORT).show()
-                    openDetail(itemId)
-                }.onFailure { error ->
-                    Toast.makeText(this, error.message ?: "OCR本文を保存できませんでした", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onFailure = { error ->
-                Toast.makeText(this, error.message ?: "OCRを実行できませんでした", Toast.LENGTH_SHORT).show()
-            },
-        )
+        val onSuccess: (String) -> Unit = { text ->
+            if (text.isBlank()) {
+                Toast.makeText(this, "文字を検出できませんでした", Toast.LENGTH_SHORT).show()
+            } else {
+                saveRecognizedText(itemId, text, if (isPdf) "mlkit-pdf-first-page" else "mlkit-japanese")
+            }
+        }
+        val onFailure: (Throwable) -> Unit = { error ->
+            Toast.makeText(this, error.message ?: "OCRを実行できませんでした", Toast.LENGTH_SHORT).show()
+        }
+        if (isPdf) {
+            OcrTextRecognizer.recognizePdfFirstPage(file, onSuccess, onFailure)
+        } else {
+            OcrTextRecognizer.recognizeImage(this, file, onSuccess, onFailure)
+        }
+    }
+
+    private fun saveRecognizedText(itemId: String, text: String, source: String) {
+        runCatching {
+            repository.addOcrText(itemId, text, source)
+        }.onSuccess {
+            Toast.makeText(this, "OCR本文を保存しました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "OCR本文を保存できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun addProtectedMemo(itemId: String, body: String) {
