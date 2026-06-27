@@ -71,6 +71,11 @@ class MainActivity : Activity() {
 
     private fun handleAddDeepLink(uri: Uri) {
         val url = uri.getQueryParameter("url").orEmpty()
+        val fileUri = uri.getQueryParameter("fileUri").orEmpty()
+        if (fileUri.isNotBlank()) {
+            handleAddFileDeepLink(uri, Uri.parse(fileUri))
+            return
+        }
         if (url.isBlank()) {
             openFolderPicker()
             return
@@ -86,6 +91,56 @@ class MainActivity : Activity() {
             openDetail(item.id)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "URLを保存できませんでした", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }
+    }
+
+    private fun handleAddFileDeepLink(requestUri: Uri, fileUri: Uri) {
+        runCatching {
+            val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
+            val displayName = sanitizeFileName(
+                requestUri.getQueryParameter("displayName").orEmpty()
+                    .ifBlank { displayNameForUri(fileUri) },
+            )
+            val destination = uniqueDestination(inboxDir, displayName)
+            when (fileUri.scheme) {
+                "content" -> {
+                    contentResolver.openInputStream(fileUri).use { input ->
+                        requireNotNull(input) { "ファイルを開けませんでした" }
+                        destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                    }
+                    destination
+                }
+                "file", null -> {
+                    val source = if (fileUri.scheme == "file") File(requireNotNull(fileUri.path)) else File(fileUri.toString())
+                    require(source.exists() && source.isFile) { "ファイルが見つかりません" }
+                    source.inputStream().buffered().use { input ->
+                        destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                    }
+                    destination
+                }
+                else -> error("対応していないURIです: ${fileUri.scheme}")
+            }
+        }.onSuccess { file ->
+            runCatching {
+                repository.registerFile(
+                    path = file.absolutePath,
+                    displayName = file.name,
+                    mimeType = requestUri.getQueryParameter("mimeType").orEmpty().ifBlank { mimeTypeFor(file) },
+                    size = file.length(),
+                    sourceKind = requestUri.getQueryParameter("sourceKind").orEmpty().ifBlank { "deeplink-file" },
+                    note = requestUri.getQueryParameter("note").orEmpty().ifBlank { "Deep Linkから保存" },
+                )
+            }.onSuccess { item ->
+                PreviewWorker.enqueue(applicationContext)
+                Toast.makeText(this, "ファイルを保存しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+                openDetail(item.id)
+            }.onFailure { error ->
+                Toast.makeText(this, error.message ?: "ファイルを登録できませんでした", Toast.LENGTH_SHORT).show()
+                renderDashboard()
+            }
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "ファイルを保存できませんでした", Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
