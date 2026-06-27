@@ -9,6 +9,7 @@ import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
+import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
 import java.io.File
 
 class MainActivity : Activity() {
@@ -20,6 +21,7 @@ class MainActivity : Activity() {
         repository = CabinetRepository(applicationContext)
         dashboardView = CabinetDashboardView(this)
         setContentView(dashboardView)
+        FolderWatchWorker.enqueuePeriodic(applicationContext)
         handleDeepLink(intent)
     }
 
@@ -400,6 +402,9 @@ class MainActivity : Activity() {
         if (imported > 0) {
             PreviewWorker.enqueue(applicationContext)
         }
+        FolderWatchWorker.rememberFolder(applicationContext, treeUri, root)
+        FolderWatchWorker.enqueuePeriodic(applicationContext)
+        FolderWatchWorker.enqueueNow(applicationContext)
         Toast.makeText(this, "${imported}件を取り込みました", Toast.LENGTH_SHORT).show()
         renderDashboard()
     }
