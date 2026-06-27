@@ -883,6 +883,24 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn remove_tag_from_item_json(&self, item_id: &str, tag_id: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        self.conn.execute(
+            "DELETE FROM cabinet_item_tags WHERE item_id = ?1 AND tag_id = ?2",
+            params![item_id, tag_id],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.TagUpdated",
+            Some(item_id),
+            serde_json::json!({
+                "tag_id": tag_id,
+                "removed": true,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn add_item_to_collection_json(
         &self,
         item_id: &str,

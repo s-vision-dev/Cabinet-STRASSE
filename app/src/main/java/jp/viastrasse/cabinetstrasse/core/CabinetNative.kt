@@ -41,6 +41,8 @@ object CabinetNative {
 
     external fun addTagToItemJson(databasePath: String, itemId: String, tagName: String, color: String): String
 
+    external fun removeTagFromItemJson(databasePath: String, itemId: String, tagId: String): String
+
     external fun addItemToCollectionJson(databasePath: String, itemId: String, collectionTitle: String): String
 
     external fun removeItemFromCollectionJson(databasePath: String, itemId: String, collectionId: String): String

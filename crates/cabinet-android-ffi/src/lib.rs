@@ -198,6 +198,27 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addT
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_removeTagFromItemJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    tag_id: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let tag_id_value = match jstring_value(&mut env, &tag_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.remove_tag_from_item_json(&item_id_value, &tag_id_value)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addItemToCollectionJson(
     mut env: JNIEnv,
     _class: JClass,

@@ -338,6 +338,9 @@ class MainActivity : Activity() {
                         addTag(itemId, tagName)
                     }
                 },
+                onRemoveTag = { tagId ->
+                    removeTag(itemId, tagId)
+                },
                 onAddCollection = {
                     showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
                         addToCollection(itemId, collectionTitle)
@@ -422,6 +425,9 @@ class MainActivity : Activity() {
                         addTag(itemId, tagName)
                     }
                 },
+                onRemoveTag = { tagId ->
+                    removeTag(itemId, tagId)
+                },
                 onAddCollection = {
                     showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
                         addToCollection(itemId, collectionTitle)
@@ -491,6 +497,16 @@ class MainActivity : Activity() {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "タグを追加できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun removeTag(itemId: String, tagId: String) {
+        runCatching {
+            repository.removeTag(itemId, tagId)
+        }.onSuccess {
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "タグを外せませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -180,6 +180,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onToggleFavorite: () -> Unit,
         onMarkSorted: () -> Unit,
         onAddTag: () -> Unit,
+        onRemoveTag: (String) -> Unit,
         onAddCollection: () -> Unit,
         onRemoveCollection: (String) -> Unit,
         onMoveTrash: () -> Unit,
@@ -226,7 +227,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         if (detail.tags.isEmpty()) {
             content.addView(label("タグはまだありません", 13, false, CabinetColors.TextSecondary))
         } else {
-            content.addView(label(detail.tags.joinToString(" / ") { it.name }, 13, false, CabinetColors.TextSecondary))
+            detail.tags.forEach { tag ->
+                content.addView(panel {
+                    addView(label(tag.name, 15, true))
+                    addView(label(tag.color, 12, false, CabinetColors.TextSecondary))
+                    addView(command("タグを外す") { onRemoveTag(tag.id) })
+                })
+            }
         }
         content.addView(section("Collections"))
         if (detail.collections.isEmpty()) {

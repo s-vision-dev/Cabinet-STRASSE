@@ -85,6 +85,10 @@ class CabinetRepository(context: Context) {
         )
     }
 
+    fun removeTag(itemId: String, tagId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.removeTagFromItemJson(databasePath, itemId, tagId))
+    }
+
     fun addToCollection(itemId: String, collectionTitle: String): CabinetItemDetail {
         return CabinetJsonParser.detail(
             CabinetNative.addItemToCollectionJson(databasePath, itemId, collectionTitle),
