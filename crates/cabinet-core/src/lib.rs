@@ -449,6 +449,9 @@ impl CabinetCore {
         if let Some(folder_id) = normalized.strip_prefix("smart:") {
             return self.smart_folder_mode_json(folder_id);
         }
+        if let Some(collection_id) = normalized.strip_prefix("collection:") {
+            return self.collection_mode_json(collection_id);
+        }
         let response = match normalized.as_str() {
             "explorer" => ModeResponse {
                 mode: "Explorer".to_owned(),
@@ -548,6 +551,31 @@ impl CabinetCore {
             mode: "Smart Folder".to_owned(),
             title,
             items: self.query_items(&sql, [])?,
+            collections: Vec::new(),
+            smart_folders: Vec::new(),
+        };
+        Ok(serde_json::to_string(&response)?)
+    }
+
+    fn collection_mode_json(&self, collection_id: &str) -> CabinetResult<String> {
+        let title: String = self.conn.query_row(
+            "SELECT title FROM cabinet_collections WHERE id = ?1",
+            params![collection_id],
+            |row| row.get(0),
+        )?;
+        let response = ModeResponse {
+            mode: "Collection".to_owned(),
+            title,
+            items: self.query_items(
+                "SELECT i.id, i.title, i.display_name, i.mime_type, i.source_kind, i.size,
+                        i.is_favorite, i.is_unsorted, i.note, i.updated_at
+                 FROM cabinet_collection_items ci
+                 JOIN cabinet_items i ON i.id = ci.item_id
+                 WHERE ci.collection_id = ?1 AND i.is_archived = 0
+                 ORDER BY ci.added_at DESC, i.title ASC
+                 LIMIT 100",
+                params![collection_id],
+            )?,
             collections: Vec::new(),
             smart_folders: Vec::new(),
         };

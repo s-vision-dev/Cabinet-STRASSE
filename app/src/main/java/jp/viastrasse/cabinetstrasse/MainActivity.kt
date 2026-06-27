@@ -139,6 +139,7 @@ class MainActivity : Activity() {
                 mode = it,
                 onBack = ::renderDashboard,
                 onItemSelected = ::openDetail,
+                onCollectionSelected = { collection -> openMode("collection:${collection.id}") },
                 onSmartFolderSelected = { folder -> openMode("smart:${folder.id}") },
             )
         }.onFailure { error ->

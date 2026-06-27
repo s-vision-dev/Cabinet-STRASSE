@@ -67,7 +67,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(section("最近の資料"))
         dashboard.recentItems.forEach { content.addView(itemRow(it, onItemSelected)) }
         content.addView(section("Collection"))
-        dashboard.collections.forEach { content.addView(collectionRow(it)) }
+        dashboard.collections.forEach { collection ->
+            content.addView(collectionRow(collection) { selected ->
+                onModeSelected(CabinetMode("collection:${selected.id}", selected.itemCount, selected.title))
+            })
+        }
         content.addView(section("Smart Folder"))
         dashboard.smartFolders.forEach { content.addView(smartFolderRow(it) { folder -> onModeSelected(CabinetMode("smart:${folder.id}", folder.itemCount, folder.condition)) }) }
     }
@@ -82,6 +86,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         mode: ModeResponse,
         onBack: () -> Unit,
         onItemSelected: (String) -> Unit,
+        onCollectionSelected: (CabinetCollectionSummary) -> Unit,
         onSmartFolderSelected: (SmartFolderSummary) -> Unit,
     ) {
         content.removeAllViews()
@@ -94,7 +99,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
         if (mode.collections.isNotEmpty()) {
             content.addView(section("Collection"))
-            mode.collections.forEach { content.addView(collectionRow(it)) }
+            mode.collections.forEach { content.addView(collectionRow(it, onCollectionSelected)) }
         }
         if (mode.smartFolders.isNotEmpty()) {
             content.addView(section("Smart Folder"))
@@ -386,8 +391,15 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun collectionRow(collection: CabinetCollectionSummary): View {
+    private fun collectionRow(
+        collection: CabinetCollectionSummary,
+        onCollectionSelected: ((CabinetCollectionSummary) -> Unit)? = null,
+    ): View {
         return panel {
+            if (onCollectionSelected != null) {
+                isClickable = true
+                setOnClickListener { onCollectionSelected(collection) }
+            }
             addView(label(collection.title, 15, true))
             addView(label("${collection.itemCount} items", 12, false, CabinetColors.TextSecondary))
         }
