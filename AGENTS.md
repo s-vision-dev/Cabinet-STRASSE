@@ -30,6 +30,12 @@
 - Use about three lines of meaningful detail, not only a short title.
 - Mention the implemented feature, the main technical change, and the verification or version/build-number update when relevant.
 
+## Git Scope
+
+- Do not run `git add`, `git commit`, `git revert`, `git reset`, `git push`, or any other Git history/index operation in repositories outside `D:\Cabinet-STRASSE`.
+- Other STRASSE app directories may be read or may receive user-requested instruction files, but their Git repositories must never be modified unless the user explicitly names that repository and explicitly orders a Git operation for it in the same request.
+- When this project needs coordination notes for other apps, create or edit the requested files only; leave commit, revert, push, and staging in those repositories to the user.
+
 ## Release Build
 
 - When the user says `リリースビルド`, run `pwsh -ExecutionPolicy Bypass -File scripts/release_build.ps1`.
