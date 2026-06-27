@@ -1,0 +1,666 @@
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::path::Path;
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+const SCHEMA_VERSION: i64 = 1;
+
+#[derive(Debug)]
+pub enum CabinetError {
+    Sqlite(rusqlite::Error),
+    Json(serde_json::Error),
+}
+
+impl std::fmt::Display for CabinetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sqlite(error) => write!(f, "{error}"),
+            Self::Json(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for CabinetError {}
+
+impl From<rusqlite::Error> for CabinetError {
+    fn from(value: rusqlite::Error) -> Self {
+        Self::Sqlite(value)
+    }
+}
+
+impl From<serde_json::Error> for CabinetError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::Json(value)
+    }
+}
+
+pub type CabinetResult<T> = Result<T, CabinetError>;
+
+#[derive(Serialize)]
+pub struct CabinetDashboard {
+    pub version: i64,
+    pub explorer_count: i64,
+    pub library_count: i64,
+    pub collection_count: i64,
+    pub inbox_count: i64,
+    pub favorite_count: i64,
+    pub recent_items: Vec<CabinetItemSummary>,
+    pub collections: Vec<CabinetCollectionSummary>,
+    pub smart_folders: Vec<SmartFolderSummary>,
+}
+
+#[derive(Serialize)]
+pub struct CabinetItemSummary {
+    pub id: String,
+    pub title: String,
+    pub display_name: String,
+    pub mime_type: String,
+    pub source_kind: String,
+    pub size: i64,
+    pub is_favorite: bool,
+    pub is_unsorted: bool,
+    pub summary_text: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize)]
+pub struct CabinetCollectionSummary {
+    pub id: String,
+    pub title: String,
+    pub item_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct SmartFolderSummary {
+    pub id: String,
+    pub title: String,
+    pub condition: String,
+    pub item_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct SearchResponse {
+    pub query: String,
+    pub results: Vec<CabinetItemSummary>,
+}
+
+pub struct CabinetCore {
+    conn: Connection,
+}
+
+impl CabinetCore {
+    pub fn open(path: impl AsRef<Path>) -> CabinetResult<Self> {
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "busy_timeout", 5000)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        let core = Self { conn };
+        core.migrate()?;
+        core.seed_reference_data()?;
+        Ok(core)
+    }
+
+    pub fn dashboard_json(&self) -> CabinetResult<String> {
+        let dashboard = self.dashboard()?;
+        Ok(serde_json::to_string(&dashboard)?)
+    }
+
+    pub fn search_json(&self, query: &str) -> CabinetResult<String> {
+        let response = SearchResponse {
+            query: query.to_owned(),
+            results: self.search(query)?,
+        };
+        Ok(serde_json::to_string(&response)?)
+    }
+
+    pub fn register_url_json(&self, url: &str, title: &str, note: &str) -> CabinetResult<String> {
+        let now = now_string();
+        let id = new_id();
+        let file_hash = hash_text(url);
+        self.conn.execute(
+            "INSERT INTO cabinet_items (
+                id, file_id, document_id, title, display_name, mime_type, path, source_kind,
+                size, hash, created_at, updated_at, last_opened_at, is_favorite, is_archived,
+                is_unsorted, note
+            ) VALUES (?1, NULL, NULL, ?2, ?3, 'text/uri-list', ?4, 'url', 0, ?5, ?6, ?6, NULL, 0, 0, 1, ?7)",
+            params![id, title, title, url, file_hash, now, note],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_previews (
+                id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                page_count, duration, width, height, generated_at, status
+            ) VALUES (?1, ?2, 'url', ?3, ?4, NULL, ?4, NULL, NULL, NULL, NULL, ?5, 'ready')",
+            params![new_id(), id, title, note, now],
+        )?;
+        self.rebuild_fts_for_item(&id)?;
+        let item = self.item_by_id(&id)?.expect("inserted item must exist");
+        Ok(serde_json::to_string(&item)?)
+    }
+
+    fn migrate(&self) -> CabinetResult<()> {
+        self.conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS schema_info (
+                version INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_files (
+                id TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                original_file_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size INTEGER NOT NULL DEFAULT 0,
+                hash TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                storage_type TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS remote_file_references (
+                id TEXT PRIMARY KEY,
+                provider_account_id TEXT NOT NULL,
+                remote_file_id TEXT NOT NULL,
+                remote_path TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size INTEGER NOT NULL DEFAULT 0,
+                modified_at TEXT,
+                etag TEXT,
+                web_url TEXT,
+                is_cached INTEGER NOT NULL DEFAULT 0,
+                cached_file_path TEXT,
+                last_synced_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_documents (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                current_version_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active'
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_versions (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL,
+                file_id TEXT,
+                display_name TEXT NOT NULL,
+                original_file_name TEXT NOT NULL,
+                registered_at TEXT NOT NULL,
+                source_app TEXT,
+                source_id TEXT,
+                note TEXT NOT NULL DEFAULT '',
+                is_current INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(document_id) REFERENCES cabinet_documents(id) ON DELETE CASCADE,
+                FOREIGN KEY(file_id) REFERENCES cabinet_files(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_items (
+                id TEXT PRIMARY KEY,
+                file_id TEXT,
+                document_id TEXT,
+                remote_file_reference_id TEXT,
+                title TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                path TEXT NOT NULL DEFAULT '',
+                source_kind TEXT NOT NULL DEFAULT 'local',
+                size INTEGER NOT NULL DEFAULT 0,
+                hash TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_opened_at TEXT,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                is_archived INTEGER NOT NULL DEFAULT 0,
+                is_unsorted INTEGER NOT NULL DEFAULT 1,
+                note TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(file_id) REFERENCES cabinet_files(id) ON DELETE SET NULL,
+                FOREIGN KEY(document_id) REFERENCES cabinet_documents(id) ON DELETE SET NULL,
+                FOREIGN KEY(remote_file_reference_id) REFERENCES remote_file_references(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_tags (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                color TEXT NOT NULL DEFAULT '#607D8B',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_item_tags (
+                item_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                PRIMARY KEY(item_id, tag_id),
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE,
+                FOREIGN KEY(tag_id) REFERENCES cabinet_tags(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_collections (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_collection_items (
+                collection_id TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY(collection_id, item_id),
+                FOREIGN KEY(collection_id) REFERENCES cabinet_collections(id) ON DELETE CASCADE,
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_references (
+                id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                reference_type TEXT NOT NULL,
+                source_app TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                uri TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_previews (
+                id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                preview_type TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                summary_text TEXT NOT NULL DEFAULT '',
+                thumbnail_path TEXT,
+                extracted_text TEXT NOT NULL DEFAULT '',
+                page_count INTEGER,
+                duration INTEGER,
+                width INTEGER,
+                height INTEGER,
+                generated_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS cabinet_memos (
+                id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                body TEXT NOT NULL,
+                is_protected INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS smart_folders (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                condition_sql TEXT NOT NULL,
+                display_condition TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS cabinet_fts USING fts5(
+                item_id UNINDEXED,
+                title,
+                display_name,
+                mime_type,
+                tags,
+                collections,
+                note,
+                preview_text,
+                references_text,
+                tokenize='unicode61'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cabinet_items_updated ON cabinet_items(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_cabinet_items_mime ON cabinet_items(mime_type);
+            CREATE INDEX IF NOT EXISTS idx_cabinet_items_unsorted ON cabinet_items(is_unsorted);
+            CREATE INDEX IF NOT EXISTS idx_cabinet_versions_document ON cabinet_versions(document_id, version_number DESC);
+            CREATE INDEX IF NOT EXISTS idx_cabinet_previews_item ON cabinet_previews(item_id);
+            ",
+        )?;
+
+        let current: Option<i64> = self
+            .conn
+            .query_row("SELECT version FROM schema_info LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        if current.is_none() {
+            self.conn.execute(
+                "INSERT INTO schema_info(version) VALUES (?1)",
+                params![SCHEMA_VERSION],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn seed_reference_data(&self) -> CabinetResult<()> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM cabinet_items", [], |row| row.get(0))?;
+        if count > 0 {
+            return Ok(());
+        }
+
+        let now = now_string();
+        let samples = [
+            (
+                "Cabinet-STRASSE 理想形設計書",
+                "cabinet-strasse-design-v2.md",
+                "text/markdown",
+                "local",
+                "Explorer / Library / Collection / Smart Folder / Inbox / Search を統合する基準資料。",
+                true,
+            ),
+            (
+                "Azure App Service 調査資料",
+                "azure-app-service.pdf",
+                "application/pdf",
+                "local",
+                "プレビュー生成、OCR、Collection、Atelier参照の確認用PDF。",
+                false,
+            ),
+            (
+                "Mail 添付 ZIP と保護メモ",
+                "customer-attachment.zip",
+                "application/zip",
+                "mail",
+                "PPAP対応のため、元メールとパスワード通知メールを別参照として保持する。",
+                false,
+            ),
+            (
+                "Microsoft Learn URL",
+                "https://learn.microsoft.com/",
+                "text/uri-list",
+                "url",
+                "URLも資料として扱い、タイトル、説明、サムネイル、メモ、Collectionを保持する。",
+                true,
+            ),
+        ];
+
+        let collection_id = new_id();
+        self.conn.execute(
+            "INSERT INTO cabinet_collections(id, title, description, created_at, updated_at) VALUES (?1, 'STRASSE設計資料', 'CabinetとSTRASSEファミリーの設計資料', ?2, ?2)",
+            params![collection_id, now],
+        )?;
+
+        for (idx, sample) in samples.iter().enumerate() {
+            let item_id = new_id();
+            let path = if sample.3 == "url" {
+                sample.1.to_owned()
+            } else {
+                format!("/virtual/cabinet/{}", sample.1)
+            };
+            self.conn.execute(
+                "INSERT INTO cabinet_items (
+                    id, file_id, document_id, title, display_name, mime_type, path, source_kind,
+                    size, hash, created_at, updated_at, last_opened_at, is_favorite, is_archived,
+                    is_unsorted, note
+                ) VALUES (?1, NULL, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, NULL, ?10, 0, ?11, ?12)",
+                params![
+                    item_id,
+                    sample.0,
+                    sample.1,
+                    sample.2,
+                    path,
+                    sample.3,
+                    1024 * (idx as i64 + 1),
+                    hash_text(sample.1),
+                    now,
+                    if sample.5 { 1 } else { 0 },
+                    if idx == 0 { 0 } else { 1 },
+                    sample.4,
+                ],
+            )?;
+            self.conn.execute(
+                "INSERT INTO cabinet_previews (
+                    id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                    page_count, duration, width, height, generated_at, status
+                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?5, NULL, NULL, NULL, NULL, ?6, 'ready')",
+                params![
+                    new_id(),
+                    item_id,
+                    preview_type_for_mime(sample.2),
+                    sample.0,
+                    sample.4,
+                    now
+                ],
+            )?;
+            self.conn.execute(
+                "INSERT INTO cabinet_collection_items(collection_id, item_id, added_at) VALUES (?1, ?2, ?3)",
+                params![collection_id, item_id, now],
+            )?;
+            self.rebuild_fts_for_item(&item_id)?;
+        }
+
+        let folders = [
+            ("unsorted", "未整理Inbox", "is_unsorted = 1"),
+            ("favorites", "お気に入り", "is_favorite = 1"),
+            ("pdf", "PDF", "mime_type = 'application/pdf'"),
+            ("url", "URL", "mime_type = 'text/uri-list'"),
+        ];
+        for (id, title, sql) in folders {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO smart_folders(id, title, condition_sql, display_condition, created_at) VALUES (?1, ?2, ?3, ?3, ?4)",
+                params![id, title, sql, now],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn dashboard(&self) -> CabinetResult<CabinetDashboard> {
+        Ok(CabinetDashboard {
+            version: self
+                .conn
+                .query_row("SELECT version FROM schema_info LIMIT 1", [], |row| row.get(0))?,
+            explorer_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE source_kind IN ('local', 'mail')")?,
+            library_count: self.scalar("SELECT COUNT(*) FROM cabinet_items")?,
+            collection_count: self.scalar("SELECT COUNT(*) FROM cabinet_collections")?,
+            inbox_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_unsorted = 1")?,
+            favorite_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_favorite = 1")?,
+            recent_items: self.query_items(
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                 FROM cabinet_items
+                 ORDER BY updated_at DESC, title ASC
+                 LIMIT 12",
+                [],
+            )?,
+            collections: self.collections()?,
+            smart_folders: self.smart_folders()?,
+        })
+    }
+
+    fn search(&self, query: &str) -> CabinetResult<Vec<CabinetItemSummary>> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return self.query_items(
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                 FROM cabinet_items
+                 ORDER BY updated_at DESC, title ASC
+                 LIMIT 50",
+                [],
+            );
+        }
+
+        let fts_query = trimmed
+            .split_whitespace()
+            .map(|part| format!("{}*", escape_fts_token(part)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut stmt = self.conn.prepare(
+            "SELECT i.id, i.title, i.display_name, i.mime_type, i.source_kind, i.size,
+                    i.is_favorite, i.is_unsorted, i.note, i.updated_at
+             FROM cabinet_fts f
+             JOIN cabinet_items i ON i.id = f.item_id
+             WHERE cabinet_fts MATCH ?1
+             ORDER BY rank
+             LIMIT 50",
+        )?;
+        let rows = stmt.query_map(params![fts_query], read_item_summary)?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row?);
+        }
+        Ok(items)
+    }
+
+    fn collections(&self) -> CabinetResult<Vec<CabinetCollectionSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.title, COUNT(ci.item_id)
+             FROM cabinet_collections c
+             LEFT JOIN cabinet_collection_items ci ON ci.collection_id = c.id
+             GROUP BY c.id, c.title
+             ORDER BY c.updated_at DESC, c.title ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(CabinetCollectionSummary {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                item_count: row.get(2)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn smart_folders(&self) -> CabinetResult<Vec<SmartFolderSummary>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title, condition_sql, display_condition FROM smart_folders ORDER BY title ASC")?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let condition_sql: String = row.get(2)?;
+            let display_condition: String = row.get(3)?;
+            Ok((id, title, condition_sql, display_condition))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            let (id, title, condition_sql, display_condition) = row?;
+            let sql = format!("SELECT COUNT(*) FROM cabinet_items WHERE {condition_sql}");
+            let item_count = self.scalar(&sql)?;
+            result.push(SmartFolderSummary {
+                id,
+                title,
+                condition: display_condition,
+                item_count,
+            });
+        }
+        Ok(result)
+    }
+
+    fn item_by_id(&self, id: &str) -> CabinetResult<Option<CabinetItemSummary>> {
+        self.conn
+            .query_row(
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                 FROM cabinet_items WHERE id = ?1",
+                params![id],
+                read_item_summary,
+            )
+            .optional()
+            .map_err(CabinetError::from)
+    }
+
+    fn query_items<P>(&self, sql: &str, params: P) -> CabinetResult<Vec<CabinetItemSummary>>
+    where
+        P: rusqlite::Params,
+    {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(params, read_item_summary)?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row?);
+        }
+        Ok(items)
+    }
+
+    fn scalar(&self, sql: &str) -> CabinetResult<i64> {
+        self.conn
+            .query_row(sql, [], |row| row.get(0))
+            .map_err(CabinetError::from)
+    }
+
+    fn rebuild_fts_for_item(&self, item_id: &str) -> CabinetResult<()> {
+        self.conn.execute(
+            "DELETE FROM cabinet_fts WHERE item_id = ?1",
+            params![item_id],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_fts(item_id, title, display_name, mime_type, tags, collections, note, preview_text, references_text)
+             SELECT i.id,
+                    i.title,
+                    i.display_name,
+                    i.mime_type,
+                    COALESCE((SELECT group_concat(t.name, ' ') FROM cabinet_item_tags it JOIN cabinet_tags t ON t.id = it.tag_id WHERE it.item_id = i.id), ''),
+                    COALESCE((SELECT group_concat(c.title, ' ') FROM cabinet_collection_items ci JOIN cabinet_collections c ON c.id = ci.collection_id WHERE ci.item_id = i.id), ''),
+                    i.note,
+                    COALESCE((SELECT group_concat(p.summary_text || ' ' || p.extracted_text, ' ') FROM cabinet_previews p WHERE p.item_id = i.id), ''),
+                    COALESCE((SELECT group_concat(r.title || ' ' || r.note, ' ') FROM cabinet_references r WHERE r.item_id = i.id), '')
+             FROM cabinet_items i
+             WHERE i.id = ?1",
+            params![item_id],
+        )?;
+        Ok(())
+    }
+}
+
+fn read_item_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CabinetItemSummary> {
+    Ok(CabinetItemSummary {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        display_name: row.get(2)?,
+        mime_type: row.get(3)?,
+        source_kind: row.get(4)?,
+        size: row.get(5)?,
+        is_favorite: row.get::<_, i64>(6)? != 0,
+        is_unsorted: row.get::<_, i64>(7)? != 0,
+        summary_text: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+fn now_string() -> String {
+    OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned())
+}
+
+fn new_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn hash_text(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn preview_type_for_mime(mime_type: &str) -> &'static str {
+    match mime_type {
+        "application/pdf" => "pdf",
+        "text/markdown" => "markdown",
+        "text/uri-list" => "url",
+        "application/zip" => "archive",
+        _ if mime_type.starts_with("image/") => "image",
+        _ if mime_type.starts_with("video/") => "video",
+        _ if mime_type.starts_with("audio/") => "audio",
+        _ => "text",
+    }
+}
+
+fn escape_fts_token(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c as u32 >= 0x80)
+        .collect()
+}
