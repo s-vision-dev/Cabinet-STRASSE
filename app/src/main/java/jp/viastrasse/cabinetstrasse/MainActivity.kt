@@ -200,6 +200,12 @@ class MainActivity : Activity() {
                 onProtectItem = {
                     protectItem(itemId)
                 },
+                onRestoreFromTrash = {
+                    restoreFromTrash(itemId)
+                },
+                onDeletePermanently = {
+                    deletePermanently(itemId)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -265,6 +271,12 @@ class MainActivity : Activity() {
                 onProtectItem = {
                     protectItem(itemId)
                 },
+                onRestoreFromTrash = {
+                    restoreFromTrash(itemId)
+                },
+                onDeletePermanently = {
+                    deletePermanently(itemId)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "資料を更新できませんでした", Toast.LENGTH_SHORT).show()
@@ -299,6 +311,28 @@ class MainActivity : Activity() {
             renderDashboard()
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun restoreFromTrash(itemId: String) {
+        runCatching {
+            repository.restoreFromTrash(itemId)
+        }.onSuccess {
+            Toast.makeText(this, "復元しました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "復元できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun deletePermanently(itemId: String) {
+        runCatching {
+            repository.deletePermanently(itemId)
+        }.onSuccess {
+            Toast.makeText(this, "完全削除しました", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "完全削除できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

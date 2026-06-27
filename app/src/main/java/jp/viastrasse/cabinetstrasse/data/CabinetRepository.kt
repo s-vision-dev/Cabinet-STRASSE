@@ -84,6 +84,15 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.moveItemToTrashJson(databasePath, itemId))
     }
 
+    fun restoreFromTrash(itemId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.restoreItemFromTrashJson(databasePath, itemId))
+    }
+
+    fun deletePermanently(itemId: String): Boolean {
+        val json = CabinetNative.deleteItemPermanentlyJson(databasePath, itemId)
+        return json.contains("\"deleted\":true")
+    }
+
     fun duplicateItem(itemId: String): CabinetItemSummary {
         val json = CabinetNative.duplicateItemJson(databasePath, itemId)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()

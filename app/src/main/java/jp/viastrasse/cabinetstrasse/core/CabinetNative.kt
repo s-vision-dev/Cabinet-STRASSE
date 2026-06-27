@@ -38,6 +38,10 @@ object CabinetNative {
 
     external fun moveItemToTrashJson(databasePath: String, itemId: String): String
 
+    external fun restoreItemFromTrashJson(databasePath: String, itemId: String): String
+
+    external fun deleteItemPermanentlyJson(databasePath: String, itemId: String): String
+
     external fun duplicateItemJson(databasePath: String, itemId: String): String
 
     external fun renameItemJson(databasePath: String, itemId: String, newDisplayName: String): String

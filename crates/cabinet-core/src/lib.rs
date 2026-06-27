@@ -915,6 +915,57 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn restore_item_from_trash_json(&self, item_id: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        self.conn.execute(
+            "UPDATE cabinet_items SET is_archived = 0, updated_at = ?1 WHERE id = ?2",
+            params![now, item_id],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_memos(id, item_id, body, is_protected, created_at, updated_at)
+             VALUES (?1, ?2, 'Restored from Cabinet trash', 0, ?3, ?3)",
+            params![new_id(), item_id, now],
+        )?;
+        self.rebuild_fts_for_item(item_id)?;
+        self.log_event(
+            "Cabinet.ItemRestored",
+            Some(item_id),
+            serde_json::json!({
+                "trash": false,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
+    pub fn delete_item_permanently_json(&self, item_id: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let file_paths = self.file_paths_for_item(item_id)?;
+        self.conn.execute(
+            "DELETE FROM cabinet_fts WHERE item_id = ?1",
+            params![item_id],
+        )?;
+        self.conn
+            .execute("DELETE FROM cabinet_items WHERE id = ?1", params![item_id])?;
+        for path in file_paths {
+            if !path.is_empty() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        self.log_event(
+            "Cabinet.ItemDeleted",
+            Some(item_id),
+            serde_json::json!({
+                "permanent": true,
+            }),
+        )?;
+        Ok(serde_json::json!({
+            "deleted": true,
+            "item_id": item_id,
+        })
+        .to_string())
+    }
+
     pub fn add_reference_json(
         &self,
         item_id: &str,
@@ -2045,6 +2096,36 @@ impl CabinetCore {
             return Err(CabinetError::Message(format!("Item not found: {item_id}")));
         }
         Ok(())
+    }
+
+    fn file_paths_for_item(&self, item_id: &str) -> CabinetResult<Vec<String>> {
+        let mut paths = Vec::new();
+        if let Some(path) = self
+            .conn
+            .query_row(
+                "SELECT NULLIF(path, '') FROM cabinet_items WHERE id = ?1",
+                params![item_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+        {
+            paths.push(path);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path
+             FROM cabinet_items i
+             JOIN cabinet_files f ON f.id = i.file_id
+             WHERE i.id = ?1 AND f.path <> ''",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let path = row?;
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+        Ok(paths)
     }
 
     fn query_items<P>(&self, sql: &str, params: P) -> CabinetResult<Vec<CabinetItemSummary>>

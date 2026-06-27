@@ -137,6 +137,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddAtelierReference: () -> Unit,
         onAddProtectedMemo: () -> Unit,
         onProtectItem: () -> Unit,
+        onRestoreFromTrash: () -> Unit,
+        onDeletePermanently: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← 戻る", onBack))
@@ -185,6 +187,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("保護メモを追加", onAddProtectedMemo))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
+        content.addView(command("ゴミ箱から復元", onRestoreFromTrash))
+        content.addView(command("完全削除", onDeletePermanently))
         content.addView(section("Preview"))
         detail.previews.forEach { preview ->
             content.addView(panel {
