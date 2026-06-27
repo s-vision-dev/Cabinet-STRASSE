@@ -2,11 +2,14 @@ package jp.viastrasse.cabinetstrasse
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
+import java.io.File
 
 class MainActivity : Activity() {
     private lateinit var repository: CabinetRepository
@@ -30,9 +33,27 @@ class MainActivity : Activity() {
         runCatching {
             repository.dashboard()
         }.onSuccess { dashboard ->
-            dashboardView.render(dashboard, { mode -> openMode(mode.name) }, ::openDetail)
+            dashboardView.render(
+                dashboard,
+                { mode -> openMode(mode.name) },
+                ::openDetail,
+                ::openFolderPicker,
+            )
         }.onFailure { error ->
             dashboardView.renderError(error.message ?: "Cabinet core の初期化に失敗しました。")
+        }
+    }
+
+    @Deprecated("Used for platform SAF interop without ActivityX dependency.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_OPEN_TREE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+            importFolder(uri)
         }
     }
 
@@ -227,6 +248,67 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun openFolderPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        startActivityForResult(intent, REQUEST_OPEN_TREE)
+    }
+
+    private fun importFolder(treeUri: Uri) {
+        val root = DocumentFile.fromTreeUri(this, treeUri) ?: return
+        val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
+        var imported = 0
+        root.listFiles()
+            .filter { it.isFile }
+            .forEach { document ->
+                runCatching {
+                    val displayName = sanitizeFileName(document.name ?: "document")
+                    val destination = uniqueDestination(inboxDir, displayName)
+                    contentResolver.openInputStream(document.uri).use { input ->
+                        requireNotNull(input) { "Input stream is null." }
+                        destination.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    repository.registerFile(
+                        path = destination.absolutePath,
+                        displayName = displayName,
+                        mimeType = document.type ?: "application/octet-stream",
+                        size = destination.length(),
+                        sourceKind = "saf-folder",
+                        note = "SAFフォルダから取り込み",
+                    )
+                }.onSuccess {
+                    imported += 1
+                }
+            }
+        if (imported > 0) {
+            PreviewWorker.enqueue(applicationContext)
+        }
+        Toast.makeText(this, "${imported}件を取り込みました", Toast.LENGTH_SHORT).show()
+        renderDashboard()
+    }
+
+    private fun uniqueDestination(directory: File, displayName: String): File {
+        val base = displayName.substringBeforeLast('.', displayName)
+        val extension = displayName.substringAfterLast('.', "")
+        var candidate = File(directory, displayName)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = if (extension.isBlank()) {
+                File(directory, "$base-$index")
+            } else {
+                File(directory, "$base-$index.$extension")
+            }
+            index += 1
+        }
+        return candidate
+    }
+
+    private fun sanitizeFileName(value: String): String {
+        return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "document" }
+    }
+
     private fun processPreviewQueue() {
         runCatching {
             PreviewWorker.enqueue(applicationContext)
@@ -265,5 +347,9 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "バックアップに失敗しました", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    companion object {
+        private const val REQUEST_OPEN_TREE = 2401
     }
 }

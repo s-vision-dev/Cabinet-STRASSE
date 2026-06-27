@@ -35,7 +35,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         )
     }
 
-    fun render(dashboard: CabinetDashboard, onModeSelected: (CabinetMode) -> Unit, onItemSelected: (String) -> Unit) {
+    fun render(
+        dashboard: CabinetDashboard,
+        onModeSelected: (CabinetMode) -> Unit,
+        onItemSelected: (String) -> Unit,
+        onImportFolder: () -> Unit,
+    ) {
         content.removeAllViews()
         content.addView(title("Cabinet-STRASSE"))
         content.addView(subtitle("The Cabinet / Powered by VIASTRASSE"))
@@ -53,6 +58,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 onModeSelected,
             ),
         )
+        content.addView(command("SAFフォルダから取り込む", onImportFolder))
         content.addView(section("最近の資料"))
         dashboard.recentItems.forEach { content.addView(itemRow(it, onItemSelected)) }
         content.addView(section("Collection"))
