@@ -237,6 +237,26 @@ class MainActivity : Activity() {
             openLocalExplorer(explorerRoots().first())
             return
         }
+        if (mode == "Downloads") {
+            openPublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            return
+        }
+        if (mode == "Documents") {
+            openPublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            return
+        }
+        if (mode == "Pictures") {
+            openPublicDirectory(Environment.DIRECTORY_PICTURES)
+            return
+        }
+        if (mode == "Movies") {
+            openPublicDirectory(Environment.DIRECTORY_MOVIES)
+            return
+        }
+        if (mode == "Music") {
+            openPublicDirectory(Environment.DIRECTORY_MUSIC)
+            return
+        }
         runCatching {
             repository.mode(mode)
         }.onSuccess {
@@ -269,6 +289,10 @@ class MainActivity : Activity() {
             add(File(filesDir, "extracted").apply { mkdirs() })
         }.filter { it.exists() && it.isDirectory }
             .distinctBy { it.absolutePath }
+    }
+
+    private fun openPublicDirectory(directoryType: String) {
+        openLocalExplorer(Environment.getExternalStoragePublicDirectory(directoryType))
     }
 
     private fun openLocalExplorer(directory: File) {

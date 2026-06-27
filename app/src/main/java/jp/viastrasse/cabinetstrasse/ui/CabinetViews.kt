@@ -53,23 +53,6 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(homeHeader(dashboard))
         content.addView(searchLauncher(onOpenSearch))
         content.addView(fileManagerHome(dashboard, onModeSelected, onItemSelected, onImportFolder, onToggleFavorite, onMoveTrash))
-        if (dashboard.inboxCount > 0) {
-            content.addView(section("未整理Inbox"))
-            content.addView(callout("未整理が ${dashboard.inboxCount} 件あります", "Inboxを開く") {
-                onModeSelected(CabinetMode("Inbox", dashboard.inboxCount, "未整理の一時保管"))
-            })
-        }
-        content.addView(section("場所"))
-        content.addView(
-            navigationList(
-                listOf(
-                    CabinetMode("Explorer", dashboard.explorerCount, "ローカルファイル"),
-                    CabinetMode("Library", dashboard.libraryCount, "Cabinet内の資料"),
-                    CabinetMode("Inbox", dashboard.inboxCount, "未整理の一時保管"),
-                ),
-                onModeSelected,
-            ),
-        )
         content.addView(organizePanel(dashboard, onModeSelected))
         content.addView(section("管理"))
         content.addView(
@@ -462,8 +445,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ): View {
         return panel {
-            addView(fileManagerBar(dashboard, onModeSelected, onImportFolder))
-            addView(pathBar("Cabinet", "${dashboard.libraryCount} files"))
+            addView(finderToolbar(dashboard, onModeSelected, onImportFolder))
+            addView(finderLocations(dashboard, onModeSelected))
+            addView(pathBar("Cabinet > 最近", "${dashboard.libraryCount} files"))
             if (dashboard.recentItems.isEmpty()) {
                 addView(emptyState("表示できるファイルはまだありません"))
             } else {
@@ -474,7 +458,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun fileManagerBar(
+    private fun finderToolbar(
         dashboard: CabinetDashboard,
         onModeSelected: (CabinetMode) -> Unit,
         onImportFolder: () -> Unit,
@@ -482,16 +466,19 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(label("Cabinet", 20, true))
-            addView(label("最近使ったファイル", 12, false, CabinetColors.TextSecondary))
+            addView(label("場所を選び、ファイルを開く", 12, false, CabinetColors.TextSecondary))
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    weightSum = 2f
+                    weightSum = 3f
                     addView(
-                        toolbarCommand("Explorer") {
-                            onModeSelected(CabinetMode("Explorer", dashboard.explorerCount, "ローカルファイル"))
+                        toolbarCommand("新規表示") {
+                            onModeSelected(CabinetMode("Library", dashboard.libraryCount, "Cabinet内の資料"))
                         },
                     )
+                    addView(toolbarCommand("Downloads") {
+                        onModeSelected(CabinetMode("Downloads", 0, "ダウンロード"))
+                    })
                     addView(toolbarCommand("取り込み", onImportFolder))
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -501,6 +488,67 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     }
                 },
             )
+        }
+    }
+
+    private fun finderLocations(dashboard: CabinetDashboard, onModeSelected: (CabinetMode) -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("場所", 15, true).apply {
+                setPadding(0, dp(2), 0, dp(6))
+            })
+            listOf(
+                listOf(
+                    CabinetMode("Library", dashboard.libraryCount, "Cabinet"),
+                    CabinetMode("Downloads", 0, "ダウンロード"),
+                ),
+                listOf(
+                    CabinetMode("Inbox", dashboard.inboxCount, "未整理"),
+                    CabinetMode("Explorer", dashboard.explorerCount, "ローカル"),
+                ),
+                listOf(
+                    CabinetMode("Documents", 0, "ドキュメント"),
+                    CabinetMode("Pictures", 0, "画像"),
+                ),
+                listOf(
+                    CabinetMode("Movies", 0, "動画"),
+                    CabinetMode("Music", 0, "音声"),
+                ),
+            ).forEach { rowModes ->
+                addView(
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        weightSum = 2f
+                        rowModes.forEach { mode ->
+                            addView(locationShortcut(mode) { onModeSelected(mode) })
+                        }
+                    },
+                )
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(0, dp(2), 0, dp(10))
+            }
+        }
+    }
+
+    private fun locationShortcut(mode: CabinetMode, onClick: () -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(9))
+            setBackgroundColor(CabinetColors.AppBackground)
+            isClickable = true
+            setOnClickListener { onClick() }
+            addView(label(locationIcon(mode.name), 12, true, CabinetColors.Accent))
+            addView(label(mode.description, 14, true))
+            if (mode.count > 0) {
+                addView(label("${mode.count}", 11, false, CabinetColors.TextSecondary))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(dp(3), dp(3), dp(3), dp(3))
+            }
         }
     }
 
@@ -595,6 +643,20 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun locationIcon(modeName: String): String {
+        return when (modeName) {
+            "Library" -> "CAB"
+            "Downloads" -> "DL"
+            "Inbox" -> "IN"
+            "Explorer" -> "LOC"
+            "Documents" -> "DOC"
+            "Pictures" -> "IMG"
+            "Movies" -> "MOV"
+            "Music" -> "AUD"
+            else -> "DIR"
+        }
+    }
+
     private fun toolbarCommand(text: String, onClick: () -> Unit): TextView {
         return label(text, 15, true, CabinetColors.TextPrimary).apply {
             gravity = Gravity.CENTER
@@ -613,41 +675,6 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             setPadding(0, dp(4), dp(16), dp(4))
             isClickable = true
             setOnClickListener { onClick() }
-        }
-    }
-
-    private fun navigationList(modes: List<CabinetMode>, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            modes.forEach { mode ->
-                addView(navigationRow(mode) { onModeSelected(mode) })
-            }
-        }
-    }
-
-    private fun navigationRow(mode: CabinetMode, onClick: () -> Unit): View {
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(11), dp(14), dp(11))
-            setBackgroundColor(CabinetColors.Surface)
-            isClickable = true
-            setOnClickListener { onClick() }
-            addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(label(mode.name, 15, true))
-                    addView(label(mode.description, 12, false, CabinetColors.TextSecondary))
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                },
-            )
-            addView(label(mode.count.toString(), 16, true, CabinetColors.Accent))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                setMargins(0, dp(3), 0, dp(3))
-            }
         }
     }
 
@@ -704,32 +731,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun callout(text: String, actionText: String, onClick: () -> Unit): View {
-        return panel {
-            addView(label(text, 15, true))
-            addView(command(actionText, onClick))
-        }
-    }
-
     private fun emptyState(text: String): View {
         return label(text, 13, false, CabinetColors.TextSecondary).apply {
             setPadding(dp(4), dp(8), dp(4), dp(8))
-        }
-    }
-
-    private fun modeTile(mode: CabinetMode, onModeSelected: (CabinetMode) -> Unit): View {
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            setBackgroundColor(CabinetColors.Brand)
-            isClickable = true
-            setOnClickListener { onModeSelected(mode) }
-            addView(label(mode.name, 18, true))
-            addView(label(mode.count.toString(), 24, true))
-            addView(label(mode.description, 12, false, CabinetColors.TextSecondary))
-            layoutParams = LinearLayout.LayoutParams(0, dp(124), 1f).apply {
-                setMargins(dp(4), dp(4), dp(4), dp(4))
-            }
         }
     }
 
