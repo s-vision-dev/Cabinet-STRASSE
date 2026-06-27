@@ -154,6 +154,7 @@ object CabinetJsonParser {
                         previewType = item.optString("preview_type"),
                         title = item.optString("title"),
                         summaryText = item.optString("summary_text"),
+                        thumbnailPath = item.optString("thumbnail_path"),
                         status = item.optString("status"),
                         generatedAt = item.optString("generated_at"),
                     ),

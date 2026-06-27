@@ -317,6 +317,7 @@ pub struct CabinetPreviewSummary {
     pub preview_type: String,
     pub title: String,
     pub summary_text: String,
+    pub thumbnail_path: String,
     pub status: String,
     pub generated_at: String,
 }
@@ -1383,6 +1384,49 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn set_item_thumbnail_json(
+        &self,
+        item_id: &str,
+        thumbnail_path: &str,
+    ) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let normalized = thumbnail_path.trim();
+        if normalized.is_empty() {
+            return Err(CabinetError::Message(
+                "Thumbnail path is required.".to_owned(),
+            ));
+        }
+        let now = now_string();
+        let updated = self.conn.execute(
+            "UPDATE cabinet_previews
+             SET thumbnail_path = ?1, generated_at = ?2, status = 'ready'
+             WHERE id = (
+                SELECT id FROM cabinet_previews
+                WHERE item_id = ?3
+                ORDER BY generated_at DESC
+                LIMIT 1
+             )",
+            params![normalized, now, item_id],
+        )?;
+        if updated == 0 {
+            self.conn.execute(
+                "INSERT INTO cabinet_previews (
+                    id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                    page_count, duration, width, height, generated_at, status
+                ) VALUES (?1, ?2, 'thumbnail', 'Thumbnail', '', ?3, '', NULL, NULL, NULL, NULL, ?4, 'ready')",
+                params![new_id(), item_id, normalized, now],
+            )?;
+        }
+        self.log_event(
+            "Cabinet.ThumbnailGenerated",
+            Some(item_id),
+            serde_json::json!({
+                "thumbnail_path": normalized,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn set_security_pin_json(&self, pin: &str) -> CabinetResult<String> {
         let normalized = pin.trim();
         if normalized.len() < 4 {
@@ -2334,7 +2378,7 @@ impl CabinetCore {
 
     fn previews_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetPreviewSummary>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, preview_type, title, summary_text, status, generated_at
+            "SELECT id, preview_type, title, summary_text, COALESCE(thumbnail_path, ''), status, generated_at
              FROM cabinet_previews
              WHERE item_id = ?1
              ORDER BY generated_at DESC",
@@ -2345,8 +2389,9 @@ impl CabinetCore {
                 preview_type: row.get(1)?,
                 title: row.get(2)?,
                 summary_text: row.get(3)?,
-                status: row.get(4)?,
-                generated_at: row.get(5)?,
+                thumbnail_path: row.get(4)?,
+                status: row.get(5)?,
+                generated_at: row.get(6)?,
             })
         })?;
         let mut result = Vec::new();
@@ -3568,6 +3613,20 @@ mod tests {
         assert!(detail.contains("\"preview_type\":\"ocr\""));
         let search = core.search("Unique Phrase").expect("search");
         assert!(search.iter().any(|item| item.id == first_item));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn stores_thumbnail_path_in_preview() {
+        let path = test_db_path("thumbnail");
+        let core = CabinetCore::open(&path).expect("open database");
+        let first_item = core.dashboard().expect("dashboard").recent_items[0]
+            .id
+            .clone();
+        let detail = core
+            .set_item_thumbnail_json(&first_item, "/tmp/cabinet-thumb.jpg")
+            .expect("set thumbnail");
+        assert!(detail.contains("\"thumbnail_path\":\"/tmp/cabinet-thumb.jpg\""));
         let _ = fs::remove_file(path);
     }
 

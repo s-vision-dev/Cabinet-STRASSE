@@ -92,6 +92,7 @@ data class CabinetPreviewSummary(
     val previewType: String,
     val title: String,
     val summaryText: String,
+    val thumbnailPath: String,
     val status: String,
     val generatedAt: String,
 )

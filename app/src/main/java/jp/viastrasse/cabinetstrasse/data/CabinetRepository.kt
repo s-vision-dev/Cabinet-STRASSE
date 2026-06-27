@@ -183,6 +183,10 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.addOcrTextJson(databasePath, itemId, body, source))
     }
 
+    fun setItemThumbnail(itemId: String, thumbnailPath: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.setItemThumbnailJson(databasePath, itemId, thumbnailPath))
+    }
+
     fun setSecurityPin(pin: String): SettingsSnapshot {
         return CabinetJsonParser.settings(CabinetNative.setSecurityPinJson(databasePath, pin))
     }

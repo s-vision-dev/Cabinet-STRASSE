@@ -210,6 +210,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddOcrText: () -> Unit,
         onRunImageOcr: () -> Unit,
         onCacheRemoteFile: () -> Unit,
+        onGenerateThumbnail: () -> Unit,
         onProtectItem: () -> Unit,
         onRestoreFromTrash: () -> Unit,
         onDeletePermanently: () -> Unit,
@@ -287,6 +288,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("PINで保護メモを表示", onUnlockProtectedMemos))
         content.addView(command("OCR本文を追加", onAddOcrText))
         content.addView(command("画像/PDF OCRを実行", onRunImageOcr))
+        content.addView(command("画像サムネイルを生成", onGenerateThumbnail))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
         content.addView(command("ゴミ箱から復元", onRestoreFromTrash))
@@ -296,6 +298,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             content.addView(panel {
                 addView(label("${preview.previewType} / ${preview.status}", 14, true))
                 addView(label(preview.summaryText.ifBlank { "プレビュー本文は未生成です" }, 13, false, CabinetColors.TextSecondary))
+                if (preview.thumbnailPath.isNotBlank()) {
+                    addView(label("thumbnail: ${preview.thumbnailPath}", 11, false, CabinetColors.TextSecondary))
+                }
             })
         }
         content.addView(section("Version"))

@@ -90,6 +90,8 @@ object CabinetNative {
 
     external fun addOcrTextJson(databasePath: String, itemId: String, body: String, source: String): String
 
+    external fun setItemThumbnailJson(databasePath: String, itemId: String, thumbnailPath: String): String
+
     external fun setSecurityPinJson(databasePath: String, pin: String): String
 
     external fun verifySecurityPinJson(databasePath: String, pin: String): String

@@ -15,6 +15,7 @@ import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
 import jp.viastrasse.cabinetstrasse.preview.OcrTextRecognizer
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
+import jp.viastrasse.cabinetstrasse.preview.ThumbnailGenerator
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
 import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
@@ -557,6 +558,9 @@ class MainActivity : Activity() {
                 onCacheRemoteFile = {
                     cacheRemoteFile(itemId, detail)
                 },
+                onGenerateThumbnail = {
+                    generateImageThumbnail(itemId, detail.path, detail.item.mimeType)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -659,6 +663,9 @@ class MainActivity : Activity() {
                 },
                 onCacheRemoteFile = {
                     cacheRemoteFile(itemId, it)
+                },
+                onGenerateThumbnail = {
+                    generateImageThumbnail(itemId, it.path, it.item.mimeType)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -1167,6 +1174,9 @@ class MainActivity : Activity() {
                 onCacheRemoteFile = {
                     cacheRemoteFile(itemId, detail)
                 },
+                onGenerateThumbnail = {
+                    generateImageThumbnail(itemId, detail.path, detail.item.mimeType)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -1247,6 +1257,23 @@ class MainActivity : Activity() {
             openDetail(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "OCR本文を保存できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun generateImageThumbnail(itemId: String, path: String, mimeType: String) {
+        val file = File(path)
+        if (!mimeType.startsWith("image/") || !file.exists()) {
+            Toast.makeText(this, "画像ファイルだけサムネイルを生成できます", Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            val thumbnail = ThumbnailGenerator.createImageThumbnail(file, File(filesDir, "thumbnails"))
+            repository.setItemThumbnail(itemId, thumbnail.absolutePath)
+        }.onSuccess {
+            Toast.makeText(this, "サムネイルを生成しました", Toast.LENGTH_SHORT).show()
+            openDetail(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "サムネイルを生成できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

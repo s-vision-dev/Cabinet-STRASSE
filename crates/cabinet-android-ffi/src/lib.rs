@@ -571,6 +571,27 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addO
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setItemThumbnailJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    thumbnail_path: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let thumbnail_path_value = match jstring_value(&mut env, &thumbnail_path) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.set_item_thumbnail_json(&item_id_value, &thumbnail_path_value)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setSecurityPinJson(
     mut env: JNIEnv,
     _class: JClass,
