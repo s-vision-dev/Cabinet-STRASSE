@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
@@ -147,6 +148,9 @@ class MainActivity : Activity() {
                 onOpen = {
                     openViewer(detail.path, detail.item.mimeType, detail.item.title)
                 },
+                onShare = {
+                    shareItem(detail)
+                },
                 onDuplicate = {
                     duplicateItem(itemId)
                 },
@@ -208,6 +212,9 @@ class MainActivity : Activity() {
                 },
                 onOpen = {
                     openViewer(it.path, it.item.mimeType, it.item.title)
+                },
+                onShare = {
+                    shareItem(it)
                 },
                 onDuplicate = {
                     duplicateItem(itemId)
@@ -313,6 +320,36 @@ class MainActivity : Activity() {
                 putExtra(ViewerActivity.EXTRA_TITLE, title)
             },
         )
+    }
+
+    private fun shareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+        runCatching {
+            if (detail.item.sourceKind == "url") {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, detail.path)
+                    putExtra(Intent.EXTRA_TITLE, detail.item.title)
+                }
+                startActivity(Intent.createChooser(intent, detail.item.title))
+                return
+            }
+            val file = File(detail.path)
+            require(file.exists()) { "共有対象ファイルが見つかりません" }
+            val uri = FileProvider.getUriForFile(
+                this,
+                "jp.viastrasse.cabinetstrasse.fileprovider",
+                file,
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = detail.item.mimeType.ifBlank { "application/octet-stream" }
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TITLE, detail.item.title)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, detail.item.title))
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "共有できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun createZip(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {

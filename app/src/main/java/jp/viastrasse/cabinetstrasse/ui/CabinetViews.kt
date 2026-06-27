@@ -127,6 +127,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onAddCollection: () -> Unit,
         onMoveTrash: () -> Unit,
         onOpen: () -> Unit,
+        onShare: () -> Unit,
         onDuplicate: () -> Unit,
         onRename: () -> Unit,
         onCreateZip: () -> Unit,
@@ -152,6 +153,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             }
         })
         content.addView(command("開く", onOpen))
+        content.addView(command("共有", onShare))
         content.addView(command("複製", onDuplicate))
         content.addView(command("名前変更", onRename))
         content.addView(command("ZIPを作成", onCreateZip))
