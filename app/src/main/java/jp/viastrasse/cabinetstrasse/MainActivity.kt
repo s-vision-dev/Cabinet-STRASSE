@@ -128,6 +128,12 @@ class MainActivity : Activity() {
                 onRename = {
                     renameItem(itemId, renamedName(detail.item.displayName))
                 },
+                onCreateZip = {
+                    createZip(detail)
+                },
+                onExtractZip = {
+                    extractZip(detail)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -168,6 +174,12 @@ class MainActivity : Activity() {
                 },
                 onRename = {
                     renameItem(itemId, renamedName(it.item.displayName))
+                },
+                onCreateZip = {
+                    createZip(it)
+                },
+                onExtractZip = {
+                    extractZip(it)
                 },
             )
         }.onFailure { error ->
@@ -246,6 +258,30 @@ class MainActivity : Activity() {
                 putExtra(ViewerActivity.EXTRA_TITLE, title)
             },
         )
+    }
+
+    private fun createZip(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+        runCatching {
+            repository.createZipFromItem(detail)
+        }.onSuccess { item ->
+            PreviewWorker.enqueue(applicationContext)
+            Toast.makeText(this, "ZIPを作成しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "ZIPを作成できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun extractZip(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+        runCatching {
+            repository.extractZipItem(detail)
+        }.onSuccess { items ->
+            PreviewWorker.enqueue(applicationContext)
+            Toast.makeText(this, "${items.size}件を解凍しました", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "ZIPを解凍できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun openFolderPicker() {

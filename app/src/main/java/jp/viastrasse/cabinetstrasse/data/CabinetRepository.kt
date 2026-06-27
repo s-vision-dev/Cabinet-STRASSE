@@ -5,10 +5,15 @@ import jp.viastrasse.cabinetstrasse.core.CabinetNative
 import java.io.File
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 class CabinetRepository(context: Context) {
     private val databasePath = File(context.filesDir, "cabinet-strasse.db").absolutePath
     private val backupDir = File(context.filesDir, "backups").apply { mkdirs() }
+    private val archiveDir = File(context.filesDir, "archives").apply { mkdirs() }
+    private val extractDir = File(context.filesDir, "extracted").apply { mkdirs() }
 
     fun dashboard(): CabinetDashboard {
         return CabinetJsonParser.dashboard(CabinetNative.dashboardJson(databasePath))
@@ -77,6 +82,55 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.renameItemJson(databasePath, itemId, newDisplayName))
     }
 
+    fun createZipFromItem(detail: CabinetItemDetail): CabinetItemSummary {
+        val source = File(detail.path)
+        require(source.exists()) { "Source file does not exist." }
+        val zipName = "${source.nameWithoutExtension.ifBlank { detail.item.displayName }}.zip"
+        val zipFile = uniqueFile(archiveDir, zipName)
+        ZipOutputStream(zipFile.outputStream().buffered()).use { zip ->
+            zip.putNextEntry(ZipEntry(source.name))
+            source.inputStream().buffered().use { input -> input.copyTo(zip) }
+            zip.closeEntry()
+        }
+        return registerFile(
+            path = zipFile.absolutePath,
+            displayName = zipFile.name,
+            mimeType = "application/zip",
+            size = zipFile.length(),
+            sourceKind = "archive",
+            note = "Cabinetで圧縮作成",
+        )
+    }
+
+    fun extractZipItem(detail: CabinetItemDetail): List<CabinetItemSummary> {
+        val source = File(detail.path)
+        require(source.exists()) { "ZIP file does not exist." }
+        val destinationDir = uniqueDirectory(extractDir, source.nameWithoutExtension.ifBlank { "zip" })
+        destinationDir.mkdirs()
+        val results = mutableListOf<CabinetItemSummary>()
+        ZipInputStream(source.inputStream().buffered()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                val safeName = sanitizeZipEntry(entry.name)
+                if (!entry.isDirectory && safeName.isNotBlank()) {
+                    val outputFile = uniqueFile(destinationDir, safeName.substringAfterLast('/'))
+                    outputFile.outputStream().buffered().use { output -> zip.copyTo(output) }
+                    results += registerFile(
+                        path = outputFile.absolutePath,
+                        displayName = outputFile.name,
+                        mimeType = "application/octet-stream",
+                        size = outputFile.length(),
+                        sourceKind = "zip-extract",
+                        note = "CabinetでZIP解凍",
+                    )
+                }
+                zip.closeEntry()
+                entry = zip.nextEntry
+            }
+        }
+        return results
+    }
+
     fun registerUrl(url: String, title: String, note: String): CabinetItemSummary {
         val json = CabinetNative.registerUrlJson(databasePath, url, title, note)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
@@ -100,5 +154,38 @@ class CabinetRepository(context: Context) {
             note,
         )
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
+    }
+
+    private fun uniqueFile(directory: File, displayName: String): File {
+        val base = displayName.substringBeforeLast('.', displayName)
+        val extension = displayName.substringAfterLast('.', "")
+        var candidate = File(directory, displayName)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = if (extension.isBlank()) {
+                File(directory, "$base-$index")
+            } else {
+                File(directory, "$base-$index.$extension")
+            }
+            index += 1
+        }
+        return candidate
+    }
+
+    private fun uniqueDirectory(directory: File, displayName: String): File {
+        var candidate = File(directory, displayName)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = File(directory, "$displayName-$index")
+            index += 1
+        }
+        return candidate
+    }
+
+    private fun sanitizeZipEntry(name: String): String {
+        return name.replace("\\", "/")
+            .split("/")
+            .filter { it.isNotBlank() && it != "." && it != ".." }
+            .joinToString("/")
     }
 }
