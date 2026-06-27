@@ -5,8 +5,12 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.provider.OpenableColumns
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import org.json.JSONObject
+import java.io.File
+import java.net.URLConnection
 
 class CabinetEventProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
@@ -26,6 +30,9 @@ class CabinetEventProvider : ContentProvider() {
                 "payload_json",
                 "created_at",
                 "deep_link",
+                "contract_version",
+                "source_app",
+                "ack_uri",
             ),
         )
         val context = context ?: return cursor
@@ -56,6 +63,9 @@ class CabinetEventProvider : ContentProvider() {
                             event.optJSONObject("payload")?.toString().orEmpty(),
                             event.optString("created_at"),
                             if (itemId.isBlank()) "" else "strasse://cabinet/open/$itemId",
+                            CONTRACT_VERSION,
+                            event.optJSONObject("payload")?.optString("source_app").orEmpty(),
+                            "content://jp.viastrasse.cabinetstrasse.provider.events",
                         ),
                     )
                 }
@@ -66,7 +76,25 @@ class CabinetEventProvider : ContentProvider() {
 
     override fun getType(uri: Uri): String = "vnd.android.cursor.dir/vnd.viastrasse.cabinet.event"
 
-    override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+    override fun insert(uri: Uri, values: ContentValues?): Uri? {
+        val context = context ?: return null
+        val eventType = values?.getAsString("event_type").orEmpty()
+        if (eventType.isBlank()) return null
+        val payload = values?.getAsString("payload_json")
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+            ?: JSONObject()
+        return runCatching {
+            val repository = CabinetRepository(context)
+            when (eventType) {
+                "Mail.AttachmentSaveRequested",
+                "Task.ResultSaveRequested",
+                "Home.QuickSaveRequested" -> saveRequestedPayload(repository, payload, values)
+                "Atelier.ReferenceAddRequested",
+                "Task.AttachmentAddRequested" -> addReferenceRequestedPayload(repository, payload, values)
+                else -> null
+            }
+        }.getOrNull()
+    }
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
 
@@ -76,4 +104,181 @@ class CabinetEventProvider : ContentProvider() {
         selection: String?,
         selectionArgs: Array<out String>?,
     ): Int = 0
+
+    private fun saveRequestedPayload(
+        repository: CabinetRepository,
+        payload: JSONObject,
+        values: ContentValues?,
+    ): Uri? {
+        val context = requireNotNull(context)
+        val url = values?.getAsString("url").orEmpty().ifBlank { payload.optString("url") }
+        if (url.isNotBlank()) {
+            val item = repository.registerUrl(
+                url = url,
+                title = values?.getAsString("title").orEmpty()
+                    .ifBlank { payload.optString("title") }
+                    .ifBlank { url },
+                note = values?.getAsString("note").orEmpty()
+                    .ifBlank { payload.optString("note") }
+                    .ifBlank { "STRASSE EventからURL保存" },
+            )
+            attachSourceReference(repository, item.id, payload, values, url)
+            return Uri.parse("strasse://cabinet/open/${item.id}")
+        }
+
+        val fileUriText = values?.getAsString("fileUri").orEmpty().ifBlank { payload.optString("fileUri") }
+        if (fileUriText.isBlank()) return null
+        val fileUri = Uri.parse(fileUriText)
+        val info = queryOpenable(fileUri, payload, values)
+        val inboxDir = File(context.filesDir, "inbox").apply { mkdirs() }
+        val destination = uniqueDestination(inboxDir, info.displayName)
+        when (fileUri.scheme) {
+            "content" -> {
+                context.contentResolver.openInputStream(fileUri).use { input ->
+                    requireNotNull(input) { "Input stream is null." }
+                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                }
+            }
+            "file", null -> {
+                val source = if (fileUri.scheme == "file") File(requireNotNull(fileUri.path)) else File(fileUriText)
+                require(source.exists() && source.isFile) { "Source file does not exist." }
+                source.inputStream().buffered().use { input ->
+                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                }
+            }
+            else -> error("Unsupported fileUri scheme: ${fileUri.scheme}")
+        }
+        val item = repository.registerFile(
+            path = destination.absolutePath,
+            displayName = info.displayName,
+            mimeType = info.mimeType,
+            size = destination.length(),
+            sourceKind = values?.getAsString("sourceKind").orEmpty()
+                .ifBlank { payload.optString("sourceKind") }
+                .ifBlank { "strasse-event" },
+            note = values?.getAsString("note").orEmpty()
+                .ifBlank { payload.optString("note") }
+                .ifBlank { "STRASSE Eventからファイル保存" },
+        )
+        attachSourceReference(repository, item.id, payload, values, fileUriText)
+        PreviewWorker.enqueue(context)
+        return Uri.parse("strasse://cabinet/open/${item.id}")
+    }
+
+    private fun addReferenceRequestedPayload(
+        repository: CabinetRepository,
+        payload: JSONObject,
+        values: ContentValues?,
+    ): Uri? {
+        val itemId = values?.getAsString("itemId").orEmpty().ifBlank { payload.optString("itemId") }
+        if (itemId.isBlank()) return null
+        val sourceApp = values?.getAsString("sourceApp").orEmpty()
+            .ifBlank { payload.optString("sourceApp") }
+            .ifBlank { payload.optString("source_app") }
+            .ifBlank { "STRASSE" }
+        val sourceId = values?.getAsString("sourceId").orEmpty()
+            .ifBlank { payload.optString("sourceId") }
+            .ifBlank { payload.optString("source_id") }
+            .ifBlank { "event-${System.currentTimeMillis()}" }
+        repository.addReference(
+            itemId = itemId,
+            referenceType = values?.getAsString("referenceType").orEmpty()
+                .ifBlank { payload.optString("referenceType") }
+                .ifBlank { sourceApp.lowercase() },
+            sourceApp = sourceApp,
+            sourceId = sourceId,
+            title = values?.getAsString("title").orEmpty()
+                .ifBlank { payload.optString("title") }
+                .ifBlank { "$sourceApp reference" },
+            uri = values?.getAsString("uri").orEmpty()
+                .ifBlank { payload.optString("uri") }
+                .ifBlank { "strasse://${sourceApp.lowercase()}/open/$sourceId" },
+            note = values?.getAsString("note").orEmpty()
+                .ifBlank { payload.optString("note") }
+                .ifBlank { "STRASSE Eventから参照追加" },
+        )
+        return Uri.parse("strasse://cabinet/open/$itemId")
+    }
+
+    private fun attachSourceReference(
+        repository: CabinetRepository,
+        itemId: String,
+        payload: JSONObject,
+        values: ContentValues?,
+        fallbackUri: String,
+    ) {
+        val sourceApp = values?.getAsString("sourceApp").orEmpty()
+            .ifBlank { payload.optString("sourceApp") }
+            .ifBlank { payload.optString("source_app") }
+        if (sourceApp.isBlank()) return
+        val sourceId = values?.getAsString("sourceId").orEmpty()
+            .ifBlank { payload.optString("sourceId") }
+            .ifBlank { payload.optString("source_id") }
+            .ifBlank { "event-${System.currentTimeMillis()}" }
+        repository.addReference(
+            itemId = itemId,
+            referenceType = values?.getAsString("referenceType").orEmpty()
+                .ifBlank { payload.optString("referenceType") }
+                .ifBlank { sourceApp.lowercase() },
+            sourceApp = sourceApp,
+            sourceId = sourceId,
+            title = values?.getAsString("sourceTitle").orEmpty()
+                .ifBlank { payload.optString("sourceTitle") }
+                .ifBlank { payload.optString("title") }
+                .ifBlank { "$sourceApp source" },
+            uri = values?.getAsString("sourceUri").orEmpty()
+                .ifBlank { payload.optString("sourceUri") }
+                .ifBlank { payload.optString("uri") }
+                .ifBlank { fallbackUri },
+            note = values?.getAsString("referenceNote").orEmpty()
+                .ifBlank { payload.optString("referenceNote") }
+                .ifBlank { "STRASSE Eventから自動関連付け" },
+        )
+    }
+
+    private fun queryOpenable(uri: Uri, payload: JSONObject, values: ContentValues?): EventFileInfo {
+        val context = requireNotNull(context)
+        var displayName = values?.getAsString("displayName").orEmpty()
+            .ifBlank { payload.optString("displayName") }
+            .ifBlank { uri.lastPathSegment?.substringAfterLast('/').orEmpty() }
+            .ifBlank { "event-file" }
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) displayName = cursor.getString(index).orEmpty().ifBlank { displayName }
+            }
+        }
+        val sanitizedName = sanitizeFileName(displayName)
+        val mimeType = values?.getAsString("mimeType").orEmpty()
+            .ifBlank { payload.optString("mimeType") }
+            .ifBlank { context.contentResolver.getType(uri).orEmpty() }
+            .ifBlank { URLConnection.guessContentTypeFromName(sanitizedName).orEmpty() }
+            .ifBlank { "application/octet-stream" }
+        return EventFileInfo(sanitizedName, mimeType)
+    }
+
+    private fun uniqueDestination(directory: File, displayName: String): File {
+        val base = displayName.substringBeforeLast('.', displayName)
+        val extension = displayName.substringAfterLast('.', "")
+        var candidate = File(directory, displayName)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = if (extension.isBlank()) File(directory, "$base-$index") else File(directory, "$base-$index.$extension")
+            index += 1
+        }
+        return candidate
+    }
+
+    private fun sanitizeFileName(value: String): String {
+        return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "event-file" }
+    }
+
+    private data class EventFileInfo(
+        val displayName: String,
+        val mimeType: String,
+    )
+
+    companion object {
+        private const val CONTRACT_VERSION = "1.0"
+    }
 }
