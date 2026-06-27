@@ -2635,8 +2635,11 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
         );
     }
     if mime_type == "application/pdf" || lower_name.ends_with(".pdf") {
+        let summary = pdf_preview(path).unwrap_or_else(|| {
+            format!("{display_name}: PDF document. 本文抽出とページプレビュー生成の対象です。")
+        });
         return generated_preview(
-            format!("{display_name}: PDF document. 本文抽出とページプレビュー生成の対象です。"),
+            format!("{display_name}: PDF document\n{summary}"),
             None,
             None,
         );
@@ -2711,6 +2714,51 @@ fn text_preview(text: &str) -> String {
     }
     let joined = lines.join("\n");
     joined.chars().take(2000).collect()
+}
+
+fn pdf_preview(path: &str) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let raw = String::from_utf8_lossy(&bytes);
+    let page_count = raw
+        .matches("/Type /Page")
+        .count()
+        .saturating_sub(raw.matches("/Type /Pages").count());
+    let mut snippets = Vec::new();
+    let mut cursor = raw.as_ref();
+    while let Some(start) = cursor.find('(') {
+        let after_start = &cursor[start + 1..];
+        let Some(end) = after_start.find(')') else {
+            break;
+        };
+        let candidate = after_start[..end]
+            .replace("\\(", "(")
+            .replace("\\)", ")")
+            .replace("\\n", " ")
+            .replace("\\r", " ")
+            .replace("\\t", " ");
+        let normalized = candidate.trim();
+        if normalized.chars().filter(|ch| ch.is_alphanumeric()).count() >= 4
+            && !normalized.contains('\0')
+        {
+            snippets.push(normalized.to_owned());
+        }
+        if snippets.len() >= 20 {
+            break;
+        }
+        cursor = &after_start[end + 1..];
+    }
+    let mut lines = Vec::new();
+    if page_count > 0 {
+        lines.push(format!("{page_count} pages"));
+    }
+    if !snippets.is_empty() {
+        lines.push(text_preview(&snippets.join("\n")));
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
 }
 
 enum OfficeKind {
