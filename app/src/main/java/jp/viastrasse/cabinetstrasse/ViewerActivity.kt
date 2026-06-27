@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.FileProvider
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 import java.io.File
 
@@ -51,7 +52,11 @@ class ViewerActivity : Activity() {
 
     private fun openExternal(path: String, mimeType: String) {
         val file = File(path)
-        val uri = Uri.fromFile(file)
+        val uri = FileProvider.getUriForFile(
+            this,
+            "jp.viastrasse.cabinetstrasse.fileprovider",
+            file,
+        )
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType.ifBlank { "*/*" })
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
