@@ -1,6 +1,7 @@
 package jp.viastrasse.cabinetstrasse
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
@@ -96,6 +97,9 @@ class MainActivity : Activity() {
                 onMoveTrash = {
                     moveToTrash(itemId)
                 },
+                onOpen = {
+                    openViewer(detail.path, detail.item.mimeType, detail.item.title)
+                },
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -127,6 +131,9 @@ class MainActivity : Activity() {
                 },
                 onMoveTrash = {
                     moveToTrash(itemId)
+                },
+                onOpen = {
+                    openViewer(it.path, it.item.mimeType, it.item.title)
                 },
             )
         }.onFailure { error ->
@@ -163,6 +170,16 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun openViewer(path: String, mimeType: String, title: String) {
+        startActivity(
+            Intent(this, ViewerActivity::class.java).apply {
+                putExtra(ViewerActivity.EXTRA_PATH, path)
+                putExtra(ViewerActivity.EXTRA_MIME_TYPE, mimeType)
+                putExtra(ViewerActivity.EXTRA_TITLE, title)
+            },
+        )
     }
 
     private fun processPreviewQueue() {

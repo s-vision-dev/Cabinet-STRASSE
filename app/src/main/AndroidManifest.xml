@@ -60,6 +60,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ViewerActivity"
+            android:exported="false"
+            android:theme="@style/CabinetTheme" />
+
         <provider
             android:name=".integration.CabinetHomeSummaryProvider"
             android:authorities="jp.viastrasse.cabinetstrasse.provider.home"
