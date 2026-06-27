@@ -51,7 +51,12 @@ class MainActivity : Activity() {
                 "open" -> uri.pathSegments.getOrNull(1)?.let(::openDetail) ?: renderDashboard()
                 "search" -> openSearch(uri.getQueryParameter("q").orEmpty())
                 "inbox" -> openMode("Inbox")
-                "collection" -> openMode("Collection")
+                "collection" -> uri.pathSegments.getOrNull(1)
+                    ?.let { openMode("collection:$it") }
+                    ?: openMode("Collection")
+                "smart" -> uri.pathSegments.getOrNull(1)
+                    ?.let { openMode("smart:$it") }
+                    ?: openMode("Smart Folder")
                 "add" -> handleAddDeepLink(uri)
                 else -> renderDashboard()
             }
