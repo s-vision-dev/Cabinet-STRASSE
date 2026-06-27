@@ -129,14 +129,20 @@ function Get-ReleaseArtifacts {
 function Copy-ReleaseArtifacts {
     param(
         [string[]]$Artifacts,
-        [string]$DestinationDir
+        [string]$DestinationFile
     )
 
-    New-Item -ItemType Directory -Force -Path $DestinationDir | Out-Null
+    $apk = $Artifacts |
+        Where-Object { [System.IO.Path]::GetExtension($_).Equals(".apk", [System.StringComparison]::OrdinalIgnoreCase) } |
+        Select-Object -First 1
 
-    foreach ($artifact in $Artifacts) {
-        Copy-Item -LiteralPath $artifact -Destination $DestinationDir -Force
+    if ([string]::IsNullOrWhiteSpace($apk)) {
+        throw "No release APK was found."
     }
+
+    $destinationDir = Split-Path -Parent $DestinationFile
+    New-Item -ItemType Directory -Force -Path $destinationDir | Out-Null
+    Copy-Item -LiteralPath $apk -Destination $DestinationFile -Force
 }
 
 function Set-BuildNumber {
@@ -171,8 +177,8 @@ try {
 
     Write-Step "Copy artifacts to Dropbox"
     $resolvedDropboxRoot = Resolve-DropboxRoot -RequestedRoot $DropboxRoot
-    $releaseDir = Join-Path $resolvedDropboxRoot "STRASSE\Cabinet-STRASSE\releases\$releaseName"
-    Copy-ReleaseArtifacts -Artifacts $artifacts -DestinationDir $releaseDir
+    $releaseFile = Join-Path $resolvedDropboxRoot "Cabinet-STRASSE\Cabinet-STRASSE-release.apk"
+    Copy-ReleaseArtifacts -Artifacts $artifacts -DestinationFile $releaseFile
 
     Write-Step "Increment build number"
     Set-BuildNumber -BuildFile $buildFile -NextBuildNumber ($buildNumber + 1)
@@ -193,8 +199,7 @@ try {
 
     Write-Host ""
     Write-Host "Release completed: $releaseName"
-    Write-Host "Copied to: $releaseDir"
+    Write-Host "Copied to: $releaseFile"
 } finally {
     Pop-Location
 }
-

@@ -46,7 +46,7 @@
   4. Commit release-related tracked changes.
   5. Push the current branch.
 - Do not run the release script with Windows PowerShell 5.1 because UTF-8 strings may be parsed incorrectly. Use PowerShell 7 or later via `pwsh`.
-- Release artifacts are copied under `Dropbox\STRASSE\Cabinet-STRASSE\releases` by default.
+- Release APK is copied to `Dropbox\Cabinet-STRASSE\Cabinet-STRASSE-release.apk` by default.
 
 ## Line Endings
 
