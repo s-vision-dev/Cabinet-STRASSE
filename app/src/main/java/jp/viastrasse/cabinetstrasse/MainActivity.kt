@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     private lateinit var repository: CabinetRepository
     private lateinit var dashboardView: CabinetDashboardView
     private var pendingVersionItemId: String? = null
+    private var isDashboardVisible: Boolean = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +48,16 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDeepLink(intent)
+    }
+
+    @Suppress("DEPRECATION")
+    @Deprecated("Use explicit in-app navigation until this Activity migrates to OnBackPressedDispatcher.")
+    override fun onBackPressed() {
+        if (!isDashboardVisible) {
+            renderDashboard()
+            return
+        }
+        super.onBackPressed()
     }
 
     private fun handleDeepLink(intent: Intent) {
@@ -184,6 +195,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderDashboard() {
+        isDashboardVisible = true
         runCatching {
             repository.dashboard()
         }.onSuccess { dashboard ->
@@ -260,6 +272,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.mode(mode)
         }.onSuccess {
+            isDashboardVisible = false
             dashboardView.renderMode(
                 mode = it,
                 onBack = ::renderDashboard,
@@ -303,6 +316,7 @@ class MainActivity : Activity() {
                 ?.map(::toLocalFileEntry)
                 .orEmpty()
         }.onSuccess { entries ->
+            isDashboardVisible = false
             val rootPaths = explorerRoots().map { it.absolutePath }.toSet()
             val parent = directory.parentFile?.takeIf { directory.absolutePath !in rootPaths }
             dashboardView.renderLocalExplorer(
@@ -504,6 +518,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.search(query)
         }.onSuccess {
+            isDashboardVisible = false
             dashboardView.renderSearch(
                 it,
                 ::renderDashboard,
@@ -521,6 +536,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.detail(itemId)
         }.onSuccess { detail ->
+            isDashboardVisible = false
             dashboardView.renderDetail(
                 detail = detail,
                 onBack = ::renderDashboard,
@@ -1507,6 +1523,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.settings() to repository.duplicateReport()
         }.onSuccess { (settings, duplicateReport) ->
+            isDashboardVisible = false
             dashboardView.renderSettings(
                 settings = settings,
                 duplicateReport = duplicateReport,
