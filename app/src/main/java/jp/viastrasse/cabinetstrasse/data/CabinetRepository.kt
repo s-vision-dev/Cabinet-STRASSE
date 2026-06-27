@@ -19,6 +19,14 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.mode(CabinetNative.modeJson(databasePath, mode))
     }
 
+    fun detail(itemId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.itemDetailJson(databasePath, itemId))
+    }
+
+    fun processPreviewQueue(limit: Long = 20): PreviewProcessReport {
+        return CabinetJsonParser.previewReport(CabinetNative.processPreviewQueueJson(databasePath, limit))
+    }
+
     fun registerUrl(url: String, title: String, note: String): CabinetItemSummary {
         val json = CabinetNative.registerUrlJson(databasePath, url, title, note)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()

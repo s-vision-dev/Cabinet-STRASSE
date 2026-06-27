@@ -50,3 +50,44 @@ data class ModeResponse(
     val collections: List<CabinetCollectionSummary>,
     val smartFolders: List<SmartFolderSummary>,
 )
+
+data class CabinetItemDetail(
+    val item: CabinetItemSummary,
+    val path: String,
+    val hash: String,
+    val note: String,
+    val previews: List<CabinetPreviewSummary>,
+    val references: List<CabinetReferenceSummary>,
+    val versions: List<CabinetVersionSummary>,
+)
+
+data class CabinetPreviewSummary(
+    val id: String,
+    val previewType: String,
+    val title: String,
+    val summaryText: String,
+    val status: String,
+    val generatedAt: String,
+)
+
+data class CabinetReferenceSummary(
+    val id: String,
+    val referenceType: String,
+    val sourceApp: String,
+    val title: String,
+    val uri: String,
+    val note: String,
+)
+
+data class CabinetVersionSummary(
+    val id: String,
+    val versionNumber: Long,
+    val displayName: String,
+    val note: String,
+    val isCurrent: Boolean,
+)
+
+data class PreviewProcessReport(
+    val processed: Long,
+    val remaining: Long,
+)

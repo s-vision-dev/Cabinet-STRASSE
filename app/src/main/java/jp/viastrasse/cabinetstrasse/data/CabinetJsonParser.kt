@@ -41,27 +41,51 @@ object CabinetJsonParser {
         )
     }
 
+    fun detail(json: String): CabinetItemDetail {
+        val root = JSONObject(json)
+        root.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return CabinetItemDetail(
+            item = root.getJSONObject("item").toItem(),
+            path = root.optString("path"),
+            hash = root.optString("hash"),
+            note = root.optString("note"),
+            previews = root.optJSONArray("previews").toPreviews(),
+            references = root.optJSONArray("references").toReferences(),
+            versions = root.optJSONArray("versions").toVersions(),
+        )
+    }
+
+    fun previewReport(json: String): PreviewProcessReport {
+        val root = JSONObject(json)
+        root.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return PreviewProcessReport(
+            processed = root.optLong("processed"),
+            remaining = root.optLong("remaining"),
+        )
+    }
+
     private fun JSONArray?.toItems(): List<CabinetItemSummary> {
         if (this == null) return emptyList()
         return buildList {
             for (index in 0 until length()) {
-                val item = getJSONObject(index)
-                add(
-                    CabinetItemSummary(
-                        id = item.optString("id"),
-                        title = item.optString("title"),
-                        displayName = item.optString("display_name"),
-                        mimeType = item.optString("mime_type"),
-                        sourceKind = item.optString("source_kind"),
-                        size = item.optLong("size"),
-                        isFavorite = item.optBoolean("is_favorite"),
-                        isUnsorted = item.optBoolean("is_unsorted"),
-                        summaryText = item.optString("summary_text"),
-                        updatedAt = item.optString("updated_at"),
-                    ),
-                )
+                add(getJSONObject(index).toItem())
             }
         }
+    }
+
+    private fun JSONObject.toItem(): CabinetItemSummary {
+        return CabinetItemSummary(
+            id = optString("id"),
+            title = optString("title"),
+            displayName = optString("display_name"),
+            mimeType = optString("mime_type"),
+            sourceKind = optString("source_kind"),
+            size = optLong("size"),
+            isFavorite = optBoolean("is_favorite"),
+            isUnsorted = optBoolean("is_unsorted"),
+            summaryText = optString("summary_text"),
+            updatedAt = optString("updated_at"),
+        )
     }
 
     private fun JSONArray?.toCollections(): List<CabinetCollectionSummary> {
@@ -91,6 +115,62 @@ object CabinetJsonParser {
                         title = item.optString("title"),
                         condition = item.optString("condition"),
                         itemCount = item.optLong("item_count"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun JSONArray?.toPreviews(): List<CabinetPreviewSummary> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    CabinetPreviewSummary(
+                        id = item.optString("id"),
+                        previewType = item.optString("preview_type"),
+                        title = item.optString("title"),
+                        summaryText = item.optString("summary_text"),
+                        status = item.optString("status"),
+                        generatedAt = item.optString("generated_at"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun JSONArray?.toReferences(): List<CabinetReferenceSummary> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    CabinetReferenceSummary(
+                        id = item.optString("id"),
+                        referenceType = item.optString("reference_type"),
+                        sourceApp = item.optString("source_app"),
+                        title = item.optString("title"),
+                        uri = item.optString("uri"),
+                        note = item.optString("note"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun JSONArray?.toVersions(): List<CabinetVersionSummary> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val item = getJSONObject(index)
+                add(
+                    CabinetVersionSummary(
+                        id = item.optString("id"),
+                        versionNumber = item.optLong("version_number"),
+                        displayName = item.optString("display_name"),
+                        note = item.optString("note"),
+                        isCurrent = item.optBoolean("is_current"),
                     ),
                 )
             }

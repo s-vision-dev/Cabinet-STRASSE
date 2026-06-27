@@ -13,6 +13,7 @@ const SCHEMA_VERSION: i64 = 1;
 pub enum CabinetError {
     Sqlite(rusqlite::Error),
     Json(serde_json::Error),
+    Message(String),
 }
 
 impl std::fmt::Display for CabinetError {
@@ -20,6 +21,7 @@ impl std::fmt::Display for CabinetError {
         match self {
             Self::Sqlite(error) => write!(f, "{error}"),
             Self::Json(error) => write!(f, "{error}"),
+            Self::Message(error) => write!(f, "{error}"),
         }
     }
 }
@@ -95,6 +97,52 @@ pub struct ModeResponse {
     pub items: Vec<CabinetItemSummary>,
     pub collections: Vec<CabinetCollectionSummary>,
     pub smart_folders: Vec<SmartFolderSummary>,
+}
+
+#[derive(Serialize)]
+pub struct CabinetItemDetail {
+    pub item: CabinetItemSummary,
+    pub path: String,
+    pub hash: String,
+    pub note: String,
+    pub previews: Vec<CabinetPreviewSummary>,
+    pub references: Vec<CabinetReferenceSummary>,
+    pub versions: Vec<CabinetVersionSummary>,
+}
+
+#[derive(Serialize)]
+pub struct CabinetPreviewSummary {
+    pub id: String,
+    pub preview_type: String,
+    pub title: String,
+    pub summary_text: String,
+    pub status: String,
+    pub generated_at: String,
+}
+
+#[derive(Serialize)]
+pub struct CabinetReferenceSummary {
+    pub id: String,
+    pub reference_type: String,
+    pub source_app: String,
+    pub title: String,
+    pub uri: String,
+    pub note: String,
+}
+
+#[derive(Serialize)]
+pub struct CabinetVersionSummary {
+    pub id: String,
+    pub version_number: i64,
+    pub display_name: String,
+    pub note: String,
+    pub is_current: bool,
+}
+
+#[derive(Serialize)]
+pub struct PreviewProcessReport {
+    pub processed: i64,
+    pub remaining: i64,
 }
 
 pub struct CabinetCore {
@@ -193,6 +241,81 @@ impl CabinetCore {
             },
         };
         Ok(serde_json::to_string(&response)?)
+    }
+
+    pub fn item_detail_json(&self, item_id: &str) -> CabinetResult<String> {
+        let item = self
+            .item_by_id(item_id)?
+            .ok_or_else(|| CabinetError::Message(format!("Item not found: {item_id}")))?;
+        let (path, hash, note, document_id): (String, String, String, Option<String>) =
+            self.conn.query_row(
+                "SELECT path, hash, note, document_id FROM cabinet_items WHERE id = ?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+        let detail = CabinetItemDetail {
+            item,
+            path,
+            hash,
+            note,
+            previews: self.previews_for_item(item_id)?,
+            references: self.references_for_item(item_id)?,
+            versions: match document_id {
+                Some(id) => self.versions_for_document(&id)?,
+                None => Vec::new(),
+            },
+        };
+        Ok(serde_json::to_string(&detail)?)
+    }
+
+    pub fn process_preview_queue_json(&self, limit: i64) -> CabinetResult<String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.id, p.item_id, i.path, i.mime_type, i.display_name
+             FROM cabinet_previews p
+             JOIN cabinet_items i ON i.id = p.item_id
+             WHERE p.status = 'queued'
+             ORDER BY p.generated_at ASC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })?;
+        let mut queue = Vec::new();
+        for row in rows {
+            queue.push(row?);
+        }
+        drop(stmt);
+
+        let mut processed = 0_i64;
+        for (preview_id, item_id, path, mime_type, display_name) in queue {
+            let text = preview_text_for_file(&path, &mime_type, &display_name);
+            let status = if text.is_empty() {
+                "unsupported"
+            } else {
+                "ready"
+            };
+            self.conn.execute(
+                "UPDATE cabinet_previews
+                 SET summary_text = ?1, extracted_text = ?1, generated_at = ?2, status = ?3
+                 WHERE id = ?4",
+                params![text, now_string(), status, preview_id],
+            )?;
+            self.rebuild_fts_for_item(&item_id)?;
+            processed += 1;
+        }
+
+        let remaining =
+            self.scalar("SELECT COUNT(*) FROM cabinet_previews WHERE status = 'queued'")?;
+        Ok(serde_json::to_string(&PreviewProcessReport {
+            processed,
+            remaining,
+        })?)
     }
 
     pub fn register_url_json(&self, url: &str, title: &str, note: &str) -> CabinetResult<String> {
@@ -714,6 +837,80 @@ impl CabinetCore {
         Ok(result)
     }
 
+    fn previews_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetPreviewSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, preview_type, title, summary_text, status, generated_at
+             FROM cabinet_previews
+             WHERE item_id = ?1
+             ORDER BY generated_at DESC",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| {
+            Ok(CabinetPreviewSummary {
+                id: row.get(0)?,
+                preview_type: row.get(1)?,
+                title: row.get(2)?,
+                summary_text: row.get(3)?,
+                status: row.get(4)?,
+                generated_at: row.get(5)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn references_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetReferenceSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, reference_type, source_app, title, uri, note
+             FROM cabinet_references
+             WHERE item_id = ?1
+             ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| {
+            Ok(CabinetReferenceSummary {
+                id: row.get(0)?,
+                reference_type: row.get(1)?,
+                source_app: row.get(2)?,
+                title: row.get(3)?,
+                uri: row.get(4)?,
+                note: row.get(5)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn versions_for_document(
+        &self,
+        document_id: &str,
+    ) -> CabinetResult<Vec<CabinetVersionSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, version_number, display_name, note, is_current
+             FROM cabinet_versions
+             WHERE document_id = ?1
+             ORDER BY version_number DESC",
+        )?;
+        let rows = stmt.query_map(params![document_id], |row| {
+            Ok(CabinetVersionSummary {
+                id: row.get(0)?,
+                version_number: row.get(1)?,
+                display_name: row.get(2)?,
+                note: row.get(3)?,
+                is_current: row.get::<_, i64>(4)? != 0,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     fn item_by_id(&self, id: &str) -> CabinetResult<Option<CabinetItemSummary>> {
         self.conn
             .query_row(
@@ -825,6 +1022,37 @@ fn preview_type_for_mime(mime_type: &str) -> &'static str {
         _ if mime_type.starts_with("audio/") => "audio",
         _ => "text",
     }
+}
+
+fn preview_text_for_file(path: &str, mime_type: &str, display_name: &str) -> String {
+    if mime_type.starts_with("text/")
+        || display_name.ends_with(".md")
+        || display_name.ends_with(".txt")
+    {
+        return std::fs::read_to_string(path)
+            .map(|text| text.chars().take(2000).collect())
+            .unwrap_or_default();
+    }
+    if mime_type == "application/zip" {
+        return format!("{display_name} is an archive stored in Cabinet Inbox.");
+    }
+    if mime_type == "application/pdf" {
+        return format!(
+            "{display_name} is queued as a PDF document. Full PDF text extraction is handled by the preview pipeline."
+        );
+    }
+    if mime_type.starts_with("image/") {
+        return format!("{display_name} is an image file queued for thumbnail and OCR processing.");
+    }
+    if mime_type.starts_with("video/") {
+        return format!(
+            "{display_name} is a video file queued for duration and thumbnail extraction."
+        );
+    }
+    if mime_type.starts_with("audio/") {
+        return format!("{display_name} is an audio file queued for duration and tag extraction.");
+    }
+    String::new()
 }
 
 fn escape_fts_token(value: &str) -> String {

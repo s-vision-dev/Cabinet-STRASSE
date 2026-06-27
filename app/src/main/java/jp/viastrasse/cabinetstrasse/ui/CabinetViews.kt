@@ -10,6 +10,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetDashboard
+import jp.viastrasse.cabinetstrasse.data.CabinetItemDetail
 import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
 import jp.viastrasse.cabinetstrasse.data.ModeResponse
 import jp.viastrasse.cabinetstrasse.data.SearchResponse
@@ -33,7 +34,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         )
     }
 
-    fun render(dashboard: CabinetDashboard, onModeSelected: (CabinetMode) -> Unit) {
+    fun render(dashboard: CabinetDashboard, onModeSelected: (CabinetMode) -> Unit, onItemSelected: (String) -> Unit) {
         content.removeAllViews()
         content.addView(title("Cabinet-STRASSE"))
         content.addView(subtitle("The Cabinet / Powered by VIASTRASSE"))
@@ -52,7 +53,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             ),
         )
         content.addView(section("最近の資料"))
-        dashboard.recentItems.forEach { content.addView(itemRow(it)) }
+        dashboard.recentItems.forEach { content.addView(itemRow(it, onItemSelected)) }
         content.addView(section("Collection"))
         dashboard.collections.forEach { content.addView(collectionRow(it)) }
         content.addView(section("Smart Folder"))
@@ -65,14 +66,14 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(errorText(message))
     }
 
-    fun renderMode(mode: ModeResponse, onBack: () -> Unit) {
+    fun renderMode(mode: ModeResponse, onBack: () -> Unit, onItemSelected: (String) -> Unit) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
         content.addView(title(mode.title))
         content.addView(subtitle(mode.mode))
         if (mode.items.isNotEmpty()) {
             content.addView(section("資料"))
-            mode.items.forEach { content.addView(itemRow(it)) }
+            mode.items.forEach { content.addView(itemRow(it, onItemSelected)) }
         }
         if (mode.collections.isNotEmpty()) {
             content.addView(section("Collection"))
@@ -84,7 +85,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    fun renderSearch(response: SearchResponse, onBack: () -> Unit, onSearch: (String) -> Unit) {
+    fun renderSearch(
+        response: SearchResponse,
+        onBack: () -> Unit,
+        onSearch: (String) -> Unit,
+        onItemSelected: (String) -> Unit,
+    ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
         content.addView(title("Search"))
@@ -100,7 +106,60 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(input)
         content.addView(command("検索", onClick = { onSearch(input.text.toString()) }))
         content.addView(section("検索結果"))
-        response.results.forEach { content.addView(itemRow(it)) }
+        response.results.forEach { content.addView(itemRow(it, onItemSelected)) }
+    }
+
+    fun renderDetail(
+        detail: CabinetItemDetail,
+        onBack: () -> Unit,
+        onProcessPreview: () -> Unit,
+    ) {
+        content.removeAllViews()
+        content.addView(command("← 戻る", onBack))
+        content.addView(title(detail.item.title))
+        content.addView(subtitle("${detail.item.mimeType} / ${detail.item.sourceKind}"))
+        content.addView(panel {
+            addView(label("保存場所", 13, true, CabinetColors.Accent))
+            addView(label(detail.path, 12, false, CabinetColors.TextSecondary))
+            addView(label("Hash", 13, true, CabinetColors.Accent))
+            addView(label(detail.hash, 11, false, CabinetColors.TextSecondary))
+            if (detail.note.isNotBlank()) {
+                addView(label("メモ", 13, true, CabinetColors.Accent))
+                addView(label(detail.note, 13, false, CabinetColors.TextSecondary))
+            }
+        })
+        content.addView(command("プレビューキューを処理", onProcessPreview))
+        content.addView(section("Preview"))
+        detail.previews.forEach { preview ->
+            content.addView(panel {
+                addView(label("${preview.previewType} / ${preview.status}", 14, true))
+                addView(label(preview.summaryText.ifBlank { "プレビュー本文は未生成です" }, 13, false, CabinetColors.TextSecondary))
+            })
+        }
+        content.addView(section("Version"))
+        if (detail.versions.isEmpty()) {
+            content.addView(label("この資料にはバージョン情報がありません", 13, false, CabinetColors.TextSecondary))
+        } else {
+            detail.versions.forEach { version ->
+                content.addView(panel {
+                    addView(label("v${version.versionNumber} ${version.displayName}", 14, true))
+                    addView(label(if (version.isCurrent) "Current" else "Old", 12, false, CabinetColors.TextSecondary))
+                    if (version.note.isNotBlank()) addView(label(version.note, 12, false, CabinetColors.TextSecondary))
+                })
+            }
+        }
+        content.addView(section("Reference"))
+        if (detail.references.isEmpty()) {
+            content.addView(label("関連参照はまだありません", 13, false, CabinetColors.TextSecondary))
+        } else {
+            detail.references.forEach { reference ->
+                content.addView(panel {
+                    addView(label("${reference.referenceType} / ${reference.sourceApp}", 14, true))
+                    addView(label(reference.title, 13, false, CabinetColors.TextSecondary))
+                    addView(label(reference.uri, 12, false, CabinetColors.TextSecondary))
+                })
+            }
+        }
     }
 
     private fun modeGrid(modes: List<CabinetMode>, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
@@ -139,8 +198,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun itemRow(item: CabinetItemSummary): View {
+    private fun itemRow(item: CabinetItemSummary, onItemSelected: (String) -> Unit): View {
         return panel {
+            isClickable = true
+            setOnClickListener { onItemSelected(item.id) }
             addView(label(item.title, 16, true))
             addView(label("${item.displayName} / ${item.mimeType} / ${item.sourceKind}", 12, false, CabinetColors.TextSecondary))
             addView(label(item.summaryText, 13, false, CabinetColors.TextSecondary))

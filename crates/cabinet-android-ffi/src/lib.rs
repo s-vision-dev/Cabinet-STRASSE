@@ -43,6 +43,34 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_mode
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_itemDetailJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+) -> jstring {
+    let item_id_value = match env.get_string(&item_id) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    run_string(&mut env, database_path, |core| {
+        core.item_detail_json(&item_id_value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_processPreviewQueueJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    limit: i64,
+) -> jstring {
+    run_string(&mut env, database_path, |core| {
+        core.process_preview_queue_json(limit)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,

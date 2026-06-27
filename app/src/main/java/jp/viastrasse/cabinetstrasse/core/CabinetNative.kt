@@ -11,6 +11,10 @@ object CabinetNative {
 
     external fun modeJson(databasePath: String, mode: String): String
 
+    external fun itemDetailJson(databasePath: String, itemId: String): String
+
+    external fun processPreviewQueueJson(databasePath: String, limit: Long): String
+
     external fun registerUrlJson(
         databasePath: String,
         url: String,

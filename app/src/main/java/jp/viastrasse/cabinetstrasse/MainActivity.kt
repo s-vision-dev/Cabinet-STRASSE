@@ -28,9 +28,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.dashboard()
         }.onSuccess { dashboard ->
-            dashboardView.render(dashboard) { mode ->
-                openMode(mode.name)
-            }
+            dashboardView.render(dashboard, { mode -> openMode(mode.name) }, ::openDetail)
         }.onFailure { error ->
             dashboardView.renderError(error.message ?: "Cabinet core の初期化に失敗しました。")
         }
@@ -44,7 +42,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.mode(mode)
         }.onSuccess {
-            dashboardView.renderMode(it, ::renderDashboard)
+            dashboardView.renderMode(it, ::renderDashboard, ::openDetail)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
         }
@@ -54,9 +52,40 @@ class MainActivity : Activity() {
         runCatching {
             repository.search(query)
         }.onSuccess {
-            dashboardView.renderSearch(it, ::renderDashboard, ::openSearch)
+            dashboardView.renderSearch(it, ::renderDashboard, ::openSearch, ::openDetail)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "検索できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openDetail(itemId: String) {
+        runCatching {
+            repository.detail(itemId)
+        }.onSuccess { detail ->
+            dashboardView.renderDetail(
+                detail = detail,
+                onBack = ::renderDashboard,
+                onProcessPreview = {
+                    processPreviewQueue()
+                    openDetail(itemId)
+                },
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun processPreviewQueue() {
+        runCatching {
+            repository.processPreviewQueue()
+        }.onSuccess { report ->
+            Toast.makeText(
+                this,
+                "Preview processed: ${report.processed}, remaining: ${report.remaining}",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "プレビュー処理に失敗しました", Toast.LENGTH_SHORT).show()
         }
     }
 }
