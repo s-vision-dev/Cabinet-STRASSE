@@ -166,6 +166,8 @@ class MainActivity : Activity() {
                 onOpenDirectory = ::openLocalExplorer,
                 onOpenFile = { file -> openViewer(file.absolutePath, mimeTypeFor(file), file.name) },
                 onRegisterFile = { file -> registerLocalExplorerFile(file, directory) },
+                onCopyFile = { file -> copyExplorerFileToInbox(file, directory) },
+                onMoveFile = { file -> moveExplorerFileToInbox(file, directory) },
                 onCreateFolder = { createExplorerFolder(directory) },
                 onDeleteFile = { file -> deleteExplorerFile(file, directory) },
             )
@@ -219,6 +221,43 @@ class MainActivity : Activity() {
             openLocalExplorer(directory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "フォルダを作成できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun copyExplorerFileToInbox(file: File, currentDirectory: File) {
+        runCatching {
+            require(file.exists() && file.isFile) { "コピー対象ファイルが見つかりません" }
+            val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
+            val destination = uniqueDestination(inboxDir, file.name)
+            file.inputStream().buffered().use { input ->
+                destination.outputStream().buffered().use { output -> input.copyTo(output) }
+            }
+            destination
+        }.onSuccess {
+            Toast.makeText(this, "Inboxへコピーしました: ${it.name}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(currentDirectory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "コピーできませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun moveExplorerFileToInbox(file: File, currentDirectory: File) {
+        runCatching {
+            require(file.exists() && file.isFile) { "移動対象ファイルが見つかりません" }
+            val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
+            val destination = uniqueDestination(inboxDir, file.name)
+            if (!file.renameTo(destination)) {
+                file.inputStream().buffered().use { input ->
+                    destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                }
+                check(file.delete()) { "移動元ファイルを削除できませんでした" }
+            }
+            destination
+        }.onSuccess {
+            Toast.makeText(this, "Inboxへ移動しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            openLocalExplorer(currentDirectory)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "移動できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

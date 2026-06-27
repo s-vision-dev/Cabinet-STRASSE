@@ -104,6 +104,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenDirectory: (File) -> Unit,
         onOpenFile: (File) -> Unit,
         onRegisterFile: (File) -> Unit,
+        onCopyFile: (File) -> Unit,
+        onMoveFile: (File) -> Unit,
         onCreateFolder: () -> Unit,
         onDeleteFile: (File) -> Unit,
     ) {
@@ -122,7 +124,17 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
         content.addView(section("Files"))
         entries.forEach { entry ->
-            content.addView(fileRow(entry, onOpenDirectory, onOpenFile, onRegisterFile, onDeleteFile))
+            content.addView(
+                fileRow(
+                    entry,
+                    onOpenDirectory,
+                    onOpenFile,
+                    onRegisterFile,
+                    onCopyFile,
+                    onMoveFile,
+                    onDeleteFile,
+                ),
+            )
         }
     }
 
@@ -381,6 +393,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenDirectory: (File) -> Unit,
         onOpenFile: (File) -> Unit,
         onRegisterFile: (File) -> Unit,
+        onCopyFile: (File) -> Unit,
+        onMoveFile: (File) -> Unit,
         onDeleteFile: (File) -> Unit,
     ): View {
         return panel {
@@ -396,6 +410,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(label("${entry.kind} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary))
             if (!entry.isDirectory) {
                 addView(command("Cabinetへ登録") { onRegisterFile(entry.file) })
+                addView(command("Inboxへコピー") { onCopyFile(entry.file) })
+                addView(command("Inboxへ移動") { onMoveFile(entry.file) })
                 addView(command("削除") { onDeleteFile(entry.file) })
             }
         }
