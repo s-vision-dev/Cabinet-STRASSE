@@ -359,7 +359,7 @@ class MainActivity : Activity() {
                     moveToTrash(itemId)
                 },
                 onOpen = {
-                    openViewer(detail.path, detail.item.mimeType, detail.item.title)
+                    openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
                 },
                 onShare = {
                     shareItem(detail)
@@ -450,7 +450,7 @@ class MainActivity : Activity() {
                     moveToTrash(itemId)
                 },
                 onOpen = {
-                    openViewer(it.path, it.item.mimeType, it.item.title)
+                    openRegisteredItem(itemId, it.path, it.item.mimeType, it.item.title)
                 },
                 onShare = {
                     shareItem(it)
@@ -670,6 +670,15 @@ class MainActivity : Activity() {
                 putExtra(ViewerActivity.EXTRA_TITLE, title)
             },
         )
+    }
+
+    private fun openRegisteredItem(itemId: String, path: String, mimeType: String, title: String) {
+        runCatching {
+            repository.markOpened(itemId)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "閲覧日時を更新できませんでした", Toast.LENGTH_SHORT).show()
+        }
+        openViewer(path, mimeType, title)
     }
 
     private fun shareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {

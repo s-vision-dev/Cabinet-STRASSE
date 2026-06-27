@@ -839,6 +839,23 @@ impl CabinetCore {
         self.item_detail_json(item_id)
     }
 
+    pub fn mark_item_opened_json(&self, item_id: &str) -> CabinetResult<String> {
+        self.ensure_item_exists(item_id)?;
+        let now = now_string();
+        self.conn.execute(
+            "UPDATE cabinet_items SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2",
+            params![now, item_id],
+        )?;
+        self.log_event(
+            "Cabinet.ItemOpened",
+            Some(item_id),
+            serde_json::json!({
+                "last_opened_at": now,
+            }),
+        )?;
+        self.item_detail_json(item_id)
+    }
+
     pub fn edit_options_json(&self) -> CabinetResult<String> {
         Ok(serde_json::to_string(&EditOptions {
             tags: self.tags()?,

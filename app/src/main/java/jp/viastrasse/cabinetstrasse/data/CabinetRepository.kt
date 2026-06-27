@@ -79,6 +79,10 @@ class CabinetRepository(context: Context) {
         )
     }
 
+    fun markOpened(itemId: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.markItemOpenedJson(databasePath, itemId))
+    }
+
     fun addTag(itemId: String, tagName: String, color: String = "#607D8B"): CabinetItemDetail {
         return CabinetJsonParser.detail(
             CabinetNative.addTagToItemJson(databasePath, itemId, tagName, color),
