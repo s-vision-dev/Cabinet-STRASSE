@@ -155,6 +155,10 @@ object CabinetJsonParser {
                         title = item.optString("title"),
                         summaryText = item.optString("summary_text"),
                         thumbnailPath = item.optString("thumbnail_path"),
+                        pageCount = item.optNullableLong("page_count"),
+                        duration = item.optNullableLong("duration"),
+                        width = item.optNullableLong("width"),
+                        height = item.optNullableLong("height"),
                         status = item.optString("status"),
                         generatedAt = item.optString("generated_at"),
                     ),
@@ -301,5 +305,9 @@ object CabinetJsonParser {
                 )
             }
         }
+    }
+
+    private fun JSONObject.optNullableLong(name: String): Long? {
+        return if (has(name) && !isNull(name)) optLong(name) else null
     }
 }

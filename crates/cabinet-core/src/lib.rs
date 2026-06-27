@@ -318,6 +318,10 @@ pub struct CabinetPreviewSummary {
     pub title: String,
     pub summary_text: String,
     pub thumbnail_path: String,
+    pub page_count: Option<i64>,
+    pub duration: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
     pub status: String,
     pub generated_at: String,
 }
@@ -437,6 +441,8 @@ pub struct TagSummary {
 
 struct GeneratedPreview {
     summary_text: String,
+    page_count: Option<i64>,
+    duration: Option<i64>,
     width: Option<i64>,
     height: Option<i64>,
     status: &'static str,
@@ -713,13 +719,17 @@ impl CabinetCore {
                 "UPDATE cabinet_previews
                  SET summary_text = ?1,
                      extracted_text = ?1,
-                     width = ?2,
-                     height = ?3,
-                     generated_at = ?4,
-                     status = ?5
-                 WHERE id = ?6",
+                     page_count = ?2,
+                     duration = ?3,
+                     width = ?4,
+                     height = ?5,
+                     generated_at = ?6,
+                     status = ?7
+                 WHERE id = ?8",
                 params![
                     &preview.summary_text,
+                    preview.page_count,
+                    preview.duration,
                     preview.width,
                     preview.height,
                     now_string(),
@@ -2378,7 +2388,8 @@ impl CabinetCore {
 
     fn previews_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetPreviewSummary>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, preview_type, title, summary_text, COALESCE(thumbnail_path, ''), status, generated_at
+            "SELECT id, preview_type, title, summary_text, COALESCE(thumbnail_path, ''),
+                    page_count, duration, width, height, status, generated_at
              FROM cabinet_previews
              WHERE item_id = ?1
              ORDER BY generated_at DESC",
@@ -2390,8 +2401,12 @@ impl CabinetCore {
                 title: row.get(2)?,
                 summary_text: row.get(3)?,
                 thumbnail_path: row.get(4)?,
-                status: row.get(5)?,
-                generated_at: row.get(6)?,
+                page_count: row.get(5)?,
+                duration: row.get(6)?,
+                width: row.get(7)?,
+                height: row.get(8)?,
+                status: row.get(9)?,
+                generated_at: row.get(10)?,
             })
         })?;
         let mut result = Vec::new();
@@ -3025,13 +3040,13 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
         let summary = std::fs::read_to_string(path)
             .map(|text| text_preview(&text))
             .unwrap_or_default();
-        return generated_preview(summary, None, None);
+        return generated_preview(summary, None, None, None, None);
     }
     if mime_type == "application/zip" || lower_name.ends_with(".zip") {
         let summary = zip_preview(path).unwrap_or_else(|| {
             format!("{display_name}: ZIP archive. 解凍操作で中のファイルをCabinetへ登録できます。")
         });
-        return generated_preview(summary, None, None);
+        return generated_preview(summary, None, None, None, None);
     }
     if lower_name.ends_with(".docx") {
         let summary = office_preview(path, OfficeKind::Word).unwrap_or_else(|| {
@@ -3039,6 +3054,8 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
         });
         return generated_preview(
             format!("{display_name}: Word document\n{summary}"),
+            None,
+            None,
             None,
             None,
         );
@@ -3051,6 +3068,8 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
             format!("{display_name}: Excel workbook\n{summary}"),
             None,
             None,
+            None,
+            None,
         );
     }
     if lower_name.ends_with(".pptx") {
@@ -3061,14 +3080,22 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
             format!("{display_name}: PowerPoint presentation\n{summary}"),
             None,
             None,
+            None,
+            None,
         );
     }
     if mime_type == "application/pdf" || lower_name.ends_with(".pdf") {
-        let summary = pdf_preview(path).unwrap_or_else(|| {
-            format!("{display_name}: PDF document. 本文抽出とページプレビュー生成の対象です。")
-        });
+        let preview = pdf_preview(path);
+        let summary = preview
+            .as_ref()
+            .map(|value| value.summary.clone())
+            .unwrap_or_else(|| {
+                format!("{display_name}: PDF document. 本文抽出とページプレビュー生成の対象です。")
+            });
         return generated_preview(
             format!("{display_name}: PDF document\n{summary}"),
+            preview.and_then(|value| value.page_count),
+            None,
             None,
             None,
         );
@@ -3085,6 +3112,8 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
         };
         return generated_preview(
             summary,
+            None,
+            None,
             dimensions.map(|value| value.0),
             dimensions.map(|value| value.1),
         );
@@ -3094,6 +3123,8 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
             format!("{display_name}: video file. サムネイル、長さ、解像度抽出の対象です。"),
             None,
             None,
+            None,
+            None,
         );
     }
     if mime_type.starts_with("audio/") {
@@ -3101,10 +3132,14 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
             format!("{display_name}: audio file. 長さとタグ情報抽出の対象です。"),
             None,
             None,
+            None,
+            None,
         );
     }
     GeneratedPreview {
         summary_text: String::new(),
+        page_count: None,
+        duration: None,
         width: None,
         height: None,
         status: "unsupported",
@@ -3113,6 +3148,8 @@ fn preview_for_file(path: &str, mime_type: &str, display_name: &str) -> Generate
 
 fn generated_preview(
     summary_text: String,
+    page_count: Option<i64>,
+    duration: Option<i64>,
     width: Option<i64>,
     height: Option<i64>,
 ) -> GeneratedPreview {
@@ -3123,6 +3160,8 @@ fn generated_preview(
     };
     GeneratedPreview {
         summary_text,
+        page_count,
+        duration,
         width,
         height,
         status,
@@ -3145,7 +3184,12 @@ fn text_preview(text: &str) -> String {
     joined.chars().take(2000).collect()
 }
 
-fn pdf_preview(path: &str) -> Option<String> {
+struct PdfPreview {
+    summary: String,
+    page_count: Option<i64>,
+}
+
+fn pdf_preview(path: &str) -> Option<PdfPreview> {
     let bytes = std::fs::read(path).ok()?;
     let raw = String::from_utf8_lossy(&bytes);
     let page_count = raw
@@ -3186,7 +3230,10 @@ fn pdf_preview(path: &str) -> Option<String> {
     if lines.is_empty() {
         None
     } else {
-        Some(lines.join("\n"))
+        Some(PdfPreview {
+            summary: lines.join("\n"),
+            page_count: (page_count > 0).then_some(page_count as i64),
+        })
     }
 }
 

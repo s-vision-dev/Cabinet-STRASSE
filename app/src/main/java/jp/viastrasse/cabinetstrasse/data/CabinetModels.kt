@@ -93,6 +93,10 @@ data class CabinetPreviewSummary(
     val title: String,
     val summaryText: String,
     val thumbnailPath: String,
+    val pageCount: Long?,
+    val duration: Long?,
+    val width: Long?,
+    val height: Long?,
     val status: String,
     val generatedAt: String,
 )

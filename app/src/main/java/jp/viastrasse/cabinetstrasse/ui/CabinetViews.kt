@@ -299,6 +299,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         detail.previews.forEach { preview ->
             content.addView(panel {
                 addView(label("${preview.previewType} / ${preview.status}", 14, true))
+                preview.metadataText().takeIf { it.isNotBlank() }?.let {
+                    addView(label(it, 12, false, CabinetColors.Accent))
+                }
                 addView(label(preview.summaryText.ifBlank { "プレビュー本文は未生成です" }, 13, false, CabinetColors.TextSecondary))
                 if (preview.thumbnailPath.isNotBlank()) {
                     thumbnailImage(preview.thumbnailPath)?.let(::addView)
@@ -580,6 +583,14 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 setMargins(0, dp(8), 0, dp(8))
             }
         }
+    }
+
+    private fun jp.viastrasse.cabinetstrasse.data.CabinetPreviewSummary.metadataText(): String {
+        return listOfNotNull(
+            pageCount?.let { "$it pages" },
+            duration?.let { "${it}ms" },
+            if (width != null && height != null) "${width} x ${height}px" else null,
+        ).joinToString(" / ")
     }
 
     private fun label(
