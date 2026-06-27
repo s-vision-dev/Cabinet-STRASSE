@@ -177,7 +177,7 @@ class MainActivity : Activity() {
                 onRegisterFile = { file -> registerLocalExplorerFile(file, directory) },
                 onCopyFile = { file -> copyExplorerFileToInbox(file, directory) },
                 onMoveFile = { file -> moveExplorerFileToInbox(file, directory) },
-                onCreateFolder = { createExplorerFolder(directory) },
+                onCreateFolder = { showCreateExplorerFolderDialog(directory) },
                 onDeleteFile = { file -> deleteExplorerFile(file, directory) },
             )
         }.onFailure { error ->
@@ -220,9 +220,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun createExplorerFolder(directory: File) {
+    private fun showCreateExplorerFolderDialog(directory: File) {
+        showTextDialog("新規フォルダ作成", "フォルダ名", "作成") { folderName ->
+            createExplorerFolder(directory, folderName)
+        }
+    }
+
+    private fun createExplorerFolder(directory: File, folderName: String) {
         runCatching {
-            val folder = uniqueDirectory(directory, "New Folder")
+            val folder = uniqueDirectory(directory, sanitizeFileName(folderName))
             check(folder.mkdirs()) { "フォルダを作成できませんでした" }
             folder
         }.onSuccess {
