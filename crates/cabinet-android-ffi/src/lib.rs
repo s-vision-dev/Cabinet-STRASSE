@@ -59,6 +59,27 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_item
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_itemDetailUnlockedJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    item_id: JString,
+    pin: JString,
+) -> jstring {
+    let item_id_value = match jstring_value(&mut env, &item_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let pin_value = match jstring_value(&mut env, &pin) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.item_detail_unlocked_json(&item_id_value, &pin_value)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_processPreviewQueueJson(
     mut env: JNIEnv,
     _class: JClass,

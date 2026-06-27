@@ -592,6 +592,21 @@ impl CabinetCore {
     }
 
     pub fn item_detail_json(&self, item_id: &str) -> CabinetResult<String> {
+        self.item_detail_json_with_memo_visibility(item_id, false)
+    }
+
+    pub fn item_detail_unlocked_json(&self, item_id: &str, pin: &str) -> CabinetResult<String> {
+        if !self.verify_security_pin(pin)? {
+            return Err(CabinetError::Message("PIN verification failed.".to_owned()));
+        }
+        self.item_detail_json_with_memo_visibility(item_id, true)
+    }
+
+    fn item_detail_json_with_memo_visibility(
+        &self,
+        item_id: &str,
+        reveal_protected_memos: bool,
+    ) -> CabinetResult<String> {
         let item = self
             .item_by_id(item_id)?
             .ok_or_else(|| CabinetError::Message(format!("Item not found: {item_id}")))?;
@@ -614,7 +629,7 @@ impl CabinetCore {
                 Some(id) => self.versions_for_document(&id)?,
                 None => Vec::new(),
             },
-            memos: self.memos_for_item(item_id)?,
+            memos: self.memos_for_item(item_id, reveal_protected_memos)?,
         };
         Ok(serde_json::to_string(&detail)?)
     }
@@ -1272,17 +1287,7 @@ impl CabinetCore {
     }
 
     pub fn verify_security_pin_json(&self, pin: &str) -> CabinetResult<String> {
-        let expected: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT value FROM security_settings WHERE key = 'pin_hash'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let verified = expected
-            .map(|hash| hash == hash_text(pin.trim()))
-            .unwrap_or(false);
+        let verified = self.verify_security_pin(pin)?;
         Ok(serde_json::to_string(&SecurityCheckResult { verified })?)
     }
 
@@ -2240,7 +2245,11 @@ impl CabinetCore {
         Ok(result)
     }
 
-    fn memos_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetMemoSummary>> {
+    fn memos_for_item(
+        &self,
+        item_id: &str,
+        reveal_protected: bool,
+    ) -> CabinetResult<Vec<CabinetMemoSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, body, is_protected, updated_at
              FROM cabinet_memos
@@ -2251,7 +2260,7 @@ impl CabinetCore {
             let is_protected = row.get::<_, i64>(2)? != 0;
             Ok(CabinetMemoSummary {
                 id: row.get(0)?,
-                body: if is_protected {
+                body: if is_protected && !reveal_protected {
                     "[protected memo]".to_owned()
                 } else {
                     row.get(1)?
@@ -2265,6 +2274,20 @@ impl CabinetCore {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    fn verify_security_pin(&self, pin: &str) -> CabinetResult<bool> {
+        let expected: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM security_settings WHERE key = 'pin_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(expected
+            .map(|hash| hash == hash_text(pin.trim()))
+            .unwrap_or(false))
     }
 
     fn apply_version_to_item(
@@ -3217,6 +3240,27 @@ mod tests {
         );
         let dashboard = core.dashboard().expect("dashboard");
         assert!(dashboard.explorer_count >= 1);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn unlocks_protected_memo_with_pin() {
+        let path = test_db_path("protected-memo");
+        let core = CabinetCore::open(&path).expect("open database");
+        let first_item = core.dashboard().expect("dashboard").recent_items[0]
+            .id
+            .clone();
+        core.set_security_pin_json("1234").expect("set pin");
+        core.add_memo_json(&first_item, "Secret memo body", true)
+            .expect("add protected memo");
+        let locked = core.item_detail_json(&first_item).expect("locked detail");
+        assert!(locked.contains("[protected memo]"));
+        assert!(!locked.contains("Secret memo body"));
+        let unlocked = core
+            .item_detail_unlocked_json(&first_item, "1234")
+            .expect("unlocked detail");
+        assert!(unlocked.contains("Secret memo body"));
+        assert!(core.item_detail_unlocked_json(&first_item, "9999").is_err());
         let _ = fs::remove_file(path);
     }
 

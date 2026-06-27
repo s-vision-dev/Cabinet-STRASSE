@@ -32,6 +32,10 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.detail(CabinetNative.itemDetailJson(databasePath, itemId))
     }
 
+    fun detailUnlocked(itemId: String, pin: String): CabinetItemDetail {
+        return CabinetJsonParser.detail(CabinetNative.itemDetailUnlockedJson(databasePath, itemId, pin))
+    }
+
     fun processPreviewQueue(limit: Long = 20): PreviewProcessReport {
         return CabinetJsonParser.previewReport(CabinetNative.processPreviewQueueJson(databasePath, limit))
     }

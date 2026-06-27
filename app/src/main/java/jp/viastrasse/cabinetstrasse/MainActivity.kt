@@ -398,6 +398,9 @@ class MainActivity : Activity() {
                 onAddProtectedMemo = {
                     showProtectedMemoDialog(itemId)
                 },
+                onUnlockProtectedMemos = {
+                    showUnlockProtectedMemosDialog(itemId)
+                },
                 onProtectItem = {
                     protectItem(itemId)
                 },
@@ -488,6 +491,9 @@ class MainActivity : Activity() {
                 },
                 onAddProtectedMemo = {
                     showProtectedMemoDialog(itemId)
+                },
+                onUnlockProtectedMemos = {
+                    showUnlockProtectedMemosDialog(itemId)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -797,6 +803,117 @@ class MainActivity : Activity() {
     private fun showProtectedMemoDialog(itemId: String) {
         showTextDialog("保護メモを追加", "メモ本文", "追加", multiline = true) { body ->
             addProtectedMemo(itemId, body)
+        }
+    }
+
+    private fun showUnlockProtectedMemosDialog(itemId: String) {
+        showPinDialog(
+            title = "保護メモを表示",
+            positiveLabel = "表示",
+        ) { pin ->
+            openUnlockedDetail(itemId, pin)
+        }
+    }
+
+    private fun openUnlockedDetail(itemId: String, pin: String) {
+        runCatching {
+            repository.detailUnlocked(itemId, pin)
+        }.onSuccess { detail ->
+            dashboardView.renderDetail(
+                detail = detail,
+                onBack = ::renderDashboard,
+                onProcessPreview = {
+                    processPreviewQueue()
+                    openDetail(itemId)
+                },
+                onToggleFavorite = {
+                    updateItemFlags(
+                        itemId = itemId,
+                        isFavorite = !detail.item.isFavorite,
+                        isUnsorted = detail.item.isUnsorted,
+                    )
+                },
+                onMarkSorted = {
+                    updateItemFlags(
+                        itemId = itemId,
+                        isFavorite = detail.item.isFavorite,
+                        isUnsorted = false,
+                    )
+                },
+                onAddTag = {
+                    showTextDialog("タグを追加", "タグ名", "追加") { tagName ->
+                        addTag(itemId, tagName)
+                    }
+                },
+                onRemoveTag = { tagId ->
+                    removeTag(itemId, tagId)
+                },
+                onAddCollection = {
+                    showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
+                        addToCollection(itemId, collectionTitle)
+                    }
+                },
+                onRemoveCollection = { collectionId ->
+                    removeFromCollection(itemId, collectionId)
+                },
+                onMoveTrash = {
+                    moveToTrash(itemId)
+                },
+                onOpen = {
+                    openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
+                },
+                onShare = {
+                    shareItem(detail)
+                },
+                onDuplicate = {
+                    duplicateItem(itemId)
+                },
+                onRename = {
+                    renameItem(itemId, renamedName(detail.item.displayName))
+                },
+                onAddVersion = {
+                    openVersionFilePicker(itemId)
+                },
+                onSetCurrentVersion = { versionId ->
+                    setCurrentVersion(itemId, versionId)
+                },
+                onCreateZip = {
+                    createZip(detail)
+                },
+                onExtractZip = {
+                    extractZip(detail)
+                },
+                onAddMailReference = {
+                    showReferenceDialog(itemId, "mail", "Mail-STRASSE", "strasse://mail/open/")
+                },
+                onAddTaskReference = {
+                    showReferenceDialog(itemId, "task", "Task-STRASSE", "strasse://task/open/")
+                },
+                onAddAtelierReference = {
+                    showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
+                },
+                onOpenReference = ::openReferenceUri,
+                onAddMemo = {
+                    showMemoDialog(itemId)
+                },
+                onAddProtectedMemo = {
+                    showProtectedMemoDialog(itemId)
+                },
+                onUnlockProtectedMemos = {
+                    showUnlockProtectedMemosDialog(itemId)
+                },
+                onProtectItem = {
+                    protectItem(itemId)
+                },
+                onRestoreFromTrash = {
+                    restoreFromTrash(itemId)
+                },
+                onDeletePermanently = {
+                    deletePermanently(itemId)
+                },
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "保護メモを表示できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 

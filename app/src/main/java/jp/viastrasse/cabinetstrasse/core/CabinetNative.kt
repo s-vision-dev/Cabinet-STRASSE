@@ -13,6 +13,8 @@ object CabinetNative {
 
     external fun itemDetailJson(databasePath: String, itemId: String): String
 
+    external fun itemDetailUnlockedJson(databasePath: String, itemId: String, pin: String): String
+
     external fun processPreviewQueueJson(databasePath: String, limit: Long): String
 
     external fun settingsJson(databasePath: String): String
