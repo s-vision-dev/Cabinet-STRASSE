@@ -45,39 +45,59 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onModeSelected: (CabinetMode) -> Unit,
         onItemSelected: (String) -> Unit,
         onImportFolder: () -> Unit,
+        onOpenSearch: () -> Unit,
         onToggleFavorite: (CabinetItemSummary) -> Unit,
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         content.removeAllViews()
-        content.addView(title("Cabinet-STRASSE"))
-        content.addView(subtitle("The Cabinet / Powered by VIASTRASSE"))
-        content.addView(space(14))
+        content.addView(homeHeader(dashboard))
+        content.addView(searchLauncher(onOpenSearch))
         content.addView(
-            modeGrid(
+            quickActionGrid(
                 listOf(
-                    CabinetMode("Explorer", dashboard.explorerCount, "通常ファイルと取り込み資料"),
-                    CabinetMode("Library", dashboard.libraryCount, "種別から資料を参照"),
-                    CabinetMode("Collection", dashboard.collectionCount, "テーマ単位の資料群"),
-                    CabinetMode("Smart Folder", dashboard.smartFolders.size.toLong(), "条件で自動抽出"),
-                    CabinetMode("Inbox", dashboard.inboxCount, "未整理の一時保管"),
-                    CabinetMode("Trash", dashboard.trashCount, "復元と完全削除"),
-                    CabinetMode("Search", dashboard.favoriteCount, "検索とお気に入り"),
-                    CabinetMode("Settings", dashboard.version, "Provider / Backup / Security"),
+                    CabinetMode("Explorer", dashboard.explorerCount, "ファイルを開く"),
+                    CabinetMode("Inbox", dashboard.inboxCount, "未整理を片付ける"),
+                    CabinetMode("Library", dashboard.libraryCount, "種類で探す"),
+                    CabinetMode("Search", dashboard.favoriteCount, "全文検索"),
                 ),
                 onModeSelected,
             ),
         )
         content.addView(command("SAFフォルダから取り込む", onImportFolder))
+        content.addView(statusStrip(dashboard, onModeSelected))
         content.addView(section("最近の資料"))
-        dashboard.recentItems.forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
-        content.addView(section("Collection"))
-        dashboard.collections.forEach { collection ->
+        if (dashboard.recentItems.isEmpty()) {
+            content.addView(emptyState("最近開いた資料はまだありません"))
+        } else {
+            dashboard.recentItems.take(8).forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
+        }
+        if (dashboard.inboxCount > 0) {
+            content.addView(section("未整理Inbox"))
+            content.addView(callout("未整理が ${dashboard.inboxCount} 件あります", "Inboxを開く") {
+                onModeSelected(CabinetMode("Inbox", dashboard.inboxCount, "未整理の一時保管"))
+            })
+        }
+        content.addView(section("Collection / Smart Folder"))
+        dashboard.collections.take(4).forEach { collection ->
             content.addView(collectionRow(collection) { selected ->
                 onModeSelected(CabinetMode("collection:${selected.id}", selected.itemCount, selected.title))
             })
         }
-        content.addView(section("Smart Folder"))
-        dashboard.smartFolders.forEach { content.addView(smartFolderRow(it) { folder -> onModeSelected(CabinetMode("smart:${folder.id}", folder.itemCount, folder.condition)) }) }
+        dashboard.smartFolders.take(4).forEach {
+            content.addView(smartFolderRow(it) { folder -> onModeSelected(CabinetMode("smart:${folder.id}", folder.itemCount, folder.condition)) })
+        }
+        content.addView(section("その他"))
+        content.addView(
+            compactModeRow(
+                listOf(
+                    CabinetMode("Collection", dashboard.collectionCount, "テーマ"),
+                    CabinetMode("Smart Folder", dashboard.smartFolders.size.toLong(), "条件"),
+                    CabinetMode("Trash", dashboard.trashCount, "ゴミ箱"),
+                    CabinetMode("Settings", dashboard.version, "設定"),
+                ),
+                onModeSelected,
+            ),
+        )
     }
 
     fun renderError(message: String) {
@@ -441,6 +461,128 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             grid.addView(row)
         }
         return grid
+    }
+
+    private fun quickActionGrid(modes: List<CabinetMode>, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
+        val grid = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        modes.chunked(2).forEach { rowModes ->
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                weightSum = 2f
+            }
+            rowModes.forEach { mode -> row.addView(quickActionTile(mode, onModeSelected)) }
+            grid.addView(row)
+        }
+        return grid
+    }
+
+    private fun quickActionTile(mode: CabinetMode, onModeSelected: (CabinetMode) -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(10))
+            setBackgroundColor(if (mode.name == "Inbox" && mode.count > 0) CabinetColors.Brand else CabinetColors.SurfaceAlt)
+            isClickable = true
+            setOnClickListener { onModeSelected(mode) }
+            addView(label(mode.name, 17, true))
+            addView(label(mode.description, 12, false, CabinetColors.TextSecondary))
+            addView(label(mode.count.toString(), 20, true, CabinetColors.Accent))
+            layoutParams = LinearLayout.LayoutParams(0, dp(106), 1f).apply {
+                setMargins(dp(4), dp(4), dp(4), dp(4))
+            }
+        }
+    }
+
+    private fun compactModeRow(modes: List<CabinetMode>, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            modes.forEach { mode ->
+                addView(
+                    TextView(context).apply {
+                        text = "${mode.name}  ${mode.count}"
+                        textSize = 14f
+                        setTextColor(CabinetColors.TextPrimary)
+                        setPadding(dp(12), dp(10), dp(12), dp(10))
+                        setBackgroundColor(CabinetColors.Surface)
+                        isClickable = true
+                        setOnClickListener { onModeSelected(mode) }
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply {
+                            setMargins(0, dp(3), 0, dp(3))
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    private fun homeHeader(dashboard: CabinetDashboard): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(8))
+            addView(title("Cabinet-STRASSE"))
+            addView(subtitle("The Cabinet / Powered by VIASTRASSE"))
+            addView(label("${dashboard.libraryCount} items / Inbox ${dashboard.inboxCount} / Favorites ${dashboard.favoriteCount}", 12, false, CabinetColors.TextSecondary))
+        }
+    }
+
+    private fun searchLauncher(onOpenSearch: () -> Unit): View {
+        return TextView(context).apply {
+            text = "Cabinet内を検索"
+            textSize = 16f
+            setTextColor(CabinetColors.TextSecondary)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            isClickable = true
+            setOnClickListener { onOpenSearch() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(0, dp(10), 0, dp(10))
+            }
+        }
+    }
+
+    private fun statusStrip(dashboard: CabinetDashboard, onModeSelected: (CabinetMode) -> Unit): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            addView(statusPill("未整理", dashboard.inboxCount) { onModeSelected(CabinetMode("Inbox", dashboard.inboxCount, "未整理")) })
+            addView(statusPill("お気に入り", dashboard.favoriteCount) { onModeSelected(CabinetMode("Search", dashboard.favoriteCount, "お気に入り")) })
+            addView(statusPill("ゴミ箱", dashboard.trashCount) { onModeSelected(CabinetMode("Trash", dashboard.trashCount, "ゴミ箱")) })
+        }
+    }
+
+    private fun statusPill(labelText: String, count: Long, onClick: () -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setBackgroundColor(CabinetColors.Surface)
+            isClickable = true
+            setOnClickListener { onClick() }
+            addView(label(labelText, 12, false, CabinetColors.TextSecondary))
+            addView(label(count.toString(), 18, true, CabinetColors.TextPrimary))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(dp(3), dp(4), dp(3), dp(4))
+            }
+        }
+    }
+
+    private fun callout(text: String, actionText: String, onClick: () -> Unit): View {
+        return panel {
+            addView(label(text, 15, true))
+            addView(command(actionText, onClick))
+        }
+    }
+
+    private fun emptyState(text: String): View {
+        return label(text, 13, false, CabinetColors.TextSecondary).apply {
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+        }
     }
 
     private fun modeTile(mode: CabinetMode, onModeSelected: (CabinetMode) -> Unit): View {

@@ -192,6 +192,7 @@ class MainActivity : Activity() {
                 { mode -> openMode(mode.name) },
                 ::openDetail,
                 ::openFolderPicker,
+                { openSearch("") },
                 ::toggleFavoriteFromSummary,
                 ::moveSummaryToTrash,
             )
