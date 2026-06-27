@@ -17,4 +17,14 @@ object CabinetNative {
         title: String,
         note: String,
     ): String
+
+    external fun registerFileJson(
+        databasePath: String,
+        path: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        sourceKind: String,
+        note: String,
+    ): String
 }

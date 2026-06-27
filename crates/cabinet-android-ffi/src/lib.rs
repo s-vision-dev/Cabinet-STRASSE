@@ -68,6 +68,50 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_regi
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerFileJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    path: JString,
+    display_name: JString,
+    mime_type: JString,
+    size: i64,
+    source_kind: JString,
+    note: JString,
+) -> jstring {
+    let path_value = match env.get_string(&path) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    let display_name_value = match env.get_string(&display_name) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    let mime_type_value = match env.get_string(&mime_type) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    let source_kind_value = match env.get_string(&source_kind) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    let note_value = match env.get_string(&note) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => return jstring_from(&mut env, &error_json(error.to_string())),
+    };
+    run_string(&mut env, database_path, |core| {
+        core.register_file_json(
+            &path_value,
+            &display_name_value,
+            &mime_type_value,
+            size,
+            &source_kind_value,
+            &note_value,
+        )
+    })
+}
+
 fn run_string(
     env: &mut JNIEnv,
     database_path: JString,

@@ -1,6 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -214,6 +216,81 @@ impl CabinetCore {
         )?;
         self.rebuild_fts_for_item(&id)?;
         let item = self.item_by_id(&id)?.expect("inserted item must exist");
+        Ok(serde_json::to_string(&item)?)
+    }
+
+    pub fn register_file_json(
+        &self,
+        path: &str,
+        display_name: &str,
+        mime_type: &str,
+        size: i64,
+        source_kind: &str,
+        note: &str,
+    ) -> CabinetResult<String> {
+        let now = now_string();
+        let file_id = new_id();
+        let item_id = new_id();
+        let document_id = new_id();
+        let version_id = new_id();
+        let hash = hash_file(path).unwrap_or_else(|_| hash_text(path));
+
+        self.conn.execute(
+            "INSERT INTO cabinet_files (
+                id, path, original_file_name, mime_type, size, hash, created_at, updated_at, storage_type
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'local')",
+            params![file_id, path, display_name, mime_type, size, hash, now],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_documents(id, title, description, current_version_id, created_at, updated_at, status)
+             VALUES (?1, ?2, '', ?3, ?4, ?4, 'active')",
+            params![document_id, display_name, version_id, now],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_versions (
+                id, document_id, version_number, file_id, display_name, original_file_name,
+                registered_at, source_app, source_id, note, is_current
+            ) VALUES (?1, ?2, 1, ?3, ?4, ?4, ?5, 'Cabinet-STRASSE', NULL, ?6, 1)",
+            params![version_id, document_id, file_id, display_name, now, note],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_items (
+                id, file_id, document_id, title, display_name, mime_type, path, source_kind,
+                size, hash, created_at, updated_at, last_opened_at, is_favorite, is_archived,
+                is_unsorted, note
+            ) VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, NULL, 0, 0, 1, ?11)",
+            params![
+                item_id,
+                file_id,
+                document_id,
+                display_name,
+                mime_type,
+                path,
+                source_kind,
+                size,
+                hash,
+                now,
+                note
+            ],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_previews (
+                id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                page_count, duration, width, height, generated_at, status
+            ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?5, NULL, NULL, NULL, NULL, ?6, 'queued')",
+            params![
+                new_id(),
+                item_id,
+                preview_type_for_mime(mime_type),
+                display_name,
+                note,
+                now
+            ],
+        )?;
+        self.rebuild_fts_for_item(&item_id)?;
+        let item = self
+            .item_by_id(&item_id)?
+            .expect("inserted file item must exist");
         Ok(serde_json::to_string(&item)?)
     }
 
@@ -721,6 +798,20 @@ fn hash_text(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn hash_file(path: &str) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn preview_type_for_mime(mime_type: &str) -> &'static str {

@@ -23,4 +23,24 @@ class CabinetRepository(context: Context) {
         val json = CabinetNative.registerUrlJson(databasePath, url, title, note)
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
     }
+
+    fun registerFile(
+        path: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        sourceKind: String,
+        note: String,
+    ): CabinetItemSummary {
+        val json = CabinetNative.registerFileJson(
+            databasePath,
+            path,
+            displayName,
+            mimeType,
+            size,
+            sourceKind,
+            note,
+        )
+        return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
+    }
 }
