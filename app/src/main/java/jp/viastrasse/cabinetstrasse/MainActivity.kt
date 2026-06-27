@@ -1387,6 +1387,7 @@ class MainActivity : Activity() {
                 onVerifyPin = ::showVerifyPinDialog,
                 onConfigureProvider = ::showStorageProviderDialog,
                 onAddRemoteFile = ::showRemoteFileDialog,
+                onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 onDuplicateItemSelected = ::openDetail,
             )
         }.onFailure { error ->
@@ -1426,6 +1427,42 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("キャンセル", null)
             .show()
+    }
+
+    private fun showCreateSmartFolderDialog() {
+        val presets = arrayOf("pdf", "image", "url", "remote", "ocr", "protected", "favorites", "unsorted", "trash")
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 0)
+        }
+        val titleInput = darkInput("Smart Folder名")
+        val presetInput = darkInput("preset: ${presets.joinToString(" / ")}").apply {
+            setText("pdf")
+        }
+        container.addView(titleInput)
+        container.addView(presetInput)
+        AlertDialog.Builder(this)
+            .setTitle("Smart Folderを作成")
+            .setView(container)
+            .setPositiveButton("作成") { _, _ ->
+                createSmartFolder(
+                    title = titleInput.text.toString().trim().ifBlank { "Smart Folder" },
+                    preset = presetInput.text.toString().trim().ifBlank { "pdf" },
+                )
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
+    }
+
+    private fun createSmartFolder(title: String, preset: String) {
+        runCatching {
+            repository.createSmartFolder(title, preset)
+        }.onSuccess {
+            Toast.makeText(this, "Smart Folderを作成しました", Toast.LENGTH_SHORT).show()
+            openSettings()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "Smart Folderを作成できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showRemoteFileDialog(provider: StorageProviderAccountSummary) {

@@ -728,6 +728,37 @@ impl CabinetCore {
         Ok(serde_json::to_string(&snapshot)?)
     }
 
+    pub fn create_smart_folder_json(&self, title: &str, preset: &str) -> CabinetResult<String> {
+        let normalized_title = title.trim();
+        if normalized_title.is_empty() {
+            return Err(CabinetError::Message(
+                "Smart Folder title is required.".to_owned(),
+            ));
+        }
+        let condition_sql = smart_folder_preset_sql(preset)?;
+        let id = format!(
+            "custom-{}-{}",
+            preset.trim().to_ascii_lowercase().replace('_', "-"),
+            new_id()
+        );
+        let now = now_string();
+        self.conn.execute(
+            "INSERT INTO smart_folders(id, title, condition_sql, display_condition, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, normalized_title, condition_sql, preset.trim(), now],
+        )?;
+        self.log_event(
+            "Cabinet.SmartFolderCreated",
+            None,
+            serde_json::json!({
+                "smart_folder_id": id,
+                "title": normalized_title,
+                "preset": preset.trim(),
+            }),
+        )?;
+        self.settings_json()
+    }
+
     pub fn update_storage_provider_json(
         &self,
         provider_id: &str,
@@ -3323,6 +3354,27 @@ fn escape_fts_token(value: &str) -> String {
         .collect()
 }
 
+fn smart_folder_preset_sql(preset: &str) -> CabinetResult<&'static str> {
+    match preset.trim().to_ascii_lowercase().as_str() {
+        "unsorted" | "inbox" => Ok("is_unsorted = 1 AND is_archived = 0"),
+        "favorite" | "favorites" => Ok("is_favorite = 1 AND is_archived = 0"),
+        "pdf" => Ok("mime_type = 'application/pdf' AND is_archived = 0"),
+        "image" | "images" => Ok("mime_type LIKE 'image/%' AND is_archived = 0"),
+        "url" | "urls" => Ok("mime_type = 'text/uri-list' AND is_archived = 0"),
+        "remote" => Ok("source_kind = 'remote' AND is_archived = 0"),
+        "ocr" => Ok(
+            "EXISTS (SELECT 1 FROM cabinet_previews p WHERE p.item_id = cabinet_items.id AND p.preview_type = 'ocr') AND is_archived = 0",
+        ),
+        "protected" => Ok(
+            "EXISTS (SELECT 1 FROM cabinet_item_security s WHERE s.item_id = cabinet_items.id AND s.is_protected = 1) AND is_archived = 0",
+        ),
+        "trash" => Ok("is_archived = 1"),
+        _ => Err(CabinetError::Message(format!(
+            "Unsupported Smart Folder preset: {preset}"
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3422,6 +3474,20 @@ mod tests {
         assert!(!detail.contains("cached remote content"));
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(cache_path);
+    }
+
+    #[test]
+    fn creates_smart_folder_from_preset() {
+        let path = test_db_path("smart-folder");
+        let core = CabinetCore::open(&path).expect("open database");
+        let settings = core
+            .create_smart_folder_json("OCRあり", "ocr")
+            .expect("create smart folder");
+        assert!(settings.contains("\"backup\""));
+        let folders = core.smart_folders().expect("smart folders");
+        assert!(folders.iter().any(|folder| folder.title == "OCRあり"));
+        assert!(core.create_smart_folder_json("Invalid", "raw sql").is_err());
+        let _ = fs::remove_file(path);
     }
 
     #[test]

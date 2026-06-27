@@ -131,6 +131,27 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_upda
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_createSmartFolderJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    title: JString,
+    preset: JString,
+) -> jstring {
+    let title_value = match jstring_value(&mut env, &title) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let preset_value = match jstring_value(&mut env, &preset) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.create_smart_folder_json(&title_value, &preset_value)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_eventsJson(
     mut env: JNIEnv,
     _class: JClass,

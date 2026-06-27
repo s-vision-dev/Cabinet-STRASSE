@@ -26,6 +26,8 @@ object CabinetNative {
         connectionStatus: String,
     ): String
 
+    external fun createSmartFolderJson(databasePath: String, title: String, preset: String): String
+
     external fun eventsJson(databasePath: String, limit: Long): String
 
     external fun backupExportJson(databasePath: String): String

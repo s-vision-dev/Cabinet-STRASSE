@@ -345,6 +345,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onVerifyPin: () -> Unit,
         onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
         onAddRemoteFile: (StorageProviderAccountSummary) -> Unit,
+        onCreateSmartFolder: () -> Unit,
         onDuplicateItemSelected: (String) -> Unit,
     ) {
         content.removeAllViews()
@@ -371,6 +372,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         })
         content.addView(command("PINを設定", onSetPin))
         content.addView(command("PINを確認", onVerifyPin))
+        content.addView(section("Smart Folder"))
+        content.addView(command("Smart Folderを作成", onCreateSmartFolder))
         content.addView(section("Duplicate"))
         if (duplicateReport.groups.isEmpty()) {
             content.addView(label("完全一致の重複候補はありません", 13, false, CabinetColors.TextSecondary))

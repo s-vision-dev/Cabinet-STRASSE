@@ -54,6 +54,10 @@ class CabinetRepository(context: Context) {
         )
     }
 
+    fun createSmartFolder(title: String, preset: String): SettingsSnapshot {
+        return CabinetJsonParser.settings(CabinetNative.createSmartFolderJson(databasePath, title, preset))
+    }
+
     fun eventsJson(limit: Long = 100): String {
         return CabinetNative.eventsJson(databasePath, limit)
     }
