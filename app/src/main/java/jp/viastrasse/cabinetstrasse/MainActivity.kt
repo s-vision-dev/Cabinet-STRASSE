@@ -559,7 +559,7 @@ class MainActivity : Activity() {
                     cacheRemoteFile(itemId, detail)
                 },
                 onGenerateThumbnail = {
-                    generateImageThumbnail(itemId, detail.path, detail.item.mimeType)
+                    generateThumbnail(itemId, detail.path, detail.item.mimeType)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -665,7 +665,7 @@ class MainActivity : Activity() {
                     cacheRemoteFile(itemId, it)
                 },
                 onGenerateThumbnail = {
-                    generateImageThumbnail(itemId, it.path, it.item.mimeType)
+                    generateThumbnail(itemId, it.path, it.item.mimeType)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -1175,7 +1175,7 @@ class MainActivity : Activity() {
                     cacheRemoteFile(itemId, detail)
                 },
                 onGenerateThumbnail = {
-                    generateImageThumbnail(itemId, detail.path, detail.item.mimeType)
+                    generateThumbnail(itemId, detail.path, detail.item.mimeType)
                 },
                 onProtectItem = {
                     protectItem(itemId)
@@ -1260,14 +1260,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun generateImageThumbnail(itemId: String, path: String, mimeType: String) {
+    private fun generateThumbnail(itemId: String, path: String, mimeType: String) {
         val file = File(path)
-        if (!mimeType.startsWith("image/") || !file.exists()) {
-            Toast.makeText(this, "画像ファイルだけサムネイルを生成できます", Toast.LENGTH_SHORT).show()
+        if (!file.exists()) {
+            Toast.makeText(this, "サムネイル対象ファイルが見つかりません", Toast.LENGTH_SHORT).show()
             return
         }
         runCatching {
-            val thumbnail = ThumbnailGenerator.createImageThumbnail(file, File(filesDir, "thumbnails"))
+            val thumbnail = ThumbnailGenerator.createSupportedThumbnail(file, mimeType, File(filesDir, "thumbnails"))
             repository.setItemThumbnail(itemId, thumbnail.absolutePath)
         }.onSuccess {
             Toast.makeText(this, "サムネイルを生成しました", Toast.LENGTH_SHORT).show()

@@ -1,10 +1,12 @@
 package jp.viastrasse.cabinetstrasse.ui
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -288,7 +290,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("PINで保護メモを表示", onUnlockProtectedMemos))
         content.addView(command("OCR本文を追加", onAddOcrText))
         content.addView(command("画像/PDF OCRを実行", onRunImageOcr))
-        content.addView(command("画像サムネイルを生成", onGenerateThumbnail))
+        content.addView(command("サムネイルを生成", onGenerateThumbnail))
         content.addView(command("プレビューキューを処理", onProcessPreview))
         content.addView(command("ゴミ箱へ移動", onMoveTrash))
         content.addView(command("ゴミ箱から復元", onRestoreFromTrash))
@@ -299,6 +301,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(label("${preview.previewType} / ${preview.status}", 14, true))
                 addView(label(preview.summaryText.ifBlank { "プレビュー本文は未生成です" }, 13, false, CabinetColors.TextSecondary))
                 if (preview.thumbnailPath.isNotBlank()) {
+                    thumbnailImage(preview.thumbnailPath)?.let(::addView)
                     addView(label("thumbnail: ${preview.thumbnailPath}", 11, false, CabinetColors.TextSecondary))
                 }
             })
@@ -558,6 +561,24 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             setPadding(0, dp(10), 0, dp(10))
             isClickable = true
             setOnClickListener { onClick() }
+        }
+    }
+
+    private fun thumbnailImage(path: String): ImageView? {
+        val file = File(path)
+        if (!file.exists() || !file.isFile) return null
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+        return ImageView(context).apply {
+            setImageBitmap(bitmap)
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(180),
+            ).apply {
+                setMargins(0, dp(8), 0, dp(8))
+            }
         }
     }
 
