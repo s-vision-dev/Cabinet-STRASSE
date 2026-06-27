@@ -446,6 +446,9 @@ impl CabinetCore {
 
     pub fn mode_json(&self, mode: &str) -> CabinetResult<String> {
         let normalized = mode.trim().to_ascii_lowercase();
+        if let Some(folder_id) = normalized.strip_prefix("smart:") {
+            return self.smart_folder_mode_json(folder_id);
+        }
         let response = match normalized.as_str() {
             "explorer" => ModeResponse {
                 mode: "Explorer".to_owned(),
@@ -524,6 +527,29 @@ impl CabinetCore {
                 collections: Vec::new(),
                 smart_folders: self.smart_folders()?,
             },
+        };
+        Ok(serde_json::to_string(&response)?)
+    }
+
+    fn smart_folder_mode_json(&self, folder_id: &str) -> CabinetResult<String> {
+        let (title, condition_sql): (String, String) = self.conn.query_row(
+            "SELECT title, condition_sql FROM smart_folders WHERE id = ?1",
+            params![folder_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let sql = format!(
+            "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+             FROM cabinet_items
+             WHERE ({condition_sql}) AND is_archived = 0
+             ORDER BY updated_at DESC, title ASC
+             LIMIT 100"
+        );
+        let response = ModeResponse {
+            mode: "Smart Folder".to_owned(),
+            title,
+            items: self.query_items(&sql, [])?,
+            collections: Vec::new(),
+            smart_folders: Vec::new(),
         };
         Ok(serde_json::to_string(&response)?)
     }

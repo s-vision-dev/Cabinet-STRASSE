@@ -135,7 +135,12 @@ class MainActivity : Activity() {
         runCatching {
             repository.mode(mode)
         }.onSuccess {
-            dashboardView.renderMode(it, ::renderDashboard, ::openDetail)
+            dashboardView.renderMode(
+                mode = it,
+                onBack = ::renderDashboard,
+                onItemSelected = ::openDetail,
+                onSmartFolderSelected = { folder -> openMode("smart:${folder.id}") },
+            )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
         }

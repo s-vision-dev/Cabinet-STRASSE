@@ -69,7 +69,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(section("Collection"))
         dashboard.collections.forEach { content.addView(collectionRow(it)) }
         content.addView(section("Smart Folder"))
-        dashboard.smartFolders.forEach { content.addView(smartFolderRow(it)) }
+        dashboard.smartFolders.forEach { content.addView(smartFolderRow(it) { folder -> onModeSelected(CabinetMode("smart:${folder.id}", folder.itemCount, folder.condition)) }) }
     }
 
     fun renderError(message: String) {
@@ -78,7 +78,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(errorText(message))
     }
 
-    fun renderMode(mode: ModeResponse, onBack: () -> Unit, onItemSelected: (String) -> Unit) {
+    fun renderMode(
+        mode: ModeResponse,
+        onBack: () -> Unit,
+        onItemSelected: (String) -> Unit,
+        onSmartFolderSelected: (SmartFolderSummary) -> Unit,
+    ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
         content.addView(title(mode.title))
@@ -93,7 +98,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
         if (mode.smartFolders.isNotEmpty()) {
             content.addView(section("Smart Folder"))
-            mode.smartFolders.forEach { content.addView(smartFolderRow(it)) }
+            mode.smartFolders.forEach { content.addView(smartFolderRow(it, onSmartFolderSelected)) }
         }
     }
 
@@ -387,8 +392,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun smartFolderRow(folder: SmartFolderSummary): View {
+    private fun smartFolderRow(folder: SmartFolderSummary, onSmartFolderSelected: ((SmartFolderSummary) -> Unit)? = null): View {
         return panel {
+            if (onSmartFolderSelected != null) {
+                isClickable = true
+                setOnClickListener { onSmartFolderSelected(folder) }
+            }
             addView(label(folder.title, 15, true))
             addView(label("${folder.itemCount} items / ${folder.condition}", 12, false, CabinetColors.TextSecondary))
         }
