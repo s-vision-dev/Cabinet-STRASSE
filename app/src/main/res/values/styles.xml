@@ -2,10 +2,14 @@
 <resources>
     <style name="CabinetTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowBackground">#101317</item>
+        <item name="android:colorAccent">#86B6D8</item>
+        <item name="android:forceDarkAllowed">false</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:statusBarColor">#050B14</item>
         <item name="android:navigationBarColor">#050B14</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
-
