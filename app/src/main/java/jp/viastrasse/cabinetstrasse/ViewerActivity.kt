@@ -2,9 +2,12 @@ package jp.viastrasse.cabinetstrasse
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import android.graphics.pdf.PdfRenderer
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -19,6 +22,11 @@ import java.io.File
 
 class ViewerActivity : Activity() {
     private var audioPlayer: MediaPlayer? = null
+    private var pdfRenderer: PdfRenderer? = null
+    private var pdfDescriptor: ParcelFileDescriptor? = null
+    private var pdfPageIndex: Int = 0
+    private var pdfImageView: ImageView? = null
+    private var pdfCounterView: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +42,8 @@ class ViewerActivity : Activity() {
             renderText(title.ifBlank { File(path).name }, File(path).readText(Charsets.UTF_8))
         } else if (mimeType.startsWith("image/")) {
             renderImage(title.ifBlank { File(path).name }, File(path))
+        } else if (mimeType == "application/pdf" || path.endsWith(".pdf", ignoreCase = true)) {
+            renderPdf(title.ifBlank { File(path).name }, File(path))
         } else if (mimeType.startsWith("video/")) {
             renderVideo(File(path))
         } else if (mimeType.startsWith("audio/")) {
@@ -47,6 +57,10 @@ class ViewerActivity : Activity() {
     override fun onDestroy() {
         audioPlayer?.release()
         audioPlayer = null
+        pdfRenderer?.close()
+        pdfRenderer = null
+        pdfDescriptor?.close()
+        pdfDescriptor = null
         super.onDestroy()
     }
 
@@ -97,6 +111,89 @@ class ViewerActivity : Activity() {
             ),
         )
         setContentView(layout)
+    }
+
+    private fun renderPdf(title: String, file: File) {
+        pdfDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        pdfRenderer = PdfRenderer(pdfDescriptor ?: return)
+        val renderer = pdfRenderer ?: return
+        if (renderer.pageCount == 0) {
+            renderText(title, "PDFページを表示できませんでした。")
+            return
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(CabinetColors.AppBackground)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        layout.addView(
+            TextView(this).apply {
+                text = title
+                setTextColor(CabinetColors.TextPrimary)
+                textSize = 16f
+                setPadding(0, 0, 0, dp(10))
+            },
+        )
+        pdfCounterView = TextView(this).apply {
+            setTextColor(CabinetColors.TextSecondary)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(8))
+        }
+        layout.addView(pdfCounterView)
+        pdfImageView = ImageView(this).apply {
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+        }
+        layout.addView(
+            pdfImageView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f,
+            ),
+        )
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, 0)
+        }
+        controls.addView(commandButton("前へ") {
+            showPdfPage((pdfPageIndex - 1).coerceAtLeast(0))
+        })
+        controls.addView(commandButton("次へ") {
+            showPdfPage((pdfPageIndex + 1).coerceAtMost(renderer.pageCount - 1))
+        })
+        layout.addView(controls)
+        setContentView(layout)
+        showPdfPage(0)
+    }
+
+    private fun showPdfPage(index: Int) {
+        val renderer = pdfRenderer ?: return
+        if (index !in 0 until renderer.pageCount) return
+        renderer.openPage(index).use { page ->
+            val targetWidth = (resources.displayMetrics.widthPixels - dp(24)).coerceAtLeast(dp(240))
+            val targetHeight = (targetWidth.toFloat() * page.height / page.width).toInt().coerceAtLeast(dp(240))
+            val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            pdfImageView?.setImageBitmap(bitmap)
+        }
+        pdfPageIndex = index
+        pdfCounterView?.text = "${index + 1} / ${renderer.pageCount}"
+    }
+
+    private fun commandButton(textValue: String, action: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = textValue
+            setTextColor(CabinetColors.Accent)
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            setOnClickListener { action() }
+        }
     }
 
     private fun renderVideo(file: File) {
