@@ -33,7 +33,7 @@ class ViewerActivity : Activity() {
         val path = intent.getStringExtra(EXTRA_PATH).orEmpty()
         val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE).orEmpty()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
-        if (path.startsWith("http://") || path.startsWith("https://")) {
+        if (Uri.parse(path).scheme?.isNotBlank() == true && !path.startsWith("/")) {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(path)))
             finish()
             return

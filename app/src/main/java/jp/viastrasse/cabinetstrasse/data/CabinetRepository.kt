@@ -259,6 +259,30 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
     }
 
+    fun registerRemoteFile(
+        providerId: String,
+        remoteFileId: String,
+        remotePath: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        webUrl: String,
+        note: String,
+    ): CabinetItemSummary {
+        val json = CabinetNative.registerRemoteFileJson(
+            databasePath,
+            providerId,
+            remoteFileId,
+            remotePath,
+            displayName,
+            mimeType,
+            size,
+            webUrl,
+            note,
+        )
+        return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
+    }
+
     private fun uniqueFile(directory: File, displayName: String): File {
         val base = displayName.substringBeforeLast('.', displayName)
         val extension = displayName.substringAfterLast('.', "")

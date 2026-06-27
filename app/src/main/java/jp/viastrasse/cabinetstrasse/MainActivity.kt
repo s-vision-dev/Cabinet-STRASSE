@@ -683,7 +683,7 @@ class MainActivity : Activity() {
 
     private fun shareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
         runCatching {
-            if (detail.item.sourceKind == "url") {
+            if (detail.item.sourceKind == "url" || detail.item.sourceKind == "remote") {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, detail.path)
@@ -991,6 +991,7 @@ class MainActivity : Activity() {
                 onSetPin = ::showSetPinDialog,
                 onVerifyPin = ::showVerifyPinDialog,
                 onConfigureProvider = ::showStorageProviderDialog,
+                onAddRemoteFile = ::showRemoteFileDialog,
                 onDuplicateItemSelected = ::openDetail,
             )
         }.onFailure { error ->
@@ -1030,6 +1031,84 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("キャンセル", null)
             .show()
+    }
+
+    private fun showRemoteFileDialog(provider: StorageProviderAccountSummary) {
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 0)
+        }
+        val remotePathInput = darkInput("リモートパス")
+        val displayNameInput = darkInput("表示名")
+        val mimeTypeInput = darkInput("MIME type").apply {
+            setText("application/octet-stream")
+        }
+        val sizeInput = darkInput("サイズ byte").apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText("0")
+        }
+        val remoteIdInput = darkInput("リモートID")
+        val webUrlInput = darkInput("Web URL")
+        val noteInput = darkInput("メモ").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 2
+        }
+        container.addView(remotePathInput)
+        container.addView(displayNameInput)
+        container.addView(mimeTypeInput)
+        container.addView(sizeInput)
+        container.addView(remoteIdInput)
+        container.addView(webUrlInput)
+        container.addView(noteInput)
+        AlertDialog.Builder(this)
+            .setTitle("${provider.displayName} 参照を追加")
+            .setView(container)
+            .setPositiveButton("追加") { _, _ ->
+                val remotePath = remotePathInput.text.toString().trim()
+                val displayName = displayNameInput.text.toString().trim()
+                    .ifBlank { remotePath.substringAfterLast('/').ifBlank { provider.displayName } }
+                registerRemoteFile(
+                    provider = provider,
+                    remoteFileId = remoteIdInput.text.toString().trim(),
+                    remotePath = remotePath,
+                    displayName = displayName,
+                    mimeType = mimeTypeInput.text.toString().trim().ifBlank { "application/octet-stream" },
+                    size = sizeInput.text.toString().trim().toLongOrNull() ?: 0L,
+                    webUrl = webUrlInput.text.toString().trim(),
+                    note = noteInput.text.toString().trim().ifBlank { "Storage Providerから登録" },
+                )
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
+    }
+
+    private fun registerRemoteFile(
+        provider: StorageProviderAccountSummary,
+        remoteFileId: String,
+        remotePath: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        webUrl: String,
+        note: String,
+    ) {
+        runCatching {
+            repository.registerRemoteFile(
+                providerId = provider.id,
+                remoteFileId = remoteFileId,
+                remotePath = remotePath,
+                displayName = displayName,
+                mimeType = mimeType,
+                size = size,
+                webUrl = webUrl,
+                note = note,
+            )
+        }.onSuccess { item ->
+            Toast.makeText(this, "リモート参照を登録しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            openDetail(item.id)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "リモート参照を登録できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun exportBackup() {

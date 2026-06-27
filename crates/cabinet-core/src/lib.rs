@@ -468,7 +468,7 @@ impl CabinetCore {
                 items: self.query_items(
                     "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
                      FROM cabinet_items
-                     WHERE source_kind IN ('local', 'mail') AND is_archived = 0
+                     WHERE source_kind IN ('local', 'mail', 'remote') AND is_archived = 0
                      ORDER BY updated_at DESC, title ASC
                      LIMIT 100",
                     [],
@@ -1525,6 +1525,159 @@ impl CabinetCore {
         Ok(serde_json::to_string(&item)?)
     }
 
+    pub fn register_remote_file_json(
+        &self,
+        provider_id: &str,
+        remote_file_id: &str,
+        remote_path: &str,
+        display_name: &str,
+        mime_type: &str,
+        size: i64,
+        web_url: &str,
+        note: &str,
+    ) -> CabinetResult<String> {
+        let now = now_string();
+        let normalized_provider = provider_id.trim();
+        let normalized_remote_path = remote_path.trim();
+        let normalized_display_name = display_name.trim();
+        if normalized_provider.is_empty() {
+            return Err(CabinetError::Message("Provider ID is required.".to_owned()));
+        }
+        if normalized_remote_path.is_empty() {
+            return Err(CabinetError::Message("Remote path is required.".to_owned()));
+        }
+        if normalized_display_name.is_empty() {
+            return Err(CabinetError::Message(
+                "Display name is required.".to_owned(),
+            ));
+        }
+        let (provider_type, provider_name): (String, String) = self.conn.query_row(
+            "SELECT provider_type, display_name FROM storage_provider_accounts WHERE id = ?1",
+            params![normalized_provider],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let remote_reference_id = new_id();
+        let item_id = new_id();
+        let document_id = new_id();
+        let version_id = new_id();
+        let remote_id = {
+            let value = remote_file_id.trim();
+            if value.is_empty() {
+                normalized_remote_path
+            } else {
+                value
+            }
+        };
+        let fallback_url = format!("{provider_type}://{normalized_remote_path}");
+        let open_path = {
+            let value = web_url.trim();
+            if value.is_empty() {
+                fallback_url
+            } else {
+                value.to_owned()
+            }
+        };
+        let remote_hash = hash_text(&format!(
+            "{normalized_provider}|{remote_id}|{normalized_remote_path}|{open_path}"
+        ));
+        let preview_text = [
+            normalized_display_name,
+            &provider_name,
+            normalized_remote_path,
+            open_path.as_str(),
+            note.trim(),
+        ]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+        self.conn.execute(
+            "INSERT INTO remote_file_references(
+                id, provider_account_id, remote_file_id, remote_path, display_name,
+                mime_type, size, modified_at, etag, web_url, is_cached, cached_file_path, last_synced_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, 0, NULL, ?9)",
+            params![
+                remote_reference_id,
+                normalized_provider,
+                remote_id,
+                normalized_remote_path,
+                normalized_display_name,
+                mime_type,
+                size,
+                web_url.trim(),
+                now
+            ],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_documents(id, title, description, current_version_id, created_at, updated_at, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'active')",
+            params![document_id, normalized_display_name, provider_name, version_id, now],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_versions (
+                id, document_id, version_number, file_id, display_name, original_file_name,
+                registered_at, source_app, source_id, note, is_current
+            ) VALUES (?1, ?2, 1, NULL, ?3, ?3, ?4, ?5, ?6, ?7, 1)",
+            params![
+                version_id,
+                document_id,
+                normalized_display_name,
+                now,
+                provider_name,
+                remote_id,
+                note
+            ],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_items (
+                id, file_id, document_id, remote_file_reference_id, title, display_name,
+                mime_type, path, source_kind, size, hash, created_at, updated_at,
+                last_opened_at, is_favorite, is_archived, is_unsorted, note
+            ) VALUES (?1, NULL, ?2, ?3, ?4, ?4, ?5, ?6, 'remote', ?7, ?8, ?9, ?9, NULL, 0, 0, 1, ?10)",
+            params![
+                item_id,
+                document_id,
+                remote_reference_id,
+                normalized_display_name,
+                mime_type,
+                open_path,
+                size,
+                remote_hash,
+                now,
+                note
+            ],
+        )?;
+        self.conn.execute(
+            "INSERT INTO cabinet_previews (
+                id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                page_count, duration, width, height, generated_at, status
+            ) VALUES (?1, ?2, 'remote', ?3, ?4, NULL, ?4, NULL, NULL, NULL, NULL, ?5, 'ready')",
+            params![
+                new_id(),
+                item_id,
+                normalized_display_name,
+                preview_text,
+                now
+            ],
+        )?;
+        self.rebuild_fts_for_item(&item_id)?;
+        self.log_event(
+            "Cabinet.RemoteFileReferenceAdded",
+            Some(&item_id),
+            serde_json::json!({
+                "provider_id": normalized_provider,
+                "provider_type": provider_type,
+                "remote_path": normalized_remote_path,
+                "web_url": web_url.trim(),
+            }),
+        )?;
+        let item = self
+            .item_by_id(&item_id)?
+            .expect("inserted remote item must exist");
+        Ok(serde_json::to_string(&item)?)
+    }
+
     fn migrate(&self) -> CabinetResult<()> {
         self.conn.execute_batch(
             "
@@ -1911,7 +2064,7 @@ impl CabinetCore {
             version: self
                 .conn
                 .query_row("SELECT version FROM schema_info LIMIT 1", [], |row| row.get(0))?,
-            explorer_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE source_kind IN ('local', 'mail') AND is_archived = 0")?,
+            explorer_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE source_kind IN ('local', 'mail', 'remote') AND is_archived = 0")?,
             library_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_archived = 0")?,
             collection_count: self.scalar("SELECT COUNT(*) FROM cabinet_collections")?,
             inbox_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_unsorted = 1 AND is_archived = 0")?,
@@ -3036,6 +3189,34 @@ mod tests {
         assert!(item_json.contains("Example Cabinet"));
         let search = core.search("Searchable").expect("search");
         assert!(search.iter().any(|item| item.title == "Example Cabinet"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn registers_remote_file_and_searches_provider_text() {
+        let path = test_db_path("remote");
+        let core = CabinetCore::open(&path).expect("open database");
+        let item_json = core
+            .register_remote_file_json(
+                "dropbox",
+                "remote-001",
+                "/Projects/Cabinet/remote-plan.pdf",
+                "remote-plan.pdf",
+                "application/pdf",
+                2048,
+                "https://dropbox.example/remote-plan.pdf",
+                "Provider検索メモ",
+            )
+            .expect("register remote file");
+        assert!(item_json.contains("\"source_kind\":\"remote\""));
+        let search = core.search("Provider検索メモ").expect("search");
+        assert!(
+            search
+                .iter()
+                .any(|item| item.display_name == "remote-plan.pdf")
+        );
+        let dashboard = core.dashboard().expect("dashboard");
+        assert!(dashboard.explorer_count >= 1);
         let _ = fs::remove_file(path);
     }
 

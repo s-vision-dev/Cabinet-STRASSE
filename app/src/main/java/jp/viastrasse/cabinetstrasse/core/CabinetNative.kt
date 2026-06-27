@@ -106,4 +106,16 @@ object CabinetNative {
         sourceKind: String,
         note: String,
     ): String
+
+    external fun registerRemoteFileJson(
+        databasePath: String,
+        providerId: String,
+        remoteFileId: String,
+        remotePath: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        webUrl: String,
+        note: String,
+    ): String
 }

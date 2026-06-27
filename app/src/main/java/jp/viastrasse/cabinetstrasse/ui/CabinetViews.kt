@@ -324,6 +324,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onSetPin: () -> Unit,
         onVerifyPin: () -> Unit,
         onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
+        onAddRemoteFile: (StorageProviderAccountSummary) -> Unit,
         onDuplicateItemSelected: (String) -> Unit,
     ) {
         content.removeAllViews()
@@ -371,6 +372,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(label("${provider.providerType} / ${provider.authType}", 12, false, CabinetColors.TextSecondary))
                 addView(label("${provider.accountName.ifBlank { "no account" }} / ${provider.connectionStatus}", 12, false, CabinetColors.TextSecondary))
                 addView(command("Providerを設定") { onConfigureProvider(provider) })
+                addView(command("リモート参照を追加") { onAddRemoteFile(provider) })
             })
         }
     }

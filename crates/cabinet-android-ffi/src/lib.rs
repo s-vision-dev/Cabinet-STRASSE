@@ -621,6 +621,62 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_regi
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerRemoteFileJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    provider_id: JString,
+    remote_file_id: JString,
+    remote_path: JString,
+    display_name: JString,
+    mime_type: JString,
+    size: i64,
+    web_url: JString,
+    note: JString,
+) -> jstring {
+    let provider_id_value = match jstring_value(&mut env, &provider_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let remote_file_id_value = match jstring_value(&mut env, &remote_file_id) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let remote_path_value = match jstring_value(&mut env, &remote_path) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let display_name_value = match jstring_value(&mut env, &display_name) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let mime_type_value = match jstring_value(&mut env, &mime_type) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let web_url_value = match jstring_value(&mut env, &web_url) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let note_value = match jstring_value(&mut env, &note) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.register_remote_file_json(
+            &provider_id_value,
+            &remote_file_id_value,
+            &remote_path_value,
+            &display_name_value,
+            &mime_type_value,
+            size,
+            &web_url_value,
+            &note_value,
+        )
+    })
+}
+
 fn run_string(
     env: &mut JNIEnv,
     database_path: JString,
