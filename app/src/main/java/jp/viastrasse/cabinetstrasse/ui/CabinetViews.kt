@@ -43,6 +43,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onModeSelected: (CabinetMode) -> Unit,
         onItemSelected: (String) -> Unit,
         onImportFolder: () -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(title("Cabinet-STRASSE"))
@@ -65,7 +67,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         )
         content.addView(command("SAFフォルダから取り込む", onImportFolder))
         content.addView(section("最近の資料"))
-        dashboard.recentItems.forEach { content.addView(itemRow(it, onItemSelected)) }
+        dashboard.recentItems.forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
         content.addView(section("Collection"))
         dashboard.collections.forEach { collection ->
             content.addView(collectionRow(collection) { selected ->
@@ -88,6 +90,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onItemSelected: (String) -> Unit,
         onCollectionSelected: (CabinetCollectionSummary) -> Unit,
         onSmartFolderSelected: (SmartFolderSummary) -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -95,7 +99,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(subtitle(mode.mode))
         if (mode.items.isNotEmpty()) {
             content.addView(section("資料"))
-            mode.items.forEach { content.addView(itemRow(it, onItemSelected)) }
+            mode.items.forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
         }
         if (mode.collections.isNotEmpty()) {
             content.addView(section("Collection"))
@@ -156,6 +160,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onBack: () -> Unit,
         onSearch: (String) -> Unit,
         onItemSelected: (String) -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -172,7 +178,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(input)
         content.addView(command("検索", onClick = { onSearch(input.text.toString()) }))
         content.addView(section("検索結果"))
-        response.results.forEach { content.addView(itemRow(it, onItemSelected)) }
+        response.results.forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
     }
 
     fun renderDetail(
@@ -436,13 +442,20 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun itemRow(item: CabinetItemSummary, onItemSelected: (String) -> Unit): View {
+    private fun itemRow(
+        item: CabinetItemSummary,
+        onItemSelected: (String) -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
+    ): View {
         return panel {
             isClickable = true
             setOnClickListener { onItemSelected(item.id) }
             addView(label(item.title, 16, true))
             addView(label("${item.displayName} / ${item.mimeType} / ${item.sourceKind}", 12, false, CabinetColors.TextSecondary))
             addView(label(item.summaryText, 13, false, CabinetColors.TextSecondary))
+            addView(command(if (item.isFavorite) "お気に入りを解除" else "お気に入りに追加") { onToggleFavorite(item) })
+            addView(command("ゴミ箱へ移動") { onMoveTrash(item) })
         }
     }
 

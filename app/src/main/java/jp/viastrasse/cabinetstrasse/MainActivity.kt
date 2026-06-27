@@ -190,6 +190,8 @@ class MainActivity : Activity() {
                 { mode -> openMode(mode.name) },
                 ::openDetail,
                 ::openFolderPicker,
+                ::toggleFavoriteFromSummary,
+                ::moveSummaryToTrash,
             )
         }.onFailure { error ->
             dashboardView.renderError(error.message ?: "Cabinet core の初期化に失敗しました。")
@@ -241,6 +243,8 @@ class MainActivity : Activity() {
                 onItemSelected = ::openDetail,
                 onCollectionSelected = { collection -> openMode("collection:${collection.id}") },
                 onSmartFolderSelected = { folder -> openMode("smart:${folder.id}") },
+                onToggleFavorite = ::toggleFavoriteFromSummary,
+                onMoveTrash = ::moveSummaryToTrash,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -444,7 +448,14 @@ class MainActivity : Activity() {
         runCatching {
             repository.search(query)
         }.onSuccess {
-            dashboardView.renderSearch(it, ::renderDashboard, ::openSearch, ::openDetail)
+            dashboardView.renderSearch(
+                it,
+                ::renderDashboard,
+                ::openSearch,
+                ::openDetail,
+                ::toggleFavoriteFromSummary,
+                ::moveSummaryToTrash,
+            )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "検索できませんでした", Toast.LENGTH_SHORT).show()
         }
@@ -661,6 +672,28 @@ class MainActivity : Activity() {
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "資料を更新できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun toggleFavoriteFromSummary(item: jp.viastrasse.cabinetstrasse.data.CabinetItemSummary) {
+        runCatching {
+            repository.updateItemFlags(item.id, !item.isFavorite, item.isUnsorted)
+        }.onSuccess {
+            Toast.makeText(this, if (item.isFavorite) "お気に入りを解除しました" else "お気に入りに追加しました", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "お気に入りを更新できませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun moveSummaryToTrash(item: jp.viastrasse.cabinetstrasse.data.CabinetItemSummary) {
+        runCatching {
+            repository.moveToTrash(item.id)
+        }.onSuccess {
+            Toast.makeText(this, "ゴミ箱へ移動しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            renderDashboard()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
