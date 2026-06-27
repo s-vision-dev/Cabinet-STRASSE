@@ -69,6 +69,11 @@ class MainActivity : Activity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
             importFolder(uri)
+            return
+        }
+        if (requestCode == REQUEST_OPEN_BACKUP && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            importBackup(uri)
         }
     }
 
@@ -443,6 +448,7 @@ class MainActivity : Activity() {
                 duplicateReport = duplicateReport,
                 onBack = ::renderDashboard,
                 onExportBackup = ::exportBackup,
+                onImportBackup = ::openBackupPicker,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -460,7 +466,31 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openBackupPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain", "*/*"))
+        }
+        startActivityForResult(intent, REQUEST_OPEN_BACKUP)
+    }
+
+    private fun importBackup(uri: Uri) {
+        runCatching {
+            val json = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8).use { reader ->
+                requireNotNull(reader) { "バックアップファイルを開けませんでした" }.readText()
+            }
+            repository.importBackup(json)
+        }.onSuccess {
+            Toast.makeText(this, "バックアップを復元しました", Toast.LENGTH_SHORT).show()
+            openSettings()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "バックアップ復元に失敗しました", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     companion object {
         private const val REQUEST_OPEN_TREE = 2401
+        private const val REQUEST_OPEN_BACKUP = 2402
     }
 }

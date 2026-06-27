@@ -1,5 +1,7 @@
-use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use rusqlite::types::{Value as SqlValue, ValueRef};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
@@ -8,6 +10,168 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 const SCHEMA_VERSION: i64 = 1;
+const BACKUP_TABLES: &[(&str, &[&str])] = &[
+    (
+        "storage_provider_accounts",
+        &[
+            "id",
+            "provider_type",
+            "display_name",
+            "account_name",
+            "auth_type",
+            "connection_status",
+            "created_at",
+            "updated_at",
+            "last_connected_at",
+        ],
+    ),
+    (
+        "remote_file_references",
+        &[
+            "id",
+            "provider_account_id",
+            "remote_file_id",
+            "remote_path",
+            "display_name",
+            "mime_type",
+            "size",
+            "modified_at",
+            "etag",
+            "web_url",
+            "is_cached",
+            "cached_file_path",
+            "last_synced_at",
+        ],
+    ),
+    (
+        "cabinet_files",
+        &[
+            "id",
+            "path",
+            "original_file_name",
+            "mime_type",
+            "size",
+            "hash",
+            "created_at",
+            "updated_at",
+            "storage_type",
+        ],
+    ),
+    (
+        "cabinet_documents",
+        &[
+            "id",
+            "title",
+            "description",
+            "current_version_id",
+            "created_at",
+            "updated_at",
+            "status",
+        ],
+    ),
+    (
+        "cabinet_versions",
+        &[
+            "id",
+            "document_id",
+            "version_number",
+            "file_id",
+            "display_name",
+            "original_file_name",
+            "registered_at",
+            "source_app",
+            "source_id",
+            "note",
+            "is_current",
+        ],
+    ),
+    (
+        "cabinet_items",
+        &[
+            "id",
+            "file_id",
+            "document_id",
+            "remote_file_reference_id",
+            "title",
+            "display_name",
+            "mime_type",
+            "path",
+            "source_kind",
+            "size",
+            "hash",
+            "created_at",
+            "updated_at",
+            "last_opened_at",
+            "is_favorite",
+            "is_archived",
+            "is_unsorted",
+            "note",
+        ],
+    ),
+    ("cabinet_tags", &["id", "name", "color", "created_at"]),
+    ("cabinet_item_tags", &["item_id", "tag_id"]),
+    (
+        "cabinet_collections",
+        &["id", "title", "description", "created_at", "updated_at"],
+    ),
+    (
+        "cabinet_collection_items",
+        &["collection_id", "item_id", "added_at"],
+    ),
+    (
+        "cabinet_references",
+        &[
+            "id",
+            "item_id",
+            "reference_type",
+            "source_app",
+            "source_id",
+            "title",
+            "uri",
+            "note",
+            "created_at",
+        ],
+    ),
+    (
+        "cabinet_previews",
+        &[
+            "id",
+            "item_id",
+            "preview_type",
+            "title",
+            "summary_text",
+            "thumbnail_path",
+            "extracted_text",
+            "page_count",
+            "duration",
+            "width",
+            "height",
+            "generated_at",
+            "status",
+        ],
+    ),
+    (
+        "cabinet_memos",
+        &[
+            "id",
+            "item_id",
+            "body",
+            "is_protected",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "smart_folders",
+        &[
+            "id",
+            "title",
+            "condition_sql",
+            "display_condition",
+            "created_at",
+        ],
+    ),
+];
 
 #[derive(Debug)]
 pub enum CabinetError {
@@ -171,6 +335,22 @@ pub struct BackupSummary {
     pub tag_count: i64,
     pub preview_count: i64,
     pub exported_at: String,
+}
+
+#[derive(Serialize)]
+pub struct BackupImportReport {
+    pub restored_at: String,
+    pub item_count: i64,
+    pub collection_count: i64,
+    pub tag_count: i64,
+    pub preview_count: i64,
+}
+
+#[derive(Deserialize)]
+struct BackupEnvelope {
+    app: String,
+    schema_version: i64,
+    tables: Map<String, Value>,
 }
 
 #[derive(Serialize)]
@@ -382,6 +562,7 @@ impl CabinetCore {
     }
 
     pub fn backup_export_json(&self) -> CabinetResult<String> {
+        let tables = self.backup_tables_json()?;
         let value = serde_json::json!({
             "app": "Cabinet-STRASSE",
             "schema_version": SCHEMA_VERSION,
@@ -391,8 +572,48 @@ impl CabinetCore {
             "collections": self.collections()?,
             "smart_folders": self.smart_folders()?,
             "providers": self.storage_provider_accounts()?,
+            "tables": tables,
         });
         Ok(serde_json::to_string_pretty(&value)?)
+    }
+
+    pub fn backup_import_json(&self, backup_json: &str) -> CabinetResult<String> {
+        let backup: BackupEnvelope = serde_json::from_str(backup_json)?;
+        if backup.app != "Cabinet-STRASSE" {
+            return Err(CabinetError::Message(
+                "Backup is not for Cabinet-STRASSE.".to_owned(),
+            ));
+        }
+        if backup.schema_version > SCHEMA_VERSION {
+            return Err(CabinetError::Message(format!(
+                "Backup schema version {} is newer than supported schema {}.",
+                backup.schema_version, SCHEMA_VERSION
+            )));
+        }
+        if backup.tables.is_empty() {
+            return Err(CabinetError::Message(
+                "Backup does not contain restorable table data.".to_owned(),
+            ));
+        }
+
+        self.conn.execute_batch("BEGIN IMMEDIATE TRANSACTION")?;
+        let result = self.restore_backup_tables(&backup.tables);
+        if let Err(error) = result {
+            let _ = self.conn.execute_batch("ROLLBACK");
+            return Err(error);
+        }
+        self.conn.execute_batch("COMMIT")?;
+        self.rebuild_fts()?;
+        self.seed_reference_data()?;
+
+        let report = BackupImportReport {
+            restored_at: now_string(),
+            item_count: self.scalar("SELECT COUNT(*) FROM cabinet_items")?,
+            collection_count: self.scalar("SELECT COUNT(*) FROM cabinet_collections")?,
+            tag_count: self.scalar("SELECT COUNT(*) FROM cabinet_tags")?,
+            preview_count: self.scalar("SELECT COUNT(*) FROM cabinet_previews")?,
+        };
+        Ok(serde_json::to_string(&report)?)
     }
 
     pub fn update_item_flags_json(
@@ -1448,6 +1669,69 @@ impl CabinetCore {
         })
     }
 
+    fn backup_tables_json(&self) -> CabinetResult<Map<String, Value>> {
+        let mut tables = Map::new();
+        for (table, columns) in BACKUP_TABLES {
+            let sql = format!("SELECT {} FROM {table}", columns.join(", "));
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |row| {
+                let mut object = Map::new();
+                for (index, column) in columns.iter().enumerate() {
+                    object.insert(
+                        (*column).to_owned(),
+                        json_value_from_sql(row.get_ref(index)?),
+                    );
+                }
+                Ok(Value::Object(object))
+            })?;
+            let mut values = Vec::new();
+            for row in rows {
+                values.push(row?);
+            }
+            tables.insert((*table).to_owned(), Value::Array(values));
+        }
+        Ok(tables)
+    }
+
+    fn restore_backup_tables(&self, tables: &Map<String, Value>) -> CabinetResult<()> {
+        self.conn.execute("DELETE FROM cabinet_fts", [])?;
+        for (table, _) in BACKUP_TABLES.iter().rev() {
+            self.conn.execute(&format!("DELETE FROM {table}"), [])?;
+        }
+
+        for (table, columns) in BACKUP_TABLES {
+            let rows = tables
+                .get(*table)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if rows.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", columns.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "INSERT INTO {table} ({}) VALUES ({placeholders})",
+                columns.join(", ")
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            for row in rows {
+                let object = row.as_object().ok_or_else(|| {
+                    CabinetError::Message(format!(
+                        "Backup table {table} contains a non-object row."
+                    ))
+                })?;
+                let values = columns
+                    .iter()
+                    .map(|column| sql_value_from_json(object.get(*column).unwrap_or(&Value::Null)))
+                    .collect::<Vec<_>>();
+                stmt.execute(params_from_iter(values))?;
+            }
+        }
+        Ok(())
+    }
+
     fn duplicate_groups(&self) -> CabinetResult<Vec<DuplicateGroup>> {
         let mut stmt = self.conn.prepare(
             "SELECT hash, size
@@ -1540,6 +1824,20 @@ impl CabinetCore {
         )?;
         Ok(())
     }
+
+    fn rebuild_fts(&self) -> CabinetResult<()> {
+        self.conn.execute("DELETE FROM cabinet_fts", [])?;
+        let mut stmt = self.conn.prepare("SELECT id FROM cabinet_items")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row?);
+        }
+        for item_id in ids {
+            self.rebuild_fts_for_item(&item_id)?;
+        }
+        Ok(())
+    }
 }
 
 fn read_item_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CabinetItemSummary> {
@@ -1555,6 +1853,32 @@ fn read_item_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CabinetItemSum
         summary_text: row.get(8)?,
         updated_at: row.get(9)?,
     })
+}
+
+fn json_value_from_sql(value: ValueRef<'_>) -> Value {
+    match value {
+        ValueRef::Null => Value::Null,
+        ValueRef::Integer(value) => Value::from(value),
+        ValueRef::Real(value) => Value::from(value),
+        ValueRef::Text(value) => Value::from(String::from_utf8_lossy(value).into_owned()),
+        ValueRef::Blob(value) => {
+            Value::Array(value.iter().map(|byte| Value::from(*byte)).collect())
+        }
+    }
+}
+
+fn sql_value_from_json(value: &Value) -> SqlValue {
+    match value {
+        Value::Null => SqlValue::Null,
+        Value::Bool(value) => SqlValue::Integer(if *value { 1 } else { 0 }),
+        Value::Number(value) => value
+            .as_i64()
+            .map(SqlValue::Integer)
+            .or_else(|| value.as_f64().map(SqlValue::Real))
+            .unwrap_or(SqlValue::Null),
+        Value::String(value) => SqlValue::Text(value.clone()),
+        Value::Array(_) | Value::Object(_) => SqlValue::Text(value.to_string()),
+    }
 }
 
 fn now_string() -> String {

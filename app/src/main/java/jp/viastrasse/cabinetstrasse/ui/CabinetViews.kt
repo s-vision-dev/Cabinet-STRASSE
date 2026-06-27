@@ -219,6 +219,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         duplicateReport: DuplicateReport,
         onBack: () -> Unit,
         onExportBackup: () -> Unit,
+        onImportBackup: () -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -233,6 +234,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(label("Last snapshot: ${settings.backup.exportedAt}", 12, false, CabinetColors.TextSecondary))
         })
         content.addView(command("バックアップを書き出す", onExportBackup))
+        content.addView(command("バックアップを復元", onImportBackup))
         content.addView(section("Duplicate"))
         if (duplicateReport.groups.isEmpty()) {
             content.addView(label("完全一致の重複候補はありません", 13, false, CabinetColors.TextSecondary))

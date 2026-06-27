@@ -19,6 +19,8 @@ object CabinetNative {
 
     external fun backupExportJson(databasePath: String): String
 
+    external fun backupImportJson(databasePath: String, backupJson: String): String
+
     external fun duplicateReportJson(databasePath: String): String
 
     external fun updateItemFlagsJson(

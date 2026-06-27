@@ -2,6 +2,7 @@ package jp.viastrasse.cabinetstrasse.data
 
 import android.content.Context
 import jp.viastrasse.cabinetstrasse.core.CabinetNative
+import org.json.JSONObject
 import java.io.File
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -49,6 +50,12 @@ class CabinetRepository(context: Context) {
         val file = File(backupDir, "cabinet-strasse-backup-$timestamp.json")
         file.writeText(json, Charsets.UTF_8)
         return file
+    }
+
+    fun importBackup(backupJson: String): SettingsSnapshot {
+        val result = JSONObject(CabinetNative.backupImportJson(databasePath, backupJson))
+        result.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return settings()
     }
 
     fun updateItemFlags(itemId: String, isFavorite: Boolean, isUnsorted: Boolean): CabinetItemDetail {
