@@ -1401,6 +1401,7 @@ impl CabinetCore {
         let now = now_string();
         let id = new_id();
         let file_hash = hash_text(url);
+        let preview_text = url_preview(url, title, note);
         self.conn.execute(
             "INSERT INTO cabinet_items (
                 id, file_id, document_id, title, display_name, mime_type, path, source_kind,
@@ -1414,7 +1415,7 @@ impl CabinetCore {
                 id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
                 page_count, duration, width, height, generated_at, status
             ) VALUES (?1, ?2, 'url', ?3, ?4, NULL, ?4, NULL, NULL, NULL, NULL, ?5, 'ready')",
-            params![new_id(), id, title, note, now],
+            params![new_id(), id, title, preview_text, now],
         )?;
         self.rebuild_fts_for_item(&id)?;
         self.log_event(
@@ -2759,6 +2760,22 @@ fn pdf_preview(path: &str) -> Option<String> {
     } else {
         Some(lines.join("\n"))
     }
+}
+
+fn url_preview(url: &str, title: &str, note: &str) -> String {
+    let host = url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .trim();
+    [title.trim(), host, url.trim(), note.trim()]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 enum OfficeKind {
