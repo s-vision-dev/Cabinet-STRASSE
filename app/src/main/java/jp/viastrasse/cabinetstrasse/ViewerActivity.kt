@@ -23,6 +23,12 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.VideoView
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.ext.tasklist.TaskListPlugin
+import io.noties.markwon.html.HtmlPlugin
+import io.noties.markwon.linkify.LinkifyPlugin
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
@@ -60,7 +66,9 @@ class ViewerActivity : Activity() {
         val uri = viewerUri(path)
         val displayTitle = title.ifBlank { File(path).name.ifBlank { path.substringAfterLast('/') } }
         runCatching {
-            if (isTextFile(path, mimeType)) {
+            if (isMarkdownFile(path, mimeType)) {
+                renderMarkdown(displayTitle, readText(uri))
+            } else if (isTextFile(path, mimeType)) {
                 renderText(displayTitle, readText(uri))
             } else if (isImageFile(path, mimeType)) {
                 renderImage(displayTitle, uri)
@@ -97,6 +105,23 @@ class ViewerActivity : Activity() {
             textSize = 15f
             setPadding(dp(18), dp(18), dp(18), dp(28))
         }
+        setContentView(zoomablePreview(title, textView))
+    }
+
+    private fun renderMarkdown(title: String, body: String) {
+        val textView = TextView(this).apply {
+            setTextColor(CabinetColors.TextPrimary)
+            textSize = 15f
+            setPadding(dp(18), dp(18), dp(18), dp(28))
+        }
+        Markwon.builder(this)
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(TablePlugin.create(this))
+            .usePlugin(TaskListPlugin.create(this))
+            .usePlugin(HtmlPlugin.create())
+            .usePlugin(LinkifyPlugin.create())
+            .build()
+            .setMarkdown(textView, body)
         setContentView(zoomablePreview(title, textView))
     }
 
@@ -706,6 +731,10 @@ class ViewerActivity : Activity() {
     private fun isTextFile(path: String, mimeType: String): Boolean {
         return mimeType.startsWith("text/") ||
             path.hasAnyExtension("txt", "md", "csv", "tsv", "json", "xml", "html", "htm", "log")
+    }
+
+    private fun isMarkdownFile(path: String, mimeType: String): Boolean {
+        return mimeType == "text/markdown" || path.hasAnyExtension("md", "markdown")
     }
 
     private fun isImageFile(path: String, mimeType: String): Boolean {
