@@ -449,10 +449,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     ): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, dp(18))
-            addView(divider())
-            addView(label("メール一覧", 24, true, CabinetColors.Accent).apply {
-                setPadding(dp(4), dp(22), dp(4), dp(16))
+            addView(divider(32))
+            addView(label("メール一覧", 16, true, CabinetColors.Accent).apply {
+                setPadding(0, dp(8), 0, dp(8))
             })
             addView(
                 LinearLayout(context).apply {
@@ -460,13 +459,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     weightSum = 2f
                     addView(displayModeButton("コンパクト", "compact", selectedMode, onDisplayModeSelected, leftSide = true))
                     addView(displayModeButton("エレガント", "elegant", selectedMode, onDisplayModeSelected, leftSide = false))
-                    setPadding(dp(14), 0, dp(14), dp(12))
+                    setPadding(dp(16), dp(8), dp(16), dp(8))
                 },
             )
-            addView(label("コンパクトは従来の密度、エレガントは1メールずつ余白を持たせて表示します。", 17, false, CabinetColors.TextPrimary).apply {
-                setPadding(dp(14), 0, dp(14), dp(18))
+            addView(label("コンパクトは件数重視の表示、エレガントは1ファイルずつ余裕のある表示になります。", 14, false, CabinetColors.TextPrimary).apply {
+                setPadding(dp(16), 0, dp(16), 0)
             })
-            addView(divider())
+            addView(divider(32))
         }
     }
 
@@ -479,9 +478,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     ): TextView {
         val selected = value == selectedMode
         val icon = if (selected) "✓" else if (value == "compact") "☰" else "▤"
-        return label("$icon  $text", 20, true, CabinetColors.TextPrimary).apply {
+        return label("$icon  $text", 14, true, CabinetColors.TextPrimary).apply {
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(14), dp(8), dp(14))
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             background = segmentedBackground(selected, leftSide)
             isClickable = true
             setOnClickListener { onDisplayModeSelected(value) }
@@ -494,7 +493,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     }
 
     private fun segmentedBackground(selected: Boolean, leftSide: Boolean): GradientDrawable {
-        val radius = dp(22).toFloat()
+        val radius = dp(18).toFloat()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(if (selected) CabinetColors.SurfaceAlt else CabinetColors.AppBackground)
@@ -507,12 +506,20 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun divider(): View {
-        return View(context).apply {
-            setBackgroundColor(CabinetColors.Divider)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(1),
+    private fun divider(height: Int = 1): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            if (height > 1) {
+                setPadding(0, dp((height - 1) / 2), 0, dp(height / 2))
+            }
+            addView(
+                View(context).apply {
+                    setBackgroundColor(CabinetColors.Divider)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(1),
+                    )
+                },
             )
         }
     }
