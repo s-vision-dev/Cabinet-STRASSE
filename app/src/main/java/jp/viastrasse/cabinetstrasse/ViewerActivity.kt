@@ -297,6 +297,8 @@ class ViewerActivity : Activity() {
         private var baseContentHeight = 0
         private var contentView: View? = null
         private var useNaturalWidth = false
+        private var panInsetX = 0
+        private var panInsetY = 0
         private var touchStartX = 0f
         private var touchStartY = 0f
         private var startedAtLeftEdge = false
@@ -318,15 +320,15 @@ class ViewerActivity : Activity() {
                     val oldScale = scaleFactor
                     val nextScale = (scaleFactor * detector.scaleFactor).coerceIn(0.75f, 3.5f)
                     if (nextScale == oldScale) return true
-                    val focusContentX = (scrollX + detector.focusX) / oldScale
-                    val focusContentY = (verticalScroll.scrollY + detector.focusY) / oldScale
+                    val focusContentX = (scrollX + detector.focusX - panInsetX) / oldScale
+                    val focusContentY = (verticalScroll.scrollY + detector.focusY - panInsetY) / oldScale
                     scaleFactor = nextScale
                     applyZoom()
                     post {
-                        scrollTo(((focusContentX * scaleFactor) - detector.focusX).roundToInt(), scrollY)
+                        scrollTo(((focusContentX * scaleFactor) - detector.focusX + panInsetX).roundToInt(), scrollY)
                         verticalScroll.scrollTo(
                             verticalScroll.scrollX,
-                            ((focusContentY * scaleFactor) - detector.focusY).roundToInt(),
+                            ((focusContentY * scaleFactor) - detector.focusY + panInsetY).roundToInt(),
                         )
                     }
                     return true
@@ -366,6 +368,7 @@ class ViewerActivity : Activity() {
             post {
                 captureBaseContentSize()
                 applyZoom()
+                centerPreviewViewport()
             }
         }
 
@@ -416,21 +419,34 @@ class ViewerActivity : Activity() {
         private fun applyZoom() {
             val content = contentView ?: return
             if (baseContentWidth <= 0 || baseContentHeight <= 0) return
+            panInsetX = (width / 2).coerceAtLeast(0)
+            panInsetY = (height / 2).coerceAtLeast(0)
             val scaledWidth = (baseContentWidth * scaleFactor).roundToInt().coerceAtLeast(1)
             val scaledHeight = (baseContentHeight * scaleFactor).roundToInt().coerceAtLeast(1)
             zoomBounds.layoutParams = zoomBounds.layoutParams.apply {
-                width = scaledWidth
-                height = scaledHeight
+                width = scaledWidth + panInsetX * 2
+                height = scaledHeight + panInsetY * 2
             }
             content.layoutParams = content.layoutParams.apply {
                 width = baseContentWidth
                 height = baseContentHeight
+                if (this is FrameLayout.LayoutParams) {
+                    leftMargin = panInsetX
+                    topMargin = panInsetY
+                }
             }
             content.pivotX = 0f
             content.pivotY = 0f
             content.scaleX = scaleFactor
             content.scaleY = scaleFactor
             zoomBounds.requestLayout()
+        }
+
+        private fun centerPreviewViewport() {
+            post {
+                scrollTo(panInsetX, scrollY)
+                verticalScroll.scrollTo(verticalScroll.scrollX, panInsetY)
+            }
         }
 
         private fun handleNavigationSwipe(event: MotionEvent) {
