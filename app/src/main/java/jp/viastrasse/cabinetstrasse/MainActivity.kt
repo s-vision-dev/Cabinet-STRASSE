@@ -791,7 +791,61 @@ class MainActivity : Activity() {
     }
 
     private fun mimeTypeFor(file: File): String {
-        return URLConnection.guessContentTypeFromName(file.name) ?: "application/octet-stream"
+        return URLConnection.guessContentTypeFromName(file.name)
+            ?: mimeTypeForExtension(extensionOf(file.name))
+            ?: "application/octet-stream"
+    }
+
+    private fun mimeTypeForExtension(extension: String): String? {
+        return when (extension.lowercase()) {
+            "txt", "text", "log", "ini", "conf", "cfg", "properties", "env" -> "text/plain"
+            "md", "markdown" -> "text/markdown"
+            "csv" -> "text/csv"
+            "tsv" -> "text/tab-separated-values"
+            "json", "jsonl" -> "application/json"
+            "xml" -> "application/xml"
+            "html", "htm", "xhtml" -> "text/html"
+            "css" -> "text/css"
+            "js", "mjs", "cjs" -> "application/javascript"
+            "yml", "yaml" -> "application/x-yaml"
+            "toml" -> "text/plain"
+            "rtf" -> "application/rtf"
+            "pdf" -> "application/pdf"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            "avif" -> "image/avif"
+            "mp4", "m4v" -> "video/mp4"
+            "mov" -> "video/quicktime"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            "3gp", "3gpp" -> "video/3gpp"
+            "avi" -> "video/x-msvideo"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
+            "wav" -> "audio/wav"
+            "ogg", "oga" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "opus" -> "audio/opus"
+            "mid", "midi" -> "audio/midi"
+            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "xls" -> "application/vnd.ms-excel"
+            "doc" -> "application/msword"
+            "ppt" -> "application/vnd.ms-powerpoint"
+            "zip" -> "application/zip"
+            "7z" -> "application/x-7z-compressed"
+            "rar" -> "application/vnd.rar"
+            "tar" -> "application/x-tar"
+            "gz" -> "application/gzip"
+            else -> null
+        }
     }
 
     private fun readableSize(size: Long): String {

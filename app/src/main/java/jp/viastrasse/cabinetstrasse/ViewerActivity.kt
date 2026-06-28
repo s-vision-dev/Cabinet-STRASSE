@@ -65,21 +65,22 @@ class ViewerActivity : Activity() {
         }
         val uri = viewerUri(path)
         val displayTitle = title.ifBlank { File(path).name.ifBlank { path.substringAfterLast('/') } }
+        val typeHint = "$path\n$displayTitle"
         runCatching {
-            if (isMarkdownFile(path, mimeType)) {
+            if (isMarkdownFile(typeHint, mimeType)) {
                 renderMarkdown(displayTitle, readText(uri))
-            } else if (isTextFile(path, mimeType)) {
+            } else if (isTextFile(typeHint, mimeType)) {
                 renderText(displayTitle, readText(uri))
-            } else if (isImageFile(path, mimeType)) {
+            } else if (isImageFile(typeHint, mimeType)) {
                 renderImage(displayTitle, uri)
-            } else if (isPdfFile(path, mimeType)) {
+            } else if (isPdfFile(typeHint, mimeType)) {
                 renderPdf(displayTitle, uri)
-            } else if (isVideoFile(path, mimeType)) {
+            } else if (isVideoFile(typeHint, mimeType)) {
                 renderVideo(displayTitle, uri)
-            } else if (isAudioFile(path, mimeType)) {
+            } else if (isAudioFile(typeHint, mimeType)) {
                 renderAudio(displayTitle, uri)
-            } else if (isOfficeOpenXml(path, mimeType)) {
-                renderOfficePreview(displayTitle, uri, path, mimeType)
+            } else if (isOfficeOpenXml(typeHint, mimeType)) {
+                renderOfficePreview(displayTitle, uri, typeHint, mimeType)
             } else {
                 renderUnsupported(displayTitle, uri, mimeType)
             }
@@ -730,7 +731,65 @@ class ViewerActivity : Activity() {
 
     private fun isTextFile(path: String, mimeType: String): Boolean {
         return mimeType.startsWith("text/") ||
-            path.hasAnyExtension("txt", "md", "csv", "tsv", "json", "xml", "html", "htm", "log")
+            mimeType in setOf(
+                "application/json",
+                "application/xml",
+                "application/xhtml+xml",
+                "application/javascript",
+                "application/x-javascript",
+                "application/x-sh",
+                "application/x-yaml",
+                "application/yaml",
+            ) ||
+            path.hasAnyExtension(
+                "txt",
+                "text",
+                "csv",
+                "tsv",
+                "json",
+                "jsonl",
+                "xml",
+                "html",
+                "htm",
+                "xhtml",
+                "css",
+                "js",
+                "mjs",
+                "cjs",
+                "ts",
+                "tsx",
+                "jsx",
+                "yml",
+                "yaml",
+                "toml",
+                "ini",
+                "conf",
+                "cfg",
+                "properties",
+                "env",
+                "log",
+                "sql",
+                "java",
+                "kt",
+                "kts",
+                "gradle",
+                "py",
+                "rb",
+                "go",
+                "rs",
+                "c",
+                "cc",
+                "cpp",
+                "h",
+                "hpp",
+                "sh",
+                "bash",
+                "zsh",
+                "bat",
+                "cmd",
+                "ps1",
+                "rtf",
+            )
     }
 
     private fun isMarkdownFile(path: String, mimeType: String): Boolean {
@@ -739,7 +798,7 @@ class ViewerActivity : Activity() {
 
     private fun isImageFile(path: String, mimeType: String): Boolean {
         return mimeType.startsWith("image/") ||
-            path.hasAnyExtension("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
+            path.hasAnyExtension("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif")
     }
 
     private fun isPdfFile(path: String, mimeType: String): Boolean {
@@ -748,17 +807,19 @@ class ViewerActivity : Activity() {
 
     private fun isVideoFile(path: String, mimeType: String): Boolean {
         return mimeType.startsWith("video/") ||
-            path.hasAnyExtension("mp4", "m4v", "mov", "webm", "mkv", "3gp")
+            path.hasAnyExtension("mp4", "m4v", "mov", "webm", "mkv", "3gp", "3gpp", "avi")
     }
 
     private fun isAudioFile(path: String, mimeType: String): Boolean {
         return mimeType.startsWith("audio/") ||
-            path.hasAnyExtension("mp3", "m4a", "aac", "wav", "ogg", "flac")
+            path.hasAnyExtension("mp3", "m4a", "aac", "wav", "ogg", "oga", "flac", "opus", "mid", "midi")
     }
 
     private fun String.hasAnyExtension(vararg extensions: String): Boolean {
-        val name = substringBefore('?').substringBefore('#')
-        return extensions.any { name.endsWith(".$it", ignoreCase = true) }
+        return lineSequence()
+            .flatMap { it.splitToSequence('/', '\\') }
+            .map { it.substringBefore('?').substringBefore('#') }
+            .any { name -> extensions.any { name.endsWith(".$it", ignoreCase = true) } }
     }
 
     private fun dp(value: Int): Int {
