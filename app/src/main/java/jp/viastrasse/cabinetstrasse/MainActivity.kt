@@ -385,6 +385,7 @@ class MainActivity : Activity() {
             onBack = ::renderDashboard,
             onOpenFile = ::openDeviceFile,
             onRegisterFile = { entry -> registerDeviceFile(entry, title) },
+            onOpenLocation = ::openDeviceFileLocation,
         )
     }
 
@@ -541,6 +542,26 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun openDeviceFileLocation(entry: DeviceFileEntry) {
+        if (canReadPublicDirectories()) {
+            val directory = File(Environment.getExternalStorageDirectory(), entry.location.trimStart('/'))
+            if (directory.exists() && directory.isDirectory) {
+                openLocalExplorer(directory)
+                return
+            }
+        }
+        val root = entry.location.trim('/').substringBefore('/')
+        val directoryType = when (root) {
+            Environment.DIRECTORY_DOWNLOADS -> Environment.DIRECTORY_DOWNLOADS
+            Environment.DIRECTORY_DOCUMENTS -> Environment.DIRECTORY_DOCUMENTS
+            Environment.DIRECTORY_PICTURES -> Environment.DIRECTORY_PICTURES
+            Environment.DIRECTORY_MOVIES -> Environment.DIRECTORY_MOVIES
+            Environment.DIRECTORY_MUSIC -> Environment.DIRECTORY_MUSIC
+            else -> Environment.DIRECTORY_DOWNLOADS
+        }
+        openPublicDirectory(directoryType)
     }
 
     private fun toLocalFileEntry(file: File): LocalFileEntry {
@@ -706,7 +727,7 @@ class MainActivity : Activity() {
     }
 
     private fun readableSize(size: Long): String {
-        if (size < 1024L) return "$size B"
+        if (size < 1024L) return "${size}B"
         val units = listOf("KB", "MB", "GB", "TB")
         var value = size / 1024.0
         var unitIndex = 0
@@ -714,7 +735,7 @@ class MainActivity : Activity() {
             value /= 1024.0
             unitIndex += 1
         }
-        return "%.1f %s".format(value, units[unitIndex])
+        return "%.2f%s".format(value, units[unitIndex])
     }
 
     private fun openSearch(query: String) {
@@ -1742,10 +1763,35 @@ class MainActivity : Activity() {
                 onOpenProvider = { provider -> openMode("provider:${provider.id}") },
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 onDuplicateItemSelected = ::openDetail,
+                displayMode = displayModePreference(),
+                onDisplayModeSelected = ::updateDisplayModePreference,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun displayModePreference(): String {
+        val value = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+            .getString(KEY_DISPLAY_MODE, DISPLAY_MODE_COMPACT)
+            .orEmpty()
+        return when (value) {
+            DISPLAY_MODE_COMPACT, DISPLAY_MODE_ELEGANT -> value
+            else -> DISPLAY_MODE_COMPACT
+        }
+    }
+
+    private fun updateDisplayModePreference(displayMode: String) {
+        val normalized = when (displayMode) {
+            DISPLAY_MODE_COMPACT, DISPLAY_MODE_ELEGANT -> displayMode
+            else -> DISPLAY_MODE_COMPACT
+        }
+        getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_DISPLAY_MODE, normalized)
+            .apply()
+        Toast.makeText(this, "表示設定を保存しました", Toast.LENGTH_SHORT).show()
+        openSettings()
     }
 
     private fun showStorageProviderDialog(provider: StorageProviderAccountSummary) {
@@ -1994,5 +2040,9 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_TREE = 2401
         private const val REQUEST_OPEN_BACKUP = 2402
         private const val REQUEST_ADD_VERSION = 2403
+        private const val APP_PREFS_NAME = "cabinet-app-settings"
+        private const val KEY_DISPLAY_MODE = "display_mode"
+        private const val DISPLAY_MODE_COMPACT = "compact"
+        private const val DISPLAY_MODE_ELEGANT = "elegant"
     }
 }

@@ -1,14 +1,15 @@
 package jp.viastrasse.cabinetstrasse.ui
 
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
@@ -143,6 +144,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     onMoveEntry,
                     onDuplicateEntry,
                     onDeleteEntry,
+                    onOpenDirectory,
                 ),
             )
         }
@@ -155,6 +157,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onBack: () -> Unit,
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
+        onOpenLocation: (DeviceFileEntry) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -167,7 +170,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
         content.addView(section("Files"))
         entries.forEach { entry ->
-            content.addView(deviceFileRow(entry, onOpenFile, onRegisterFile))
+            content.addView(deviceFileRow(entry, onOpenFile, onRegisterFile, onOpenLocation))
         }
     }
 
@@ -380,11 +383,15 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenProvider: (StorageProviderAccountSummary) -> Unit,
         onCreateSmartFolder: () -> Unit,
         onDuplicateItemSelected: (String) -> Unit,
+        displayMode: String,
+        onDisplayModeSelected: (String) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
         content.addView(title("Settings"))
         content.addView(subtitle("Storage Provider / Backup / Security"))
+        content.addView(section("表示設定"))
+        content.addView(displayModeSelector(displayMode, onDisplayModeSelected))
         content.addView(section("Backup"))
         content.addView(panel {
             addView(label("Items: ${settings.backup.itemCount}", 14, true))
@@ -432,6 +439,44 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(command("Providerを設定") { onConfigureProvider(provider) })
                 addView(command("リモート参照を追加") { onAddRemoteFile(provider) })
             })
+        }
+    }
+
+    private fun displayModeSelector(
+        selectedMode: String,
+        onDisplayModeSelected: (String) -> Unit,
+    ): View {
+        return panel {
+            addView(label("一覧表示", 15, true))
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    weightSum = 2f
+                    addView(displayModeButton("コンパクト", "compact", selectedMode, onDisplayModeSelected))
+                    addView(displayModeButton("エレガント", "elegant", selectedMode, onDisplayModeSelected))
+                    setPadding(0, dp(8), 0, dp(6))
+                },
+            )
+            addView(label("コンパクトは従来の密度、エレガントは1メールずつ余白を持たせて表示します。", 12, false, CabinetColors.TextSecondary))
+        }
+    }
+
+    private fun displayModeButton(
+        text: String,
+        value: String,
+        selectedMode: String,
+        onDisplayModeSelected: (String) -> Unit,
+    ): TextView {
+        val selected = value == selectedMode
+        return label(text, 14, true, if (selected) CabinetColors.TextPrimary else CabinetColors.TextSecondary).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            setBackgroundColor(if (selected) CabinetColors.Brand else CabinetColors.SurfaceAlt)
+            isClickable = true
+            setOnClickListener { onDisplayModeSelected(value) }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(dp(3), 0, dp(3), 0)
+            }
         }
     }
 
@@ -813,6 +858,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onMoveEntry: (File) -> Unit,
         onDuplicateEntry: (File) -> Unit,
         onDeleteEntry: (File) -> Unit,
+        onOpenPath: (File) -> Unit,
     ): View {
         return listRow {
             isClickable = true
@@ -835,15 +881,18 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     onMoveEntry = onMoveEntry,
                     onDuplicateEntry = onDuplicateEntry,
                     onDeleteEntry = onDeleteEntry,
+                    onOpenPath = onOpenDirectory,
                 )
                 true
             }
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(label(if (entry.isDirectory) "[DIR]" else fileKindLabel(entry.kind), 13, true, CabinetColors.Accent))
-                    addView(label(entry.name, 15, true).apply {
+                    gravity = Gravity.TOP
+                    addView(label(if (entry.isDirectory) "[DIR]" else fileKindLabel(entry.kind), 13, true, CabinetColors.Accent).apply {
+                        setPadding(0, dp(2), 0, 0)
+                    })
+                    addView(fileNameLabel(entry.name).apply {
                         setPadding(dp(8), 0, dp(8), 0)
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     })
@@ -858,13 +907,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                             onMoveEntry = onMoveEntry,
                             onDuplicateEntry = onDuplicateEntry,
                             onDeleteEntry = onDeleteEntry,
+                            onOpenPath = onOpenDirectory,
                         )
                     })
                 },
             )
-            addView(label("${entry.kind} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary).apply {
-                setPadding(dp(42), dp(2), 0, 0)
-            })
+            addView(metaRow(entry.updatedLabel, entry.sizeLabel))
         }
     }
 
@@ -872,32 +920,30 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         entry: DeviceFileEntry,
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
+        onOpenLocation: (DeviceFileEntry) -> Unit,
     ): View {
         return listRow {
             isClickable = true
             setOnClickListener { onOpenFile(entry) }
             setOnLongClickListener {
-                showDeviceFileMenu(this, entry, onOpenFile, onRegisterFile)
+                showDeviceFileMenu(this, entry, onOpenFile, onRegisterFile, onOpenLocation)
                 true
             }
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(label(fileKindLabel(entry.mimeType), 13, true, CabinetColors.Accent))
-                    addView(label(entry.name, 15, true).apply {
+                    gravity = Gravity.TOP
+                    addView(label(fileKindLabel(entry.mimeType), 13, true, CabinetColors.Accent).apply {
+                        setPadding(0, dp(2), 0, 0)
+                    })
+                    addView(fileNameLabel(entry.name).apply {
                         setPadding(dp(8), 0, dp(8), 0)
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     })
-                    addView(menuButton { showDeviceFileMenu(it, entry, onOpenFile, onRegisterFile) })
+                    addView(menuButton { showDeviceFileMenu(it, entry, onOpenFile, onRegisterFile, onOpenLocation) })
                 },
             )
-            addView(label("${entry.mimeType} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary).apply {
-                setPadding(dp(42), dp(2), 0, 0)
-            })
-            addView(label(entry.location, 12, false, CabinetColors.TextSecondary).apply {
-                setPadding(dp(42), 0, 0, 0)
-            })
+            addView(metaRow(entry.updatedLabel, entry.sizeLabel))
         }
     }
 
@@ -911,31 +957,25 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onMoveEntry: (File) -> Unit,
         onDuplicateEntry: (File) -> Unit,
         onDeleteEntry: (File) -> Unit,
+        onOpenPath: (File) -> Unit,
     ) {
-        PopupMenu(context, anchor).apply {
-            menu.add("開く")
-            menu.add("名前変更")
-            if (!entry.isDirectory) {
-                menu.add("Cabinetへ登録")
-            }
-            menu.add("Inboxへコピー")
-            menu.add("Inboxへ移動")
-            menu.add("複製")
-            menu.add("削除")
-            setOnMenuItemClickListener { item ->
-                when (item.title.toString()) {
-                    "開く" -> onOpen()
-                    "名前変更" -> onRenameEntry(entry.file)
-                    "Cabinetへ登録" -> onRegisterFile(entry.file)
-                    "Inboxへコピー" -> onCopyEntry(entry.file)
-                    "Inboxへ移動" -> onMoveEntry(entry.file)
-                    "複製" -> onDuplicateEntry(entry.file)
-                    "削除" -> onDeleteEntry(entry.file)
+        val pathTarget = if (entry.isDirectory) entry.file else entry.file.parentFile
+        showActionSheet(
+            title = entry.name,
+            path = entry.file.absolutePath,
+            onPathLongClick = pathTarget?.let { { onOpenPath(it) } },
+            actions = buildList {
+                add("開く" to onOpen)
+                add("名前変更" to { onRenameEntry(entry.file) })
+                if (!entry.isDirectory) {
+                    add("Cabinetへ登録" to { onRegisterFile(entry.file) })
                 }
-                true
-            }
-            show()
-        }
+                add("Inboxへコピー" to { onCopyEntry(entry.file) })
+                add("Inboxへ移動" to { onMoveEntry(entry.file) })
+                add("複製" to { onDuplicateEntry(entry.file) })
+                add("削除" to { onDeleteEntry(entry.file) })
+            },
+        )
     }
 
     private fun showDeviceFileMenu(
@@ -943,19 +983,54 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         entry: DeviceFileEntry,
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
+        onOpenLocation: (DeviceFileEntry) -> Unit,
     ) {
-        PopupMenu(context, anchor).apply {
-            menu.add("開く")
-            menu.add("Cabinetへ登録")
-            setOnMenuItemClickListener { item ->
-                when (item.title.toString()) {
-                    "開く" -> onOpenFile(entry)
-                    "Cabinetへ登録" -> onRegisterFile(entry)
+        showActionSheet(
+            title = entry.name,
+            path = "${entry.location}${entry.name}",
+            onPathLongClick = { onOpenLocation(entry) },
+            actions = listOf(
+                "開く" to { onOpenFile(entry) },
+                "Cabinetへ登録" to { onRegisterFile(entry) },
+            ),
+        )
+    }
+
+    private fun showActionSheet(
+        title: String,
+        path: String,
+        onPathLongClick: (() -> Unit)?,
+        actions: List<Pair<String, () -> Unit>>,
+    ) {
+        var dialog: AlertDialog? = null
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(8))
+            addView(label(title, 18, true).apply {
+                setPadding(0, 0, 0, dp(8))
+            })
+            addView(label(path, 12, false, CabinetColors.TextSecondary).apply {
+                setPadding(0, 0, 0, dp(8))
+                if (onPathLongClick != null) {
+                    isClickable = true
+                    setOnLongClickListener {
+                        dialog?.dismiss()
+                        onPathLongClick()
+                        true
+                    }
                 }
-                true
+            })
+            actions.forEach { (text, action) ->
+                addView(actionRow(text) {
+                    dialog?.dismiss()
+                    action()
+                })
             }
-            show()
         }
+        dialog = AlertDialog.Builder(context)
+            .setView(container)
+            .create()
+        dialog.show()
     }
 
     private fun fileKindLabel(kind: String): String {
@@ -977,6 +1052,34 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             setPadding(dp(10), 0, dp(4), 0)
             isClickable = true
             setOnClickListener { onClick(this) }
+        }
+    }
+
+    private fun fileNameLabel(text: String): TextView {
+        return label(text, 15, true).apply {
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
+    }
+
+    private fun metaRow(updatedLabel: String, sizeLabel: String): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(42), dp(2), 0, 0)
+            addView(label(updatedLabel, 12, false, CabinetColors.TextSecondary).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(label(sizeLabel, 12, false, CabinetColors.TextSecondary).apply {
+                gravity = Gravity.END
+            })
+        }
+    }
+
+    private fun actionRow(text: String, onClick: () -> Unit): TextView {
+        return label(text, 15, true, CabinetColors.Accent).apply {
+            setPadding(0, dp(10), 0, dp(10))
+            isClickable = true
+            setOnClickListener { onClick() }
         }
     }
 
