@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -110,6 +111,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         entries: List<LocalFileEntry>,
         displayMode: String,
         fontPreference: FileListDisplayPreference,
+        listOptions: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
         onBack: () -> Unit,
         onParent: (() -> Unit)?,
         onOpenDirectory: (File) -> Unit,
@@ -130,30 +133,35 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         if (onParent != null) {
             content.addView(command("親フォルダへ移動", onParent))
         }
+        content.addView(section("Files"))
+        content.addView(fileListControls(listOptions, onListOptionsChanged))
         if (entries.isEmpty()) {
-            content.addView(section("Files"))
-            content.addView(label("表示できるファイルはありません", 13, false, CabinetColors.TextSecondary))
+            val message = if (listOptions.hasActiveFilter) "条件に一致するファイルはありません" else "表示できるファイルはありません"
+            content.addView(label(message, 13, false, CabinetColors.TextSecondary))
             return
         }
-        content.addView(section("Files"))
-        val fileList = fileListContainer(displayMode)
-        entries.forEach { entry ->
-            fileList.addView(
-                fileRow(
-                    entry,
-                    displayMode,
-                    fontPreference,
-                    onOpenDirectory,
-                    onOpenFile,
-                    onRegisterFile,
-                    onRenameEntry,
-                    onCopyEntry,
-                    onMoveEntry,
-                    onDuplicateEntry,
-                    onDeleteEntry,
-                    onOpenDirectory,
-                ),
-            )
+        val fileList = fileListContainer(displayMode, listOptions.layout)
+        if (listOptions.layout == FileListLayout.PREVIEW_GRID) {
+            addLocalPreviewGrid(fileList, entries, displayMode, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile, onRenameEntry, onCopyEntry, onMoveEntry, onDuplicateEntry, onDeleteEntry)
+        } else {
+            entries.forEach { entry ->
+                fileList.addView(
+                    fileRow(
+                        entry,
+                        displayMode,
+                        fontPreference,
+                        onOpenDirectory,
+                        onOpenFile,
+                        onRegisterFile,
+                        onRenameEntry,
+                        onCopyEntry,
+                        onMoveEntry,
+                        onDuplicateEntry,
+                        onDeleteEntry,
+                        onOpenDirectory,
+                    ),
+                )
+            }
         }
         content.addView(fileList)
     }
@@ -164,6 +172,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         entries: List<DeviceFileEntry>,
         displayMode: String,
         fontPreference: FileListDisplayPreference,
+        listOptions: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
         onBack: () -> Unit,
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
@@ -173,15 +183,24 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("← Cabinet", onBack))
         content.addView(title(title))
         content.addView(subtitle(location))
+        content.addView(section("Files"))
+        content.addView(fileListControls(listOptions, onListOptionsChanged))
         if (entries.isEmpty()) {
-            content.addView(section("Files"))
-            content.addView(label("端末の権限またはAndroidのストレージ制限により、表示できるファイルがありません", 13, false, CabinetColors.TextSecondary))
+            val message = if (listOptions.hasActiveFilter) {
+                "条件に一致するファイルはありません"
+            } else {
+                "端末の権限またはAndroidのストレージ制限により、表示できるファイルがありません"
+            }
+            content.addView(label(message, 13, false, CabinetColors.TextSecondary))
             return
         }
-        content.addView(section("Files"))
-        val fileList = fileListContainer(displayMode)
-        entries.forEach { entry ->
-            fileList.addView(deviceFileRow(entry, displayMode, fontPreference, onOpenFile, onRegisterFile, onOpenLocation))
+        val fileList = fileListContainer(displayMode, listOptions.layout)
+        if (listOptions.layout == FileListLayout.PREVIEW_GRID) {
+            addDevicePreviewGrid(fileList, entries, displayMode, fontPreference, onOpenFile, onRegisterFile, onOpenLocation)
+        } else {
+            entries.forEach { entry ->
+                fileList.addView(deviceFileRow(entry, displayMode, fontPreference, onOpenFile, onRegisterFile, onOpenLocation))
+            }
         }
         content.addView(fileList)
     }
@@ -1168,13 +1187,238 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun fileListContainer(displayMode: String): LinearLayout {
+    private fun fileListControls(
+        options: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(4), 0, dp(8))
+            addView(
+                controlRow(
+                    listOf(
+                        "ソート: ${options.sort.label}" to { showSortMenu(options, onListOptionsChanged) },
+                        "期間: ${options.periodLabel}" to { showPeriodMenu(options, onListOptionsChanged) },
+                    ),
+                ),
+            )
+            addView(
+                controlRow(
+                    listOf(
+                        "ファイル名: ${options.nameQuery.ifBlank { "すべて" }}" to { showTextFilterDialog("ファイル名で絞り込み", options.nameQuery) { onListOptionsChanged(options.copy(nameQuery = it)) } },
+                        "拡張子: ${options.extensionQuery.ifBlank { "すべて" }}" to { showTextFilterDialog("拡張子で絞り込み", options.extensionQuery) { onListOptionsChanged(options.copy(extensionQuery = it.trimStart('.'))) } },
+                    ),
+                ),
+            )
+            addView(
+                controlRow(
+                    listOf(
+                        "表示: ${options.layout.label}" to {
+                            val next = if (options.layout == FileListLayout.LIST) FileListLayout.PREVIEW_GRID else FileListLayout.LIST
+                            onListOptionsChanged(options.copy(layout = next))
+                        },
+                        "絞り込み解除" to { onListOptionsChanged(options.copy(periodDays = null, nameQuery = "", extensionQuery = "")) },
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun controlRow(actions: List<Pair<String, () -> Unit>>): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            actions.forEach { (text, action) ->
+                addView(command(text, action).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(dp(2), dp(2), dp(2), dp(2))
+                    }
+                    setBackgroundColor(CabinetColors.SurfaceAlt)
+                })
+            }
+        }
+    }
+
+    private fun showSortMenu(options: FileListOptions, onListOptionsChanged: (FileListOptions) -> Unit) {
+        showChoiceDialog(
+            title = "ソート",
+            choices = FileListSort.entries.map { sort -> sort.label to { onListOptionsChanged(options.copy(sort = sort)) } },
+        )
+    }
+
+    private fun showPeriodMenu(options: FileListOptions, onListOptionsChanged: (FileListOptions) -> Unit) {
+        showChoiceDialog(
+            title = "期間",
+            choices = listOf(
+                "すべて" to { onListOptionsChanged(options.copy(periodDays = null)) },
+                "今日" to { onListOptionsChanged(options.copy(periodDays = 1)) },
+                "7日以内" to { onListOptionsChanged(options.copy(periodDays = 7)) },
+                "30日以内" to { onListOptionsChanged(options.copy(periodDays = 30)) },
+                "1年以内" to { onListOptionsChanged(options.copy(periodDays = 365)) },
+            ),
+        )
+    }
+
+    private fun showChoiceDialog(title: String, choices: List<Pair<String, () -> Unit>>) {
+        AlertDialog.Builder(context)
+            .setTitle(title)
+            .setItems(choices.map { it.first }.toTypedArray()) { _, which -> choices[which].second() }
+            .show()
+    }
+
+    private fun showTextFilterDialog(title: String, initialValue: String, onApply: (String) -> Unit) {
+        val input = android.widget.EditText(context).apply {
+            setText(initialValue)
+            setSingleLine(true)
+            setTextColor(CabinetColors.TextPrimary)
+            setHintTextColor(CabinetColors.TextSecondary)
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        AlertDialog.Builder(context)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton("適用") { _, _ -> onApply(input.text.toString().trim()) }
+            .setNegativeButton("クリア") { _, _ -> onApply("") }
+            .show()
+    }
+
+    private fun fileListContainer(displayMode: String, layout: FileListLayout): LinearLayout {
         val isElegant = isElegantDisplayMode(displayMode)
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            if (isElegant) {
+            if (isElegant || layout == FileListLayout.PREVIEW_GRID) {
                 setPadding(dp(14), dp(12), dp(14), dp(10))
                 setBackgroundColor(CabinetColors.SurfaceAlt)
+            }
+        }
+    }
+
+    private fun addLocalPreviewGrid(
+        container: LinearLayout,
+        entries: List<LocalFileEntry>,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        onOpenDirectory: (File) -> Unit,
+        onOpenFile: (File) -> Unit,
+        onRegisterFile: (File) -> Unit,
+        onRenameEntry: (File) -> Unit,
+        onCopyEntry: (File) -> Unit,
+        onMoveEntry: (File) -> Unit,
+        onDuplicateEntry: (File) -> Unit,
+        onDeleteEntry: (File) -> Unit,
+    ) {
+        entries.chunked(2).forEach { pair ->
+            container.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                pair.forEach { entry ->
+                    val openAction = {
+                        if (entry.isDirectory) onOpenDirectory(entry.file) else onOpenFile(entry.file)
+                    }
+                    addView(previewCard(
+                        title = entry.name,
+                        kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.kind),
+                        meta = "${entry.updatedLabel}  ${entry.sizeLabel}",
+                        isImage = !entry.isDirectory && entry.kind.startsWith("image/"),
+                        imageUri = Uri.fromFile(entry.file),
+                        fontPreference = fontPreference,
+                        onOpen = openAction,
+                        onMenu = {
+                            showLocalFileMenu(it, entry, openAction, onRegisterFile, onRenameEntry, onCopyEntry, onMoveEntry, onDuplicateEntry, onDeleteEntry, onOpenDirectory)
+                        },
+                    ))
+                }
+                if (pair.size == 1) addView(View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                })
+            })
+        }
+    }
+
+    private fun addDevicePreviewGrid(
+        container: LinearLayout,
+        entries: List<DeviceFileEntry>,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        onOpenFile: (DeviceFileEntry) -> Unit,
+        onRegisterFile: (DeviceFileEntry) -> Unit,
+        onOpenLocation: (DeviceFileEntry) -> Unit,
+    ) {
+        entries.chunked(2).forEach { pair ->
+            container.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                pair.forEach { entry ->
+                    addView(previewCard(
+                        title = entry.name,
+                        kind = fileKindLabel(entry.mimeType),
+                        meta = "${entry.updatedLabel}  ${entry.sizeLabel}",
+                        isImage = entry.mimeType.startsWith("image/"),
+                        imageUri = Uri.parse(entry.uri),
+                        fontPreference = fontPreference,
+                        onOpen = { onOpenFile(entry) },
+                        onMenu = { showDeviceFileMenu(it, entry, onOpenFile, onRegisterFile, onOpenLocation) },
+                    ))
+                }
+                if (pair.size == 1) addView(View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                })
+            })
+        }
+    }
+
+    private fun previewCard(
+        title: String,
+        kind: String,
+        meta: String,
+        isImage: Boolean,
+        imageUri: Uri,
+        fontPreference: FileListDisplayPreference,
+        onOpen: () -> Unit,
+        onMenu: (View) -> Unit,
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(CabinetColors.Surface)
+                setStroke(dp(1), CabinetColors.Divider)
+            }
+            isClickable = true
+            setOnClickListener { onOpen() }
+            setOnLongClickListener {
+                onMenu(this)
+                true
+            }
+            addView(previewBox(kind, isImage, imageUri))
+            addView(fileNameLabel(title, true, fontPreference).apply {
+                setPadding(0, dp(8), 0, dp(4))
+            })
+            addView(label(meta, fontPreference.bodyFontSize, false, CabinetColors.TextSecondary).apply {
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(dp(4), dp(4), dp(4), dp(8))
+            }
+        }
+    }
+
+    private fun previewBox(kind: String, isImage: Boolean, imageUri: Uri): View {
+        return if (isImage) {
+            ImageView(context).apply {
+                setImageURI(imageUri)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setBackgroundColor(CabinetColors.SurfaceAlt)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(112))
+            }
+        } else {
+            label(kind, 22, true, CabinetColors.Accent).apply {
+                gravity = Gravity.CENTER
+                setBackgroundColor(CabinetColors.SurfaceAlt)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(112))
             }
         }
     }
@@ -1431,6 +1675,8 @@ data class LocalFileEntry(
     val kind: String,
     val sizeLabel: String,
     val updatedLabel: String,
+    val updatedAtMillis: Long,
+    val extension: String,
 )
 
 data class DeviceFileEntry(
@@ -1441,7 +1687,44 @@ data class DeviceFileEntry(
     val sizeLabel: String,
     val updatedLabel: String,
     val location: String,
+    val updatedAtMillis: Long,
+    val extension: String,
 )
+
+enum class FileListSort(val label: String) {
+    DATE_DESC("日付新しい順"),
+    DATE_ASC("日付古い順"),
+    NAME_ASC("ファイル名昇順"),
+    NAME_DESC("ファイル名降順"),
+    EXT_ASC("拡張子昇順"),
+    EXT_DESC("拡張子降順"),
+}
+
+enum class FileListLayout(val label: String) {
+    LIST("リスト"),
+    PREVIEW_GRID("横2列プレビュー付き"),
+}
+
+data class FileListOptions(
+    val sort: FileListSort = FileListSort.DATE_DESC,
+    val periodDays: Int? = null,
+    val nameQuery: String = "",
+    val extensionQuery: String = "",
+    val layout: FileListLayout = FileListLayout.LIST,
+) {
+    val hasActiveFilter: Boolean
+        get() = periodDays != null || nameQuery.isNotBlank() || extensionQuery.isNotBlank()
+
+    val periodLabel: String
+        get() = when (periodDays) {
+            null -> "すべて"
+            1 -> "今日"
+            7 -> "7日以内"
+            30 -> "30日以内"
+            365 -> "1年以内"
+            else -> "${periodDays}日以内"
+        }
+}
 
 data class FileListDisplayPreference(
     val fromFontSize: Int = DEFAULT_FONT_SIZE,

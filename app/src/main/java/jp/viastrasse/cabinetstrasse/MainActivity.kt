@@ -26,6 +26,8 @@ import jp.viastrasse.cabinetstrasse.preview.ThumbnailGenerator
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.DeviceFileEntry
 import jp.viastrasse.cabinetstrasse.ui.FileListDisplayPreference
+import jp.viastrasse.cabinetstrasse.ui.FileListOptions
+import jp.viastrasse.cabinetstrasse.ui.FileListSort
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
 import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
 import java.io.File
@@ -43,6 +45,7 @@ class MainActivity : Activity() {
     private var isDashboardVisible: Boolean = true
     private var systemBackCallback: Any? = null
     private var pendingPublicDirectoryType: String? = null
+    private var fileListOptions: FileListOptions = FileListOptions()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -374,7 +377,7 @@ class MainActivity : Activity() {
             Environment.DIRECTORY_MUSIC -> "Music"
             else -> directoryType
         }
-        val entries = queryDeviceFiles(directoryType)
+        val entries = applyDeviceFileListOptions(queryDeviceFiles(directoryType))
         if (entries.isEmpty()) {
             promptAllFilesAccess(directoryType)
         }
@@ -385,6 +388,11 @@ class MainActivity : Activity() {
             entries = entries,
             displayMode = displayModePreference(),
             fontPreference = fileListDisplayPreference(),
+            listOptions = fileListOptions,
+            onListOptionsChanged = { options ->
+                fileListOptions = options
+                openPublicDirectory(directoryType)
+            },
             onBack = ::renderDashboard,
             onOpenFile = ::openDeviceFile,
             onRegisterFile = { entry -> registerDeviceFile(entry, title) },
@@ -417,10 +425,11 @@ class MainActivity : Activity() {
     private fun openLocalExplorer(directory: File) {
         runCatching {
             require(directory.exists() && directory.isDirectory) { "フォルダを開けませんでした" }
-            directory.listFiles()
+            val rawEntries = directory.listFiles()
                 ?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
                 ?.map(::toLocalFileEntry)
                 .orEmpty()
+            applyLocalFileListOptions(rawEntries)
         }.onSuccess { entries ->
             isDashboardVisible = false
             val rootPaths = explorerRoots().map { it.absolutePath }.toSet()
@@ -430,6 +439,11 @@ class MainActivity : Activity() {
                 entries = entries,
                 displayMode = displayModePreference(),
                 fontPreference = fileListDisplayPreference(),
+                listOptions = fileListOptions,
+                onListOptionsChanged = { options ->
+                    fileListOptions = options
+                    openLocalExplorer(directory)
+                },
                 onBack = ::renderDashboard,
                 onParent = parent?.let { { openLocalExplorer(it) } },
                 onOpenDirectory = ::openLocalExplorer,
@@ -502,6 +516,8 @@ class MainActivity : Activity() {
                         sizeLabel = readableSize(size),
                         updatedLabel = updated,
                         location = location,
+                        updatedAtMillis = modifiedSeconds * 1000L,
+                        extension = extensionOf(name),
                     )
                     if (entries.size >= 100) break
                 }
@@ -577,7 +593,57 @@ class MainActivity : Activity() {
             kind = if (file.isDirectory) "folder" else mimeTypeFor(file),
             sizeLabel = if (file.isDirectory) "${file.listFiles()?.size ?: 0} items" else readableSize(file.length()),
             updatedLabel = updated,
+            updatedAtMillis = file.lastModified(),
+            extension = extensionOf(file.name),
         )
+    }
+
+    private fun applyLocalFileListOptions(entries: List<LocalFileEntry>): List<LocalFileEntry> {
+        val cutoff = fileListOptions.periodDays?.let { System.currentTimeMillis() - it * 24L * 60L * 60L * 1000L }
+        return entries
+            .asSequence()
+            .filter { cutoff == null || it.updatedAtMillis >= cutoff }
+            .filter { fileListOptions.nameQuery.isBlank() || it.name.contains(fileListOptions.nameQuery, ignoreCase = true) }
+            .filter { fileListOptions.extensionQuery.isBlank() || it.extension.equals(fileListOptions.extensionQuery.trimStart('.'), ignoreCase = true) }
+            .toList()
+            .let { sortLocalEntries(it) }
+    }
+
+    private fun applyDeviceFileListOptions(entries: List<DeviceFileEntry>): List<DeviceFileEntry> {
+        val cutoff = fileListOptions.periodDays?.let { System.currentTimeMillis() - it * 24L * 60L * 60L * 1000L }
+        return entries
+            .asSequence()
+            .filter { cutoff == null || it.updatedAtMillis >= cutoff }
+            .filter { fileListOptions.nameQuery.isBlank() || it.name.contains(fileListOptions.nameQuery, ignoreCase = true) }
+            .filter { fileListOptions.extensionQuery.isBlank() || it.extension.equals(fileListOptions.extensionQuery.trimStart('.'), ignoreCase = true) }
+            .toList()
+            .let { sortDeviceEntries(it) }
+    }
+
+    private fun sortLocalEntries(entries: List<LocalFileEntry>): List<LocalFileEntry> {
+        return when (fileListOptions.sort) {
+            FileListSort.DATE_DESC -> entries.sortedWith(compareBy<LocalFileEntry> { !it.isDirectory }.thenByDescending { it.updatedAtMillis })
+            FileListSort.DATE_ASC -> entries.sortedWith(compareBy<LocalFileEntry> { !it.isDirectory }.thenBy { it.updatedAtMillis })
+            FileListSort.NAME_ASC -> entries.sortedWith(compareBy<LocalFileEntry> { !it.isDirectory }.thenBy { it.name.lowercase() })
+            FileListSort.NAME_DESC -> entries.sortedWith(compareBy<LocalFileEntry> { !it.isDirectory }.thenByDescending { it.name.lowercase() })
+            FileListSort.EXT_ASC -> entries.sortedWith(compareBy<LocalFileEntry> { !it.isDirectory }.thenBy { it.extension.lowercase() }.thenBy { it.name.lowercase() })
+            FileListSort.EXT_DESC -> entries.sortedWith(compareBy<LocalFileEntry> { !it.isDirectory }.thenByDescending { it.extension.lowercase() }.thenBy { it.name.lowercase() })
+        }
+    }
+
+    private fun sortDeviceEntries(entries: List<DeviceFileEntry>): List<DeviceFileEntry> {
+        return when (fileListOptions.sort) {
+            FileListSort.DATE_DESC -> entries.sortedByDescending { it.updatedAtMillis }
+            FileListSort.DATE_ASC -> entries.sortedBy { it.updatedAtMillis }
+            FileListSort.NAME_ASC -> entries.sortedBy { it.name.lowercase() }
+            FileListSort.NAME_DESC -> entries.sortedByDescending { it.name.lowercase() }
+            FileListSort.EXT_ASC -> entries.sortedWith(compareBy<DeviceFileEntry> { it.extension.lowercase() }.thenBy { it.name.lowercase() })
+            FileListSort.EXT_DESC -> entries.sortedWith(compareByDescending<DeviceFileEntry> { it.extension.lowercase() }.thenBy { it.name.lowercase() })
+        }
+    }
+
+    private fun extensionOf(name: String): String {
+        return name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
     }
 
     private fun registerLocalExplorerFile(file: File, currentDirectory: File) {
