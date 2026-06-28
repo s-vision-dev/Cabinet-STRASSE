@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.provider.Settings
 import android.text.InputType
@@ -508,11 +509,20 @@ class MainActivity : Activity() {
     }
 
     private fun launchSdCardPicker() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+        val intent = sdCardOpenDocumentTreeIntent() ?: Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        intent.apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
         startActivityForResult(intent, REQUEST_OPEN_SD_TREE)
+    }
+
+    private fun sdCardOpenDocumentTreeIntent(): Intent? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val storageManager = getSystemService(StorageManager::class.java) ?: return null
+        return storageManager.storageVolumes
+            .firstOrNull { volume -> volume.isRemovable }
+            ?.createOpenDocumentTreeIntent()
     }
 
     private fun renderSdCardRootList(roots: List<DocumentFileEntry>) {
