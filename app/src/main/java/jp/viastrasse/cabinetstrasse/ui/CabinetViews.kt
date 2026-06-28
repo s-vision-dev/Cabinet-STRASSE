@@ -147,6 +147,29 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    fun renderDeviceFiles(
+        title: String,
+        location: String,
+        entries: List<DeviceFileEntry>,
+        onBack: () -> Unit,
+        onOpenFile: (DeviceFileEntry) -> Unit,
+        onRegisterFile: (DeviceFileEntry) -> Unit,
+    ) {
+        content.removeAllViews()
+        content.addView(command("← Cabinet", onBack))
+        content.addView(title(title))
+        content.addView(subtitle(location))
+        if (entries.isEmpty()) {
+            content.addView(section("Files"))
+            content.addView(label("端末の権限またはAndroidのストレージ制限により、表示できるファイルがありません", 13, false, CabinetColors.TextSecondary))
+            return
+        }
+        content.addView(section("Files"))
+        entries.forEach { entry ->
+            content.addView(deviceFileRow(entry, onOpenFile, onRegisterFile))
+        }
+    }
+
     fun renderSearch(
         response: SearchResponse,
         onBack: () -> Unit,
@@ -812,6 +835,22 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun deviceFileRow(
+        entry: DeviceFileEntry,
+        onOpenFile: (DeviceFileEntry) -> Unit,
+        onRegisterFile: (DeviceFileEntry) -> Unit,
+    ): View {
+        return panel {
+            isClickable = true
+            setOnClickListener { onOpenFile(entry) }
+            addView(label(entry.name, 16, true))
+            addView(label("${entry.mimeType} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary))
+            addView(label(entry.location, 12, false, CabinetColors.TextSecondary))
+            addView(command("開く") { onOpenFile(entry) })
+            addView(command("Cabinetへ登録") { onRegisterFile(entry) })
+        }
+    }
+
     private fun panel(block: LinearLayout.() -> Unit): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -914,4 +953,14 @@ data class LocalFileEntry(
     val kind: String,
     val sizeLabel: String,
     val updatedLabel: String,
+)
+
+data class DeviceFileEntry(
+    val uri: String,
+    val name: String,
+    val mimeType: String,
+    val size: Long,
+    val sizeLabel: String,
+    val updatedLabel: String,
+    val location: String,
 )

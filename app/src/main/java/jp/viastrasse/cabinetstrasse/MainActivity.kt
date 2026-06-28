@@ -3,10 +3,13 @@ package jp.viastrasse.cabinetstrasse
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ContentUris
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
+import android.provider.Settings
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
@@ -21,6 +24,7 @@ import jp.viastrasse.cabinetstrasse.preview.OcrTextRecognizer
 import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.preview.ThumbnailGenerator
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
+import jp.viastrasse.cabinetstrasse.ui.DeviceFileEntry
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
 import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
 import java.io.File
@@ -37,6 +41,7 @@ class MainActivity : Activity() {
     private var pendingVersionItemId: String? = null
     private var isDashboardVisible: Boolean = true
     private var systemBackCallback: Any? = null
+    private var pendingPublicDirectoryType: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +68,15 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDeepLink(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val pendingDirectory = pendingPublicDirectoryType
+        if (pendingDirectory != null && canReadPublicDirectories()) {
+            pendingPublicDirectoryType = null
+            openPublicDirectory(pendingDirectory)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -342,7 +356,58 @@ class MainActivity : Activity() {
     }
 
     private fun openPublicDirectory(directoryType: String) {
-        openLocalExplorer(Environment.getExternalStoragePublicDirectory(directoryType))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            openLocalExplorer(Environment.getExternalStoragePublicDirectory(directoryType))
+            return
+        }
+        val publicDirectory = Environment.getExternalStoragePublicDirectory(directoryType)
+        if (canReadPublicDirectories()) {
+            openLocalExplorer(publicDirectory)
+            return
+        }
+        val title = when (directoryType) {
+            Environment.DIRECTORY_DOWNLOADS -> "Downloads"
+            Environment.DIRECTORY_DOCUMENTS -> "Documents"
+            Environment.DIRECTORY_PICTURES -> "Pictures"
+            Environment.DIRECTORY_MOVIES -> "Movies"
+            Environment.DIRECTORY_MUSIC -> "Music"
+            else -> directoryType
+        }
+        val entries = queryDeviceFiles(directoryType)
+        if (entries.isEmpty()) {
+            promptAllFilesAccess(directoryType)
+        }
+        isDashboardVisible = false
+        dashboardView.renderDeviceFiles(
+            title = title,
+            location = directoryType,
+            entries = entries,
+            onBack = ::renderDashboard,
+            onOpenFile = ::openDeviceFile,
+            onRegisterFile = { entry -> registerDeviceFile(entry, title) },
+        )
+    }
+
+    private fun canReadPublicDirectories(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+    }
+
+    private fun promptAllFilesAccess(directoryType: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        pendingPublicDirectoryType = directoryType
+        AlertDialog.Builder(this)
+            .setTitle("端末フォルダへのアクセス")
+            .setMessage("DownloadsやDocumentsをファイルマネージャーとして表示するには、Cabinet-STRASSEにすべてのファイルへのアクセスを許可してください。")
+            .setPositiveButton("設定を開く") { _, _ ->
+                val uri = Uri.parse("package:$packageName")
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, uri)
+                runCatching { startActivity(intent) }
+                    .onFailure {
+                        startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    }
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
     }
 
     private fun openLocalExplorer(directory: File) {
@@ -374,6 +439,107 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "Explorerを開けませんでした", Toast.LENGTH_SHORT).show()
             renderDashboard()
+        }
+    }
+
+    private fun queryDeviceFiles(directoryType: String): List<DeviceFileEntry> {
+        val externalVolume = MediaStore.VOLUME_EXTERNAL
+        val collection = when (directoryType) {
+            Environment.DIRECTORY_PICTURES -> MediaStore.Images.Media.getContentUri(externalVolume)
+            Environment.DIRECTORY_MOVIES -> MediaStore.Video.Media.getContentUri(externalVolume)
+            Environment.DIRECTORY_MUSIC -> MediaStore.Audio.Media.getContentUri(externalVolume)
+            else -> MediaStore.Files.getContentUri(externalVolume)
+        }
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.RELATIVE_PATH,
+        )
+        val selection = when (directoryType) {
+            Environment.DIRECTORY_DOWNLOADS -> "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+            Environment.DIRECTORY_DOCUMENTS -> "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+            else -> null
+        }
+        val selectionArgs = when (directoryType) {
+            Environment.DIRECTORY_DOWNLOADS -> arrayOf("%${Environment.DIRECTORY_DOWNLOADS}%")
+            Environment.DIRECTORY_DOCUMENTS -> arrayOf("%${Environment.DIRECTORY_DOCUMENTS}%")
+            else -> null
+        }
+        val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+        return runCatching {
+            val entries = mutableListOf<DeviceFileEntry>()
+            contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val mimeIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val modifiedIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+                val pathIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idIndex)
+                    val name = cursor.getString(nameIndex).orEmpty().ifBlank { "untitled" }
+                    val mimeType = cursor.getString(mimeIndex).orEmpty().ifBlank { "application/octet-stream" }
+                    val size = cursor.getLong(sizeIndex).coerceAtLeast(0L)
+                    val modifiedSeconds = cursor.getLong(modifiedIndex)
+                    val updated = Instant.ofEpochSecond(modifiedSeconds)
+                        .atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                    val location = cursor.getString(pathIndex).orEmpty().ifBlank { directoryType }
+                    entries += DeviceFileEntry(
+                        uri = ContentUris.withAppendedId(collection, id).toString(),
+                        name = name,
+                        mimeType = mimeType,
+                        size = size,
+                        sizeLabel = readableSize(size),
+                        updatedLabel = updated,
+                        location = location,
+                    )
+                    if (entries.size >= 100) break
+                }
+            }
+            entries
+        }.getOrElse { error ->
+            Toast.makeText(this, error.message ?: "端末ファイルを取得できませんでした", Toast.LENGTH_SHORT).show()
+            emptyList()
+        }
+    }
+
+    private fun openDeviceFile(entry: DeviceFileEntry) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(entry.uri), entry.mimeType.ifBlank { "*/*" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { error ->
+                Toast.makeText(this, error.message ?: "ファイルを開けませんでした", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    private fun registerDeviceFile(entry: DeviceFileEntry, sourceKind: String) {
+        runCatching {
+            val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
+            val destination = uniqueDestination(inboxDir, sanitizeFileName(entry.name))
+            contentResolver.openInputStream(Uri.parse(entry.uri)).use { input ->
+                requireNotNull(input) { "ファイルを開けませんでした" }
+                destination.outputStream().buffered().use { output -> input.copyTo(output) }
+            }
+            repository.registerFile(
+                path = destination.absolutePath,
+                displayName = destination.name,
+                mimeType = entry.mimeType,
+                size = destination.length(),
+                sourceKind = "device-$sourceKind",
+                note = "端末ファイルマネージャーから登録",
+            )
+        }.onSuccess { item ->
+            PreviewWorker.enqueue(applicationContext)
+            Toast.makeText(this, "登録しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            openDetail(item.id)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
         }
     }
 
