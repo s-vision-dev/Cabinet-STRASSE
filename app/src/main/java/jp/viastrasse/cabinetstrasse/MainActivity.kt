@@ -4,11 +4,14 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.backup.BackupWorker
@@ -33,15 +36,27 @@ class MainActivity : Activity() {
     private lateinit var dashboardView: CabinetDashboardView
     private var pendingVersionItemId: String? = null
     private var isDashboardVisible: Boolean = true
+    private var systemBackCallback: Any? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = CabinetRepository(applicationContext)
         dashboardView = CabinetDashboardView(this)
         setContentView(dashboardView)
+        registerSystemBackCallback()
         FolderWatchWorker.enqueuePeriodic(applicationContext)
         BackupWorker.enqueuePeriodic(applicationContext)
         handleDeepLink(intent)
+    }
+
+    override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = systemBackCallback as? OnBackInvokedCallback
+            if (callback != null) {
+                onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
+            }
+        }
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -53,11 +68,33 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     @Deprecated("Use explicit in-app navigation until this Activity migrates to OnBackPressedDispatcher.")
     override fun onBackPressed() {
-        if (!isDashboardVisible) {
-            renderDashboard()
+        if (handleSystemBack()) {
             return
         }
         super.onBackPressed()
+    }
+
+    private fun registerSystemBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = OnBackInvokedCallback {
+                if (!handleSystemBack()) {
+                    moveTaskToBack(true)
+                }
+            }
+            systemBackCallback = callback
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                callback,
+            )
+        }
+    }
+
+    private fun handleSystemBack(): Boolean {
+        if (!isDashboardVisible) {
+            renderDashboard()
+            return true
+        }
+        return false
     }
 
     private fun handleDeepLink(intent: Intent) {

@@ -38,6 +38,9 @@
 
 ## Release Build
 
+- For code-work verification before an expected release, prefer `./gradlew.bat :app:compileReleaseKotlin` instead of `:app:compileDebugKotlin`.
+- Treat `compileReleaseKotlin` as compile verification only: Kotlin type/reference checks plus the release variant's prerequisite build tasks. It is not runtime behavior verification.
+- When `compileReleaseKotlin` has already succeeded and no relevant inputs changed, do not add manual skip logic to the release script. Let Gradle's UP-TO-DATE checks skip repeated release Kotlin compilation during `assembleRelease`.
 - When the user says `リリースビルド`, run `pwsh -ExecutionPolicy Bypass -File scripts/release_build.ps1`.
 - The release script performs the following sequence:
   1. Run the release build.
