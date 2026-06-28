@@ -114,6 +114,8 @@ class ViewerActivity : Activity() {
                 renderAudio(displayTitle, uri)
             } else if (isOfficeOpenXml(typeHint, mimeType)) {
                 renderOfficePreview(displayTitle, uri, typeHint, mimeType)
+            } else if (isArchiveFile(typeHint, mimeType)) {
+                renderArchivePreview(displayTitle, uri, mimeType)
             } else {
                 renderUnsupported(displayTitle, uri, mimeType)
             }
@@ -686,6 +688,39 @@ class ViewerActivity : Activity() {
         setContentView(zoomablePreview(title, container))
     }
 
+    private fun renderArchivePreview(title: String, uri: Uri, mimeType: String) {
+        val preview = buildArchivePreview(uri)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(28))
+        }
+        container.addView(
+            TextView(this).apply {
+                text = "アーカイブ内容のプレビュー"
+                setTextColor(CabinetColors.TextPrimary)
+                textSize = 16f
+                setPadding(0, 0, 0, dp(12))
+            },
+        )
+        container.addView(
+            TextView(this).apply {
+                text = preview
+                setTextColor(CabinetColors.TextPrimary)
+                textSize = 13f
+                typeface = Typeface.MONOSPACE
+                setLineSpacing(0f, 1.15f)
+            },
+        )
+        container.addView(
+            commandButton("外部アプリで開く") {
+                openExternal(uri, mimeType)
+            }.apply {
+                setPadding(dp(18), dp(14), dp(18), dp(14))
+            },
+        )
+        setContentView(zoomablePreview(title, container, useNaturalWidth = true))
+    }
+
     private fun buildSpreadsheetPreview(uri: Uri): String {
         val entries = readSpreadsheetEntries(uri)
         val sharedStrings = parseSharedStrings(entries["xl/sharedStrings.xml"].orEmpty())
@@ -696,6 +731,50 @@ class ViewerActivity : Activity() {
         return rows.take(40).joinToString("\n") { row ->
             row.take(8).joinToString(" | ") { it.ifBlank { "-" }.take(40) }
         }
+    }
+
+    private fun buildArchivePreview(uri: Uri): String {
+        val input = contentResolver.openInputStream(uri) ?: error("ファイルを開けませんでした。")
+        val rows = mutableListOf<String>()
+        var totalCount = 0
+        var directoryCount = 0
+        var fileCount = 0
+        ZipInputStream(input.buffered()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                totalCount += 1
+                if (entry.isDirectory) {
+                    directoryCount += 1
+                } else {
+                    fileCount += 1
+                }
+                if (rows.size < 120) {
+                    val marker = if (entry.isDirectory) "DIR " else "FILE"
+                    val size = if (entry.isDirectory) "-" else archiveEntrySize(entry.size)
+                    rows += "$marker  ${size.padStart(10)}  ${entry.name}"
+                }
+                zip.closeEntry()
+                entry = zip.nextEntry
+            }
+        }
+        if (totalCount == 0) return "表示できるエントリがありません。"
+        val header = "entries: $totalCount / files: $fileCount / dirs: $directoryCount"
+        val body = rows.joinToString("\n")
+        val suffix = if (totalCount > rows.size) "\n...ほか ${totalCount - rows.size} 件" else ""
+        return "$header\n\n$body$suffix"
+    }
+
+    private fun archiveEntrySize(size: Long): String {
+        if (size < 0L) return "unknown"
+        if (size < 1024L) return "${size}B"
+        val units = listOf("KB", "MB", "GB", "TB")
+        var value = size / 1024.0
+        var unitIndex = 0
+        while (value >= 1024.0 && unitIndex < units.lastIndex) {
+            value /= 1024.0
+            unitIndex += 1
+        }
+        return "%.2f%s".format(value, units[unitIndex])
     }
 
     private fun readSpreadsheetEntries(uri: Uri): Map<String, String> {
@@ -1080,7 +1159,8 @@ class ViewerActivity : Activity() {
 
     private fun isSpreadsheet(path: String, mimeType: String): Boolean {
         return mimeType == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-            path.endsWith(".xlsx", ignoreCase = true)
+            mimeType == "application/vnd.ms-excel.sheet.macroEnabled.12" ||
+            path.hasAnyExtension("xlsx", "xlsm")
     }
 
     private fun isWordDocument(path: String, mimeType: String): Boolean {
@@ -1095,6 +1175,14 @@ class ViewerActivity : Activity() {
 
     private fun isOfficeOpenXml(path: String, mimeType: String): Boolean {
         return isSpreadsheet(path, mimeType) || isWordDocument(path, mimeType) || isPresentation(path, mimeType)
+    }
+
+    private fun isArchiveFile(path: String, mimeType: String): Boolean {
+        return mimeType in setOf(
+            "application/zip",
+            "application/vnd.android.package-archive",
+            "application/x-zip-compressed",
+        ) || path.hasAnyExtension("zip", "apk")
     }
 
     private fun isCsvFile(path: String, mimeType: String): Boolean {

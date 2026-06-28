@@ -1185,6 +1185,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             kind.startsWith("audio/") -> "AUD"
             kind == "application/pdf" -> "PDF"
             kind.startsWith("text/") -> "TXT"
+            kind.contains("android.package-archive") -> "APK"
+            kind.contains("macroEnabled") -> "XLSM"
+            kind.contains("spreadsheet") || kind.contains("excel") -> "XLS"
             kind.contains("zip") -> "ZIP"
             else -> "FILE"
         }
