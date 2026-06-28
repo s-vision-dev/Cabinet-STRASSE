@@ -34,7 +34,10 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
 import java.io.StringReader
+import java.nio.ByteBuffer
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import kotlin.math.roundToInt
 import java.util.zip.ZipInputStream
 
@@ -69,7 +72,9 @@ class ViewerActivity : Activity() {
         val displayTitle = title.ifBlank { File(path).name.ifBlank { path.substringAfterLast('/') } }
         val typeHint = "$path\n$displayTitle"
         runCatching {
-            if (isMarkdownFile(typeHint, mimeType)) {
+            if (isCsvFile(typeHint, mimeType)) {
+                renderCsvPreview(displayTitle, readText(uri), typeHint, mimeType)
+            } else if (isMarkdownFile(typeHint, mimeType)) {
                 renderMarkdown(displayTitle, readText(uri))
             } else if (isTextFile(typeHint, mimeType)) {
                 renderText(displayTitle, readText(uri))
@@ -126,6 +131,48 @@ class ViewerActivity : Activity() {
             .build()
             .setMarkdown(textView, body)
         setContentView(zoomablePreview(title, textView))
+    }
+
+    private fun renderCsvPreview(title: String, body: String, path: String, mimeType: String) {
+        val delimiter = detectDelimitedTextSeparator(body, path, mimeType)
+        val rows = parseDelimitedText(body, delimiter)
+            .filter { row -> row.any { it.isNotBlank() } }
+            .take(80)
+        val preview = if (rows.isEmpty()) {
+            "表示できる行がありません。"
+        } else {
+            formatDelimitedRows(rows)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(28))
+        }
+        container.addView(
+            TextView(this).apply {
+                text = "CSVプレビュー"
+                setTextColor(CabinetColors.TextPrimary)
+                textSize = 16f
+                setPadding(0, 0, 0, dp(8))
+            },
+        )
+        container.addView(
+            TextView(this).apply {
+                text = "区切り文字: ${delimiter.label}"
+                setTextColor(CabinetColors.TextSecondary)
+                textSize = 13f
+                setPadding(0, 0, 0, dp(12))
+            },
+        )
+        container.addView(
+            TextView(this).apply {
+                text = preview
+                setTextColor(CabinetColors.TextPrimary)
+                textSize = 13f
+                typeface = Typeface.MONOSPACE
+                setLineSpacing(0f, 1.15f)
+            },
+        )
+        setContentView(zoomablePreview(title, container))
     }
 
     private fun zoomablePreview(title: String, content: View): LinearLayout {
@@ -762,10 +809,165 @@ class ViewerActivity : Activity() {
     }
 
     private fun readText(uri: Uri): String {
-        return contentResolver.openInputStream(uri)
-            ?.bufferedReader(Charset.forName("UTF-8"))
-            ?.use { it.readText() }
+        val bytes = contentResolver.openInputStream(uri)
+            ?.use { it.readBytes() }
             ?: error("ファイルを開けませんでした。")
+        return decodeText(bytes)
+    }
+
+    private fun detectDelimitedTextSeparator(body: String, path: String, mimeType: String): DelimitedTextSeparator {
+        if (mimeType == "text/tab-separated-values" || path.hasAnyExtension("tsv")) {
+            return DelimitedTextSeparator.TAB
+        }
+        val sampleLines = body.lineSequence()
+            .filter { it.isNotBlank() }
+            .take(20)
+            .toList()
+        if (sampleLines.isEmpty()) return DelimitedTextSeparator.COMMA
+        return listOf(
+            DelimitedTextSeparator.COMMA,
+            DelimitedTextSeparator.TAB,
+            DelimitedTextSeparator.SEMICOLON,
+        ).maxBy { separator ->
+            sampleLines.sumOf { countDelimiterOutsideQuotes(it, separator.value) }
+        }
+    }
+
+    private fun parseDelimitedText(body: String, separator: DelimitedTextSeparator): List<List<String>> {
+        return body.lineSequence()
+            .map { parseDelimitedLine(it, separator.value) }
+            .toList()
+    }
+
+    private fun parseDelimitedLine(line: String, separator: Char): List<String> {
+        val cells = mutableListOf<String>()
+        val current = StringBuilder()
+        var inQuotes = false
+        var index = 0
+        while (index < line.length) {
+            val char = line[index]
+            when {
+                char == '"' && inQuotes && line.getOrNull(index + 1) == '"' -> {
+                    current.append('"')
+                    index += 1
+                }
+                char == '"' -> inQuotes = !inQuotes
+                char == separator && !inQuotes -> {
+                    cells += current.toString()
+                    current.clear()
+                }
+                else -> current.append(char)
+            }
+            index += 1
+        }
+        cells += current.toString()
+        return cells
+    }
+
+    private fun formatDelimitedRows(rows: List<List<String>>): String {
+        val columnCount = rows.maxOfOrNull { it.size }?.coerceAtMost(12) ?: 0
+        if (columnCount == 0) return "表示できる列がありません。"
+        val widths = (0 until columnCount).map { column ->
+            rows.maxOf { row -> row.getOrNull(column).orEmpty().singleLineCell().length.coerceAtMost(24) }
+                .coerceAtLeast(1)
+        }
+        return rows.joinToString("\n") { row ->
+            (0 until columnCount).joinToString(" | ") { column ->
+                row.getOrNull(column)
+                    .orEmpty()
+                    .singleLineCell()
+                    .take(24)
+                    .padEnd(widths[column])
+            }
+        }
+    }
+
+    private fun countDelimiterOutsideQuotes(line: String, separator: Char): Int {
+        var count = 0
+        var inQuotes = false
+        var index = 0
+        while (index < line.length) {
+            val char = line[index]
+            when {
+                char == '"' && inQuotes && line.getOrNull(index + 1) == '"' -> index += 1
+                char == '"' -> inQuotes = !inQuotes
+                char == separator && !inQuotes -> count += 1
+            }
+            index += 1
+        }
+        return count
+    }
+
+    private fun String.singleLineCell(): String {
+        return replace('\r', ' ').replace('\n', ' ').trim()
+    }
+
+    private fun decodeText(bytes: ByteArray): String {
+        detectBomCharset(bytes)?.let { (charset, offset) ->
+            return bytes.copyOfRange(offset, bytes.size).toString(charset)
+        }
+        if (bytes.hasIso2022JpEscape()) {
+            decodeStrict(bytes, Charset.forName("ISO-2022-JP"))?.let { return it }
+        }
+        decodeStrict(bytes, StandardCharsets.UTF_8)?.let { return it }
+        val candidates = listOf(
+            "MS932",
+            "Shift_JIS",
+            "EUC-JP",
+            "UTF-16LE",
+            "UTF-16BE",
+            "ISO-8859-1",
+        ).mapNotNull { name ->
+            runCatching {
+                val charset = Charset.forName(name)
+                decodeStrict(bytes, charset)?.let { DecodedText(it, scoreDecodedText(it), charset) }
+            }.getOrNull()
+        }
+        return candidates.maxWithOrNull(compareBy<DecodedText> { it.score }.thenByDescending { it.charset.name() == "MS932" })
+            ?.text
+            ?: bytes.toString(StandardCharsets.UTF_8)
+    }
+
+    private fun detectBomCharset(bytes: ByteArray): Pair<Charset, Int>? {
+        return when {
+            bytes.startsWith(0xEF, 0xBB, 0xBF) -> StandardCharsets.UTF_8 to 3
+            bytes.startsWith(0xFE, 0xFF) -> StandardCharsets.UTF_16BE to 2
+            bytes.startsWith(0xFF, 0xFE) -> StandardCharsets.UTF_16LE to 2
+            else -> null
+        }
+    }
+
+    private fun decodeStrict(bytes: ByteArray, charset: Charset): String? {
+        return runCatching {
+            charset.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes))
+                .toString()
+        }.getOrNull()
+    }
+
+    private fun scoreDecodedText(text: String): Int {
+        if (text.isEmpty()) return 0
+        val replacementPenalty = text.count { it == '\uFFFD' } * 100
+        val controlPenalty = text.count { it.code < 0x20 && it !in listOf('\n', '\r', '\t') } * 12
+        val japaneseScore = text.count {
+            it in '\u3040'..'\u30FF' || it in '\u3400'..'\u9FFF' || it in '\uFF00'..'\uFFEF'
+        } * 3
+        val printableScore = text.count { !it.isISOControl() || it in listOf('\n', '\r', '\t') }
+        return printableScore + japaneseScore - replacementPenalty - controlPenalty
+    }
+
+    private fun ByteArray.startsWith(vararg values: Int): Boolean {
+        if (size < values.size) return false
+        return values.indices.all { index -> this[index].toInt() and 0xFF == values[index] }
+    }
+
+    private fun ByteArray.hasIso2022JpEscape(): Boolean {
+        return indices.any { index ->
+            this[index] == 0x1B.toByte() &&
+                getOrNull(index + 1) in listOf(0x24.toByte(), 0x28.toByte())
+        }
     }
 
     private fun openReadDescriptor(uri: Uri): ParcelFileDescriptor {
@@ -812,6 +1014,11 @@ class ViewerActivity : Activity() {
 
     private fun isOfficeOpenXml(path: String, mimeType: String): Boolean {
         return isSpreadsheet(path, mimeType) || isWordDocument(path, mimeType) || isPresentation(path, mimeType)
+    }
+
+    private fun isCsvFile(path: String, mimeType: String): Boolean {
+        return mimeType in setOf("text/csv", "text/tab-separated-values") ||
+            path.hasAnyExtension("csv", "tsv")
     }
 
     private fun isTextFile(path: String, mimeType: String): Boolean {
@@ -915,5 +1122,17 @@ class ViewerActivity : Activity() {
         const val EXTRA_PATH = "path"
         const val EXTRA_MIME_TYPE = "mime_type"
         const val EXTRA_TITLE = "title"
+    }
+
+    private data class DecodedText(
+        val text: String,
+        val score: Int,
+        val charset: Charset,
+    )
+
+    private enum class DelimitedTextSeparator(val value: Char, val label: String) {
+        COMMA(',', "カンマ"),
+        TAB('\t', "タブ"),
+        SEMICOLON(';', "セミコロン"),
     }
 }
