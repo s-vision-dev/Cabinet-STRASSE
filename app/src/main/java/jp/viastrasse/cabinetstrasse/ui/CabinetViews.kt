@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
@@ -107,6 +108,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     fun renderLocalExplorer(
         currentDirectory: File,
         entries: List<LocalFileEntry>,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
         onBack: () -> Unit,
         onParent: (() -> Unit)?,
         onOpenDirectory: (File) -> Unit,
@@ -133,10 +136,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             return
         }
         content.addView(section("Files"))
+        val fileList = fileListContainer(displayMode)
         entries.forEach { entry ->
-            content.addView(
+            fileList.addView(
                 fileRow(
                     entry,
+                    displayMode,
+                    fontPreference,
                     onOpenDirectory,
                     onOpenFile,
                     onRegisterFile,
@@ -149,12 +155,15 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 ),
             )
         }
+        content.addView(fileList)
     }
 
     fun renderDeviceFiles(
         title: String,
         location: String,
         entries: List<DeviceFileEntry>,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
         onBack: () -> Unit,
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
@@ -170,9 +179,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             return
         }
         content.addView(section("Files"))
+        val fileList = fileListContainer(displayMode)
         entries.forEach { entry ->
-            content.addView(deviceFileRow(entry, onOpenFile, onRegisterFile, onOpenLocation))
+            fileList.addView(deviceFileRow(entry, displayMode, fontPreference, onOpenFile, onRegisterFile, onOpenLocation))
         }
+        content.addView(fileList)
     }
 
     fun renderSearch(
@@ -385,7 +396,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onCreateSmartFolder: () -> Unit,
         onDuplicateItemSelected: (String) -> Unit,
         displayMode: String,
+        fontPreference: FileListDisplayPreference,
         onDisplayModeSelected: (String) -> Unit,
+        onFontPreferenceChanged: (FileListDisplayPreference) -> Unit,
     ) {
         content.removeAllViews()
         content.addView(command("← Cabinet", onBack))
@@ -393,6 +406,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(subtitle("Storage Provider / Backup / Security"))
         content.addView(section("表示設定"))
         content.addView(displayModeSelector(displayMode, onDisplayModeSelected))
+        content.addView(fontPreferenceSelector(fontPreference, onFontPreferenceChanged))
         content.addView(section("Backup"))
         content.addView(panel {
             addView(label("Items: ${settings.backup.itemCount}", 14, true))
@@ -503,6 +517,87 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             } else {
                 floatArrayOf(0f, 0f, radius, radius, radius, radius, 0f, 0f)
             }
+        }
+    }
+
+    private fun fontPreferenceSelector(
+        initialPreference: FileListDisplayPreference,
+        onFontPreferenceChanged: (FileListDisplayPreference) -> Unit,
+    ): View {
+        var current = initialPreference
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("全体の文字サイズ", 16, true, CabinetColors.Accent).apply {
+                setPadding(0, dp(8), 0, dp(8))
+            })
+            addView(
+                fontSizeTile("From", initialPreference.fromFontSize) { value ->
+                    current = current.copy(fromFontSize = value)
+                },
+            )
+            addView(
+                fontSizeTile("タイトル", initialPreference.subjectFontSize) { value ->
+                    current = current.copy(subjectFontSize = value)
+                },
+            )
+            addView(
+                fontSizeTile("本文(プレビュー)", initialPreference.bodyFontSize) { value ->
+                    current = current.copy(bodyFontSize = value)
+                },
+            )
+            addView(command("文字サイズを保存") { onFontPreferenceChanged(current) }.apply {
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+            })
+            addView(divider(32))
+        }
+    }
+
+    private fun fontSizeTile(
+        labelText: String,
+        initialValue: Int,
+        onChanged: (Int) -> Unit,
+    ): View {
+        val normalized = initialValue.coerceIn(
+            FileListDisplayPreference.MIN_FONT_SIZE,
+            FileListDisplayPreference.MAX_FONT_SIZE,
+        )
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(4), dp(16), dp(4))
+            addView(label(labelText, 14, false).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(120), LinearLayout.LayoutParams.WRAP_CONTENT)
+            })
+            val valueText = label(normalized.toString(), 14, false, CabinetColors.TextSecondary).apply {
+                gravity = Gravity.END
+                layoutParams = LinearLayout.LayoutParams(dp(36), LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            val sampleText = label("サンプル", normalized, false).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(dp(60), LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            addView(
+                SeekBar(context).apply {
+                    max = FileListDisplayPreference.MAX_FONT_SIZE - FileListDisplayPreference.MIN_FONT_SIZE
+                    progress = normalized - FileListDisplayPreference.MIN_FONT_SIZE
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                        override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                            val value = FileListDisplayPreference.MIN_FONT_SIZE + progress
+                            valueText.text = value.toString()
+                            sampleText.textSize = value.toFloat()
+                            onChanged(value)
+                        }
+
+                        override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+
+                        override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                    })
+                },
+            )
+            addView(sampleText)
+            addView(valueText)
         }
     }
 
@@ -894,6 +989,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     private fun fileRow(
         entry: LocalFileEntry,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
         onOpenDirectory: (File) -> Unit,
         onOpenFile: (File) -> Unit,
         onRegisterFile: (File) -> Unit,
@@ -904,7 +1001,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onDeleteEntry: (File) -> Unit,
         onOpenPath: (File) -> Unit,
     ): View {
-        return listRow {
+        val isElegant = isElegantDisplayMode(displayMode)
+        return listRow(isElegant, fontPreference) {
             isClickable = true
             val openAction = {
                 if (entry.isDirectory) {
@@ -930,43 +1028,28 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 true
             }
             addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.TOP
-                    addView(label(if (entry.isDirectory) "[DIR]" else fileKindLabel(entry.kind), 13, true, CabinetColors.Accent).apply {
-                        setPadding(0, dp(2), 0, 0)
-                    })
-                    addView(fileNameLabel(entry.name).apply {
-                        setPadding(dp(8), 0, dp(8), 0)
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    })
-                    addView(menuButton {
-                        showLocalFileMenu(
-                            anchor = it,
-                            entry = entry,
-                            onOpen = openAction,
-                            onRegisterFile = onRegisterFile,
-                            onRenameEntry = onRenameEntry,
-                            onCopyEntry = onCopyEntry,
-                            onMoveEntry = onMoveEntry,
-                            onDuplicateEntry = onDuplicateEntry,
-                            onDeleteEntry = onDeleteEntry,
-                            onOpenPath = onOpenDirectory,
-                        )
-                    })
-                },
+                fileRowBody(
+                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.kind),
+                    name = entry.name,
+                    updatedLabel = entry.updatedLabel,
+                    sizeLabel = entry.sizeLabel,
+                    isElegant = isElegant,
+                    fontPreference = fontPreference,
+                ),
             )
-            addView(metaRow(entry.updatedLabel, entry.sizeLabel))
         }
     }
 
     private fun deviceFileRow(
         entry: DeviceFileEntry,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
         onOpenLocation: (DeviceFileEntry) -> Unit,
     ): View {
-        return listRow {
+        val isElegant = isElegantDisplayMode(displayMode)
+        return listRow(isElegant, fontPreference) {
             isClickable = true
             setOnClickListener { onOpenFile(entry) }
             setOnLongClickListener {
@@ -974,20 +1057,15 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 true
             }
             addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.TOP
-                    addView(label(fileKindLabel(entry.mimeType), 13, true, CabinetColors.Accent).apply {
-                        setPadding(0, dp(2), 0, 0)
-                    })
-                    addView(fileNameLabel(entry.name).apply {
-                        setPadding(dp(8), 0, dp(8), 0)
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    })
-                    addView(menuButton { showDeviceFileMenu(it, entry, onOpenFile, onRegisterFile, onOpenLocation) })
-                },
+                fileRowBody(
+                    kind = fileKindLabel(entry.mimeType),
+                    name = entry.name,
+                    updatedLabel = entry.updatedLabel,
+                    sizeLabel = entry.sizeLabel,
+                    isElegant = isElegant,
+                    fontPreference = fontPreference,
+                ),
             )
-            addView(metaRow(entry.updatedLabel, entry.sizeLabel))
         }
     }
 
@@ -1090,6 +1168,17 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun fileListContainer(displayMode: String): LinearLayout {
+        val isElegant = isElegantDisplayMode(displayMode)
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            if (isElegant) {
+                setPadding(dp(14), dp(12), dp(14), dp(10))
+                setBackgroundColor(CabinetColors.SurfaceAlt)
+            }
+        }
+    }
+
     private fun menuButton(onClick: (View) -> Unit): TextView {
         return label("...", 18, true, CabinetColors.Accent).apply {
             gravity = Gravity.CENTER
@@ -1099,23 +1188,88 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun fileNameLabel(text: String): TextView {
-        return label(text, 15, true).apply {
+    private fun fileNameLabel(text: String, isElegant: Boolean, fontPreference: FileListDisplayPreference): TextView {
+        return label(text, fontPreference.subjectFontSize, true).apply {
             maxLines = 2
+            setLineSpacing(0f, if (isElegant) 1.16f else 1.12f)
             ellipsize = TextUtils.TruncateAt.END
         }
     }
 
-    private fun metaRow(updatedLabel: String, sizeLabel: String): View {
+    private fun fileRowBody(
+        kind: String,
+        name: String,
+        updatedLabel: String,
+        sizeLabel: String,
+        isElegant: Boolean,
+        fontPreference: FileListDisplayPreference,
+    ): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(42), dp(2), 0, 0)
-            addView(label(updatedLabel, 12, false, CabinetColors.TextSecondary).apply {
+            gravity = Gravity.TOP
+            addView(fileRowRail(isElegant))
+            addView(fileKindPill(kind, isElegant, fontPreference))
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(if (isElegant) dp(12) else dp(9), 0, 0, 0)
+                    addView(fileNameLabel(name, isElegant, fontPreference))
+                    addView(space(if (isElegant) 6 else 2))
+                    addView(metaRow(updatedLabel, sizeLabel, isElegant, fontPreference))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                },
+            )
+        }
+    }
+
+    private fun fileRowRail(isElegant: Boolean): View {
+        return View(context).apply {
+            setBackgroundColor(CabinetColors.Brand)
+            layoutParams = LinearLayout.LayoutParams(
+                if (isElegant) dp(7) else dp(4),
+                if (isElegant) dp(98) else dp(62),
+            ).apply {
+                rightMargin = if (isElegant) dp(12) else dp(9)
+            }
+        }
+    }
+
+    private fun fileKindPill(kind: String, isElegant: Boolean, fontPreference: FileListDisplayPreference): TextView {
+        return label(kind, fontPreference.fromFontSize, true, CabinetColors.Accent).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(3), dp(6), dp(3))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(999).toFloat()
+                setColor(CabinetColors.SurfaceAlt)
+                setStroke(dp(1), CabinetColors.Divider)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                if (isElegant) dp(46) else dp(40),
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = if (isElegant) dp(1) else dp(2)
+            }
+        }
+    }
+
+    private fun metaRow(
+        updatedLabel: String,
+        sizeLabel: String,
+        isElegant: Boolean,
+        fontPreference: FileListDisplayPreference,
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(label(updatedLabel, fontPreference.bodyFontSize, false, CabinetColors.TextSecondary).apply {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
-            addView(label(sizeLabel, 12, false, CabinetColors.TextSecondary).apply {
+            addView(label(sizeLabel, fontPreference.bodyFontSize, false, CabinetColors.TextSecondary).apply {
                 gravity = Gravity.END
             })
+            if (isElegant) {
+                setPadding(0, dp(2), 0, 0)
+            }
         }
     }
 
@@ -1127,19 +1281,52 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun listRow(block: LinearLayout.() -> Unit): View {
+    private fun listRow(
+        isElegant: Boolean,
+        fontPreference: FileListDisplayPreference,
+        block: LinearLayout.() -> Unit,
+    ): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundColor(CabinetColors.Surface)
+            setPadding(
+                if (isElegant) dp(14) else dp(8),
+                if (isElegant) dp(12) else dp(7),
+                if (isElegant) dp(14) else dp(8),
+                if (isElegant) dp(12) else dp(7),
+            )
+            minimumHeight = dp(fileTileMinHeight(isElegant, fontPreference))
+            background = if (isElegant) {
+                GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(8).toFloat()
+                    setColor(CabinetColors.Surface)
+                    setStroke(dp(1), CabinetColors.Divider)
+                }
+            } else {
+                GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setColor(CabinetColors.Surface)
+                    setStroke(dp(1), CabinetColors.Divider)
+                }
+            }
             block()
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply {
-                setMargins(0, dp(2), 0, dp(2))
+                setMargins(0, 0, 0, if (isElegant) dp(10) else 0)
             }
         }
+    }
+
+    private fun isElegantDisplayMode(displayMode: String): Boolean = displayMode == "elegant"
+
+    private fun fileTileMinHeight(isElegant: Boolean, fontPreference: FileListDisplayPreference): Int {
+        val textHeight = (fontPreference.fromFontSize * 1.16f) +
+            (fontPreference.subjectFontSize * 1.16f) +
+            (fontPreference.bodyFontSize * 1.22f)
+        val compactHeight = (14f + 8f + textHeight + 4f).coerceIn(76f, 104f).toInt()
+        return if (isElegant) compactHeight + 46 else compactHeight
     }
 
     private fun panel(block: LinearLayout.() -> Unit): View {
@@ -1255,3 +1442,15 @@ data class DeviceFileEntry(
     val updatedLabel: String,
     val location: String,
 )
+
+data class FileListDisplayPreference(
+    val fromFontSize: Int = DEFAULT_FONT_SIZE,
+    val subjectFontSize: Int = DEFAULT_FONT_SIZE,
+    val bodyFontSize: Int = DEFAULT_FONT_SIZE,
+) {
+    companion object {
+        const val MIN_FONT_SIZE = 10
+        const val MAX_FONT_SIZE = 22
+        const val DEFAULT_FONT_SIZE = 14
+    }
+}

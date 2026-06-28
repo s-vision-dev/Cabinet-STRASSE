@@ -25,6 +25,7 @@ import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.preview.ThumbnailGenerator
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.DeviceFileEntry
+import jp.viastrasse.cabinetstrasse.ui.FileListDisplayPreference
 import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
 import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
 import java.io.File
@@ -382,6 +383,8 @@ class MainActivity : Activity() {
             title = title,
             location = directoryType,
             entries = entries,
+            displayMode = displayModePreference(),
+            fontPreference = fileListDisplayPreference(),
             onBack = ::renderDashboard,
             onOpenFile = ::openDeviceFile,
             onRegisterFile = { entry -> registerDeviceFile(entry, title) },
@@ -425,6 +428,8 @@ class MainActivity : Activity() {
             dashboardView.renderLocalExplorer(
                 currentDirectory = directory,
                 entries = entries,
+                displayMode = displayModePreference(),
+                fontPreference = fileListDisplayPreference(),
                 onBack = ::renderDashboard,
                 onParent = parent?.let { { openLocalExplorer(it) } },
                 onOpenDirectory = ::openLocalExplorer,
@@ -1764,7 +1769,9 @@ class MainActivity : Activity() {
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 onDuplicateItemSelected = ::openDetail,
                 displayMode = displayModePreference(),
+                fontPreference = fileListDisplayPreference(),
                 onDisplayModeSelected = ::updateDisplayModePreference,
+                onFontPreferenceChanged = ::updateFileListDisplayPreference,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
@@ -1791,6 +1798,53 @@ class MainActivity : Activity() {
             .putString(KEY_DISPLAY_MODE, normalized)
             .apply()
         Toast.makeText(this, "表示設定を保存しました", Toast.LENGTH_SHORT).show()
+        openSettings()
+    }
+
+    private fun fileListDisplayPreference(): FileListDisplayPreference {
+        val prefs = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+        return FileListDisplayPreference(
+            fromFontSize = prefs.getInt(
+                KEY_FILE_LIST_FROM_FONT_SIZE,
+                FileListDisplayPreference.DEFAULT_FONT_SIZE,
+            ).coerceIn(FileListDisplayPreference.MIN_FONT_SIZE, FileListDisplayPreference.MAX_FONT_SIZE),
+            subjectFontSize = prefs.getInt(
+                KEY_FILE_LIST_SUBJECT_FONT_SIZE,
+                FileListDisplayPreference.DEFAULT_FONT_SIZE,
+            ).coerceIn(FileListDisplayPreference.MIN_FONT_SIZE, FileListDisplayPreference.MAX_FONT_SIZE),
+            bodyFontSize = prefs.getInt(
+                KEY_FILE_LIST_BODY_FONT_SIZE,
+                FileListDisplayPreference.DEFAULT_FONT_SIZE,
+            ).coerceIn(FileListDisplayPreference.MIN_FONT_SIZE, FileListDisplayPreference.MAX_FONT_SIZE),
+        )
+    }
+
+    private fun updateFileListDisplayPreference(preference: FileListDisplayPreference) {
+        getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putInt(
+                KEY_FILE_LIST_FROM_FONT_SIZE,
+                preference.fromFontSize.coerceIn(
+                    FileListDisplayPreference.MIN_FONT_SIZE,
+                    FileListDisplayPreference.MAX_FONT_SIZE,
+                ),
+            )
+            .putInt(
+                KEY_FILE_LIST_SUBJECT_FONT_SIZE,
+                preference.subjectFontSize.coerceIn(
+                    FileListDisplayPreference.MIN_FONT_SIZE,
+                    FileListDisplayPreference.MAX_FONT_SIZE,
+                ),
+            )
+            .putInt(
+                KEY_FILE_LIST_BODY_FONT_SIZE,
+                preference.bodyFontSize.coerceIn(
+                    FileListDisplayPreference.MIN_FONT_SIZE,
+                    FileListDisplayPreference.MAX_FONT_SIZE,
+                ),
+            )
+            .apply()
+        Toast.makeText(this, "文字サイズを保存しました", Toast.LENGTH_SHORT).show()
         openSettings()
     }
 
@@ -2042,6 +2096,9 @@ class MainActivity : Activity() {
         private const val REQUEST_ADD_VERSION = 2403
         private const val APP_PREFS_NAME = "cabinet-app-settings"
         private const val KEY_DISPLAY_MODE = "display_mode"
+        private const val KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"
+        private const val KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
+        private const val KEY_FILE_LIST_BODY_FONT_SIZE = "file_list_body_font_size"
         private const val DISPLAY_MODE_COMPACT = "compact"
         private const val DISPLAY_MODE_ELEGANT = "elegant"
     }
