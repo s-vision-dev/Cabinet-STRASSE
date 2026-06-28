@@ -608,7 +608,7 @@ class ViewerActivity : Activity() {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
             },
         )
-        setContentView(layout)
+        setContentView(zoomablePreview(title, layout))
     }
 
     private fun renderSpreadsheetPreview(title: String, uri: Uri, mimeType: String) {
