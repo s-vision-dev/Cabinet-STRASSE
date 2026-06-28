@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -446,18 +447,26 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         selectedMode: String,
         onDisplayModeSelected: (String) -> Unit,
     ): View {
-        return panel {
-            addView(label("一覧表示", 15, true))
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(18))
+            addView(divider())
+            addView(label("メール一覧", 24, true, CabinetColors.Accent).apply {
+                setPadding(dp(4), dp(22), dp(4), dp(16))
+            })
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     weightSum = 2f
-                    addView(displayModeButton("コンパクト", "compact", selectedMode, onDisplayModeSelected))
-                    addView(displayModeButton("エレガント", "elegant", selectedMode, onDisplayModeSelected))
-                    setPadding(0, dp(8), 0, dp(6))
+                    addView(displayModeButton("コンパクト", "compact", selectedMode, onDisplayModeSelected, leftSide = true))
+                    addView(displayModeButton("エレガント", "elegant", selectedMode, onDisplayModeSelected, leftSide = false))
+                    setPadding(dp(14), 0, dp(14), dp(12))
                 },
             )
-            addView(label("コンパクトは従来の密度、エレガントは1メールずつ余白を持たせて表示します。", 12, false, CabinetColors.TextSecondary))
+            addView(label("コンパクトは従来の密度、エレガントは1メールずつ余白を持たせて表示します。", 17, false, CabinetColors.TextPrimary).apply {
+                setPadding(dp(14), 0, dp(14), dp(18))
+            })
+            addView(divider())
         }
     }
 
@@ -466,17 +475,45 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         value: String,
         selectedMode: String,
         onDisplayModeSelected: (String) -> Unit,
+        leftSide: Boolean,
     ): TextView {
         val selected = value == selectedMode
-        return label(text, 14, true, if (selected) CabinetColors.TextPrimary else CabinetColors.TextSecondary).apply {
+        val icon = if (selected) "✓" else if (value == "compact") "☰" else "▤"
+        return label("$icon  $text", 20, true, CabinetColors.TextPrimary).apply {
             gravity = Gravity.CENTER
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            setBackgroundColor(if (selected) CabinetColors.Brand else CabinetColors.SurfaceAlt)
+            setPadding(dp(8), dp(14), dp(8), dp(14))
+            background = segmentedBackground(selected, leftSide)
             isClickable = true
             setOnClickListener { onDisplayModeSelected(value) }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(dp(3), 0, dp(3), 0)
+                if (!leftSide) {
+                    setMargins(-dp(1), 0, 0, 0)
+                }
             }
+        }
+    }
+
+    private fun segmentedBackground(selected: Boolean, leftSide: Boolean): GradientDrawable {
+        val radius = dp(22).toFloat()
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(if (selected) CabinetColors.SurfaceAlt else CabinetColors.AppBackground)
+            setStroke(dp(1), CabinetColors.TextSecondary)
+            cornerRadii = if (leftSide) {
+                floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
+            } else {
+                floatArrayOf(0f, 0f, radius, radius, radius, radius, 0f, 0f)
+            }
+        }
+    }
+
+    private fun divider(): View {
+        return View(context).apply {
+            setBackgroundColor(CabinetColors.Divider)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(1),
+            )
         }
     }
 
