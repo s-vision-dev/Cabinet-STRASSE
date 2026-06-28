@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
@@ -813,25 +814,57 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onDuplicateEntry: (File) -> Unit,
         onDeleteEntry: (File) -> Unit,
     ): View {
-        return panel {
+        return listRow {
             isClickable = true
-            setOnClickListener {
+            val openAction = {
                 if (entry.isDirectory) {
                     onOpenDirectory(entry.file)
                 } else {
                     onOpenFile(entry.file)
                 }
             }
-            addView(label(if (entry.isDirectory) "[DIR] ${entry.name}" else entry.name, 16, true))
-            addView(label("${entry.kind} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary))
-            addView(command("名前変更") { onRenameEntry(entry.file) })
-            if (!entry.isDirectory) {
-                addView(command("Cabinetへ登録") { onRegisterFile(entry.file) })
+            setOnClickListener { openAction() }
+            setOnLongClickListener {
+                showLocalFileMenu(
+                    anchor = this,
+                    entry = entry,
+                    onOpen = openAction,
+                    onRegisterFile = onRegisterFile,
+                    onRenameEntry = onRenameEntry,
+                    onCopyEntry = onCopyEntry,
+                    onMoveEntry = onMoveEntry,
+                    onDuplicateEntry = onDuplicateEntry,
+                    onDeleteEntry = onDeleteEntry,
+                )
+                true
             }
-            addView(command("Inboxへコピー") { onCopyEntry(entry.file) })
-            addView(command("Inboxへ移動") { onMoveEntry(entry.file) })
-            addView(command("複製") { onDuplicateEntry(entry.file) })
-            addView(command("削除") { onDeleteEntry(entry.file) })
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(label(if (entry.isDirectory) "[DIR]" else fileKindLabel(entry.kind), 13, true, CabinetColors.Accent))
+                    addView(label(entry.name, 15, true).apply {
+                        setPadding(dp(8), 0, dp(8), 0)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(menuButton {
+                        showLocalFileMenu(
+                            anchor = it,
+                            entry = entry,
+                            onOpen = openAction,
+                            onRegisterFile = onRegisterFile,
+                            onRenameEntry = onRenameEntry,
+                            onCopyEntry = onCopyEntry,
+                            onMoveEntry = onMoveEntry,
+                            onDuplicateEntry = onDuplicateEntry,
+                            onDeleteEntry = onDeleteEntry,
+                        )
+                    })
+                },
+            )
+            addView(label("${entry.kind} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary).apply {
+                setPadding(dp(42), dp(2), 0, 0)
+            })
         }
     }
 
@@ -840,14 +873,125 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenFile: (DeviceFileEntry) -> Unit,
         onRegisterFile: (DeviceFileEntry) -> Unit,
     ): View {
-        return panel {
+        return listRow {
             isClickable = true
             setOnClickListener { onOpenFile(entry) }
-            addView(label(entry.name, 16, true))
-            addView(label("${entry.mimeType} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary))
-            addView(label(entry.location, 12, false, CabinetColors.TextSecondary))
-            addView(command("開く") { onOpenFile(entry) })
-            addView(command("Cabinetへ登録") { onRegisterFile(entry) })
+            setOnLongClickListener {
+                showDeviceFileMenu(this, entry, onOpenFile, onRegisterFile)
+                true
+            }
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(label(fileKindLabel(entry.mimeType), 13, true, CabinetColors.Accent))
+                    addView(label(entry.name, 15, true).apply {
+                        setPadding(dp(8), 0, dp(8), 0)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(menuButton { showDeviceFileMenu(it, entry, onOpenFile, onRegisterFile) })
+                },
+            )
+            addView(label("${entry.mimeType} / ${entry.sizeLabel} / ${entry.updatedLabel}", 12, false, CabinetColors.TextSecondary).apply {
+                setPadding(dp(42), dp(2), 0, 0)
+            })
+            addView(label(entry.location, 12, false, CabinetColors.TextSecondary).apply {
+                setPadding(dp(42), 0, 0, 0)
+            })
+        }
+    }
+
+    private fun showLocalFileMenu(
+        anchor: View,
+        entry: LocalFileEntry,
+        onOpen: () -> Unit,
+        onRegisterFile: (File) -> Unit,
+        onRenameEntry: (File) -> Unit,
+        onCopyEntry: (File) -> Unit,
+        onMoveEntry: (File) -> Unit,
+        onDuplicateEntry: (File) -> Unit,
+        onDeleteEntry: (File) -> Unit,
+    ) {
+        PopupMenu(context, anchor).apply {
+            menu.add("開く")
+            menu.add("名前変更")
+            if (!entry.isDirectory) {
+                menu.add("Cabinetへ登録")
+            }
+            menu.add("Inboxへコピー")
+            menu.add("Inboxへ移動")
+            menu.add("複製")
+            menu.add("削除")
+            setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "開く" -> onOpen()
+                    "名前変更" -> onRenameEntry(entry.file)
+                    "Cabinetへ登録" -> onRegisterFile(entry.file)
+                    "Inboxへコピー" -> onCopyEntry(entry.file)
+                    "Inboxへ移動" -> onMoveEntry(entry.file)
+                    "複製" -> onDuplicateEntry(entry.file)
+                    "削除" -> onDeleteEntry(entry.file)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showDeviceFileMenu(
+        anchor: View,
+        entry: DeviceFileEntry,
+        onOpenFile: (DeviceFileEntry) -> Unit,
+        onRegisterFile: (DeviceFileEntry) -> Unit,
+    ) {
+        PopupMenu(context, anchor).apply {
+            menu.add("開く")
+            menu.add("Cabinetへ登録")
+            setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "開く" -> onOpenFile(entry)
+                    "Cabinetへ登録" -> onRegisterFile(entry)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun fileKindLabel(kind: String): String {
+        return when {
+            kind == "folder" -> "DIR"
+            kind.startsWith("image/") -> "IMG"
+            kind.startsWith("video/") -> "VID"
+            kind.startsWith("audio/") -> "AUD"
+            kind == "application/pdf" -> "PDF"
+            kind.startsWith("text/") -> "TXT"
+            kind.contains("zip") -> "ZIP"
+            else -> "FILE"
+        }
+    }
+
+    private fun menuButton(onClick: (View) -> Unit): TextView {
+        return label("...", 18, true, CabinetColors.Accent).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), 0, dp(4), 0)
+            isClickable = true
+            setOnClickListener { onClick(this) }
+        }
+    }
+
+    private fun listRow(block: LinearLayout.() -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setBackgroundColor(CabinetColors.Surface)
+            block()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(0, dp(2), 0, dp(2))
+            }
         }
     }
 
