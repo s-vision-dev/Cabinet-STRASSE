@@ -19,6 +19,7 @@ import android.widget.VideoView
 import androidx.core.content.FileProvider
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 import java.io.File
+import java.nio.charset.Charset
 
 class ViewerActivity : Activity() {
     private var audioPlayer: MediaPlayer? = null
@@ -33,24 +34,31 @@ class ViewerActivity : Activity() {
         val path = intent.getStringExtra(EXTRA_PATH).orEmpty()
         val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE).orEmpty()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
-        if (Uri.parse(path).scheme?.isNotBlank() == true && !path.startsWith("/")) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(path)))
+        val parsedPath = Uri.parse(path)
+        if (parsedPath.scheme?.isNotBlank() == true && parsedPath.scheme !in listOf("content", "file")) {
+            openExternal(parsedPath, mimeType)
             finish()
             return
         }
-        if (mimeType.startsWith("text/") || path.endsWith(".md") || path.endsWith(".txt")) {
-            renderText(title.ifBlank { File(path).name }, File(path).readText(Charsets.UTF_8))
-        } else if (mimeType.startsWith("image/")) {
-            renderImage(title.ifBlank { File(path).name }, File(path))
-        } else if (mimeType == "application/pdf" || path.endsWith(".pdf", ignoreCase = true)) {
-            renderPdf(title.ifBlank { File(path).name }, File(path))
-        } else if (mimeType.startsWith("video/")) {
-            renderVideo(File(path))
-        } else if (mimeType.startsWith("audio/")) {
-            renderAudio(title.ifBlank { File(path).name }, File(path))
-        } else {
-            openExternal(path, mimeType)
-            finish()
+        val uri = viewerUri(path)
+        val displayTitle = title.ifBlank { File(path).name.ifBlank { path.substringAfterLast('/') } }
+        runCatching {
+            if (mimeType.startsWith("text/") || path.endsWith(".md") || path.endsWith(".txt")) {
+                renderText(displayTitle, readText(uri))
+            } else if (mimeType.startsWith("image/")) {
+                renderImage(displayTitle, uri)
+            } else if (mimeType == "application/pdf" || path.endsWith(".pdf", ignoreCase = true)) {
+                renderPdf(displayTitle, uri)
+            } else if (mimeType.startsWith("video/")) {
+                renderVideo(uri)
+            } else if (mimeType.startsWith("audio/")) {
+                renderAudio(displayTitle, uri)
+            } else {
+                openExternal(uri, mimeType)
+                finish()
+            }
+        }.onFailure { error ->
+            renderText(displayTitle, error.message ?: "ファイルを表示できませんでした。")
         }
     }
 
@@ -84,7 +92,7 @@ class ViewerActivity : Activity() {
         setContentView(scrollView)
     }
 
-    private fun renderImage(title: String, file: File) {
+    private fun renderImage(title: String, uri: Uri) {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
@@ -100,7 +108,7 @@ class ViewerActivity : Activity() {
         )
         layout.addView(
             ImageView(this).apply {
-                setImageURI(Uri.fromFile(file))
+                setImageURI(uri)
                 adjustViewBounds = true
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 setBackgroundColor(CabinetColors.AppBackground)
@@ -113,8 +121,8 @@ class ViewerActivity : Activity() {
         setContentView(layout)
     }
 
-    private fun renderPdf(title: String, file: File) {
-        pdfDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    private fun renderPdf(title: String, uri: Uri) {
+        pdfDescriptor = openReadDescriptor(uri)
         pdfRenderer = PdfRenderer(pdfDescriptor ?: return)
         val renderer = pdfRenderer ?: return
         if (renderer.pageCount == 0) {
@@ -196,10 +204,10 @@ class ViewerActivity : Activity() {
         }
     }
 
-    private fun renderVideo(file: File) {
+    private fun renderVideo(uri: Uri) {
         val videoView = VideoView(this).apply {
             setBackgroundColor(CabinetColors.AppBackground)
-            setVideoURI(Uri.fromFile(file))
+            setVideoURI(uri)
             setMediaController(MediaController(this@ViewerActivity).also { it.setAnchorView(this) })
             setOnPreparedListener { start() }
         }
@@ -212,7 +220,7 @@ class ViewerActivity : Activity() {
         )
     }
 
-    private fun renderAudio(title: String, file: File) {
+    private fun renderAudio(title: String, uri: Uri) {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -235,7 +243,7 @@ class ViewerActivity : Activity() {
             setBackgroundColor(CabinetColors.SurfaceAlt)
         }
         audioPlayer = MediaPlayer().apply {
-            setDataSource(file.absolutePath)
+            setDataSource(this@ViewerActivity, uri)
             prepare()
             setOnCompletionListener {
                 control.text = "再生"
@@ -256,18 +264,38 @@ class ViewerActivity : Activity() {
         setContentView(layout)
     }
 
-    private fun openExternal(path: String, mimeType: String) {
-        val file = File(path)
-        val uri = FileProvider.getUriForFile(
-            this,
-            "jp.viastrasse.cabinetstrasse.fileprovider",
-            file,
-        )
+    private fun readText(uri: Uri): String {
+        return contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charset.forName("UTF-8"))
+            ?.use { it.readText() }
+            ?: error("ファイルを開けませんでした。")
+    }
+
+    private fun openReadDescriptor(uri: Uri): ParcelFileDescriptor {
+        if (uri.scheme == "content") {
+            return contentResolver.openFileDescriptor(uri, "r")
+                ?: error("ファイルを開けませんでした。")
+        }
+        return ParcelFileDescriptor.open(File(requireNotNull(uri.path)), ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    private fun openExternal(uri: Uri, mimeType: String) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType.ifBlank { "*/*" })
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { startActivity(intent) }
+    }
+
+    private fun viewerUri(path: String): Uri {
+        val parsed = Uri.parse(path)
+        if (parsed.scheme == "content") return parsed
+        val file = File(path)
+        return FileProvider.getUriForFile(
+            this,
+            "jp.viastrasse.cabinetstrasse.fileprovider",
+            file,
+        )
     }
 
     private fun dp(value: Int): Int {

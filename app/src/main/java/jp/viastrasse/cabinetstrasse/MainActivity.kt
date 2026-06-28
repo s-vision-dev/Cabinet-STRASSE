@@ -514,14 +514,7 @@ class MainActivity : Activity() {
     }
 
     private fun openDeviceFile(entry: DeviceFileEntry) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse(entry.uri), entry.mimeType.ifBlank { "*/*" })
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        runCatching { startActivity(intent) }
-            .onFailure { error ->
-                Toast.makeText(this, error.message ?: "ファイルを開けませんでした", Toast.LENGTH_SHORT).show()
-            }
+        openViewer(entry.uri, entry.mimeType.ifBlank { "*/*" }, entry.name)
     }
 
     private fun registerDeviceFile(entry: DeviceFileEntry, sourceKind: String) {
