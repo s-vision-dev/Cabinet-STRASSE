@@ -48,6 +48,10 @@ class ViewerActivity : Activity() {
     private var pdfPageIndex: Int = 0
     private var pdfImageView: ImageView? = null
     private var pdfCounterView: TextView? = null
+    private var navigationPaths: List<String> = emptyList()
+    private var navigationMimeTypes: List<String> = emptyList()
+    private var navigationTitles: List<String> = emptyList()
+    private var navigationIndex: Int = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,6 +66,28 @@ class ViewerActivity : Activity() {
         val path = intent.getStringExtra(EXTRA_PATH).orEmpty()
         val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE).orEmpty()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        navigationPaths = intent.getStringArrayListExtra(EXTRA_NAVIGATION_PATHS).orEmpty()
+        navigationMimeTypes = intent.getStringArrayListExtra(EXTRA_NAVIGATION_MIME_TYPES).orEmpty()
+        navigationTitles = intent.getStringArrayListExtra(EXTRA_NAVIGATION_TITLES).orEmpty()
+        navigationIndex = intent.getIntExtra(EXTRA_NAVIGATION_INDEX, -1)
+        if (navigationPaths.isNotEmpty() && navigationIndex in navigationPaths.indices) {
+            openPreviewAt(navigationIndex)
+            return
+        }
+        openPreview(path, mimeType, title)
+    }
+
+    private fun openPreviewAt(index: Int) {
+        if (index !in navigationPaths.indices) return
+        navigationIndex = index
+        openPreview(
+            path = navigationPaths[index],
+            mimeType = navigationMimeTypes.getOrElse(index) { "" },
+            title = navigationTitles.getOrElse(index) { "" },
+        )
+    }
+
+    private fun openPreview(path: String, mimeType: String, title: String) {
         val parsedPath = Uri.parse(path)
         if (parsedPath.scheme?.isNotBlank() == true && parsedPath.scheme !in listOf("content", "file")) {
             openExternal(parsedPath, mimeType)
@@ -111,15 +137,17 @@ class ViewerActivity : Activity() {
             text = body
             setTextColor(CabinetColors.TextPrimary)
             textSize = 15f
+            setHorizontallyScrolling(true)
             setPadding(dp(18), dp(18), dp(18), dp(28))
         }
-        setContentView(zoomablePreview(title, textView))
+        setContentView(zoomablePreview(title, textView, useNaturalWidth = true))
     }
 
     private fun renderMarkdown(title: String, body: String) {
         val textView = TextView(this).apply {
             setTextColor(CabinetColors.TextPrimary)
             textSize = 15f
+            setHorizontallyScrolling(true)
             setPadding(dp(18), dp(18), dp(18), dp(28))
         }
         Markwon.builder(this)
@@ -130,7 +158,7 @@ class ViewerActivity : Activity() {
             .usePlugin(LinkifyPlugin.create())
             .build()
             .setMarkdown(textView, body)
-        setContentView(zoomablePreview(title, textView))
+        setContentView(zoomablePreview(title, textView, useNaturalWidth = true))
     }
 
     private fun renderCsvPreview(title: String, body: String, path: String, mimeType: String) {
@@ -172,16 +200,16 @@ class ViewerActivity : Activity() {
                 setLineSpacing(0f, 1.15f)
             },
         )
-        setContentView(zoomablePreview(title, container))
+        setContentView(zoomablePreview(title, container, useNaturalWidth = true))
     }
 
-    private fun zoomablePreview(title: String, content: View): LinearLayout {
+    private fun zoomablePreview(title: String, content: View, useNaturalWidth: Boolean = false): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
             addView(fixedTitle(title))
             addView(
-                zoomableScrollView(content),
+                zoomableScrollView(content, useNaturalWidth),
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
@@ -202,10 +230,12 @@ class ViewerActivity : Activity() {
         }
     }
 
-    private fun zoomableScrollView(content: View): View {
+    private fun zoomableScrollView(content: View, useNaturalWidth: Boolean): View {
         return ZoomablePreviewScrollView(this).apply {
             setBackgroundColor(CabinetColors.AppBackground)
-            setContent(content)
+            setContent(content, useNaturalWidth)
+            onPrevious = ::showPreviousPreview
+            onNext = ::showNextPreview
         }
     }
 
@@ -214,6 +244,14 @@ class ViewerActivity : Activity() {
         private var baseContentWidth = 0
         private var baseContentHeight = 0
         private var contentView: View? = null
+        private var useNaturalWidth = false
+        private var touchStartX = 0f
+        private var touchStartY = 0f
+        private var startedAtLeftEdge = false
+        private var startedAtRightEdge = false
+        private val navigationSwipeDistance = context.resources.displayMetrics.density * 80f
+        var onPrevious: (() -> Unit)? = null
+        var onNext: (() -> Unit)? = null
         private val verticalScroll = ScrollView(context).apply {
             setBackgroundColor(CabinetColors.AppBackground)
             isFillViewport = true
@@ -262,13 +300,14 @@ class ViewerActivity : Activity() {
             )
         }
 
-        fun setContent(content: View) {
+        fun setContent(content: View, useNaturalWidth: Boolean) {
             contentView = content
+            this.useNaturalWidth = useNaturalWidth
             zoomBounds.removeAllViews()
             zoomBounds.addView(
                 content,
                 FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    if (useNaturalWidth) FrameLayout.LayoutParams.WRAP_CONTENT else FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                 ),
             )
@@ -287,6 +326,17 @@ class ViewerActivity : Activity() {
         }
 
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchStartX = event.x
+                    touchStartY = event.y
+                    startedAtLeftEdge = !canScrollHorizontally(-1)
+                    startedAtRightEdge = !canScrollHorizontally(1)
+                }
+                MotionEvent.ACTION_UP -> {
+                    handleNavigationSwipe(event)
+                }
+            }
             scaleDetector.onTouchEvent(event)
             return super.dispatchTouchEvent(event) || scaleDetector.isInProgress
         }
@@ -294,12 +344,20 @@ class ViewerActivity : Activity() {
         private fun captureBaseContentSize() {
             val content = contentView ?: return
             val availableWidth = (width - paddingLeft - paddingRight).coerceAtLeast(1)
-            val measureWidth = baseContentWidth.takeIf { it > 0 } ?: availableWidth
-            content.measure(
-                MeasureSpec.makeMeasureSpec(measureWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
-            )
-            baseContentWidth = availableWidth
+            if (useNaturalWidth) {
+                content.measure(
+                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                )
+                baseContentWidth = content.measuredWidth.coerceAtLeast(availableWidth)
+            } else {
+                val measureWidth = baseContentWidth.takeIf { it > 0 } ?: availableWidth
+                content.measure(
+                    MeasureSpec.makeMeasureSpec(measureWidth, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                )
+                baseContentWidth = availableWidth
+            }
             baseContentHeight = content.measuredHeight.coerceAtLeast(1)
         }
 
@@ -321,6 +379,29 @@ class ViewerActivity : Activity() {
             content.scaleX = scaleFactor
             content.scaleY = scaleFactor
             zoomBounds.requestLayout()
+        }
+
+        private fun handleNavigationSwipe(event: MotionEvent) {
+            if (scaleDetector.isInProgress) return
+            val deltaX = event.x - touchStartX
+            val deltaY = event.y - touchStartY
+            if (kotlin.math.abs(deltaX) < navigationSwipeDistance) return
+            if (kotlin.math.abs(deltaX) < kotlin.math.abs(deltaY) * 1.2f) return
+            if (deltaX < 0 && startedAtRightEdge && !canScrollHorizontally(1)) {
+                onNext?.invoke()
+            } else if (deltaX > 0 && startedAtLeftEdge && !canScrollHorizontally(-1)) {
+                onPrevious?.invoke()
+            }
+        }
+    }
+
+    private fun showPreviousPreview() {
+        if (navigationIndex > 0) openPreviewAt(navigationIndex - 1)
+    }
+
+    private fun showNextPreview() {
+        if (navigationIndex >= 0 && navigationIndex < navigationPaths.lastIndex) {
+            openPreviewAt(navigationIndex + 1)
         }
     }
 
@@ -1122,6 +1203,10 @@ class ViewerActivity : Activity() {
         const val EXTRA_PATH = "path"
         const val EXTRA_MIME_TYPE = "mime_type"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_NAVIGATION_PATHS = "navigation_paths"
+        const val EXTRA_NAVIGATION_MIME_TYPES = "navigation_mime_types"
+        const val EXTRA_NAVIGATION_TITLES = "navigation_titles"
+        const val EXTRA_NAVIGATION_INDEX = "navigation_index"
     }
 
     private data class DecodedText(

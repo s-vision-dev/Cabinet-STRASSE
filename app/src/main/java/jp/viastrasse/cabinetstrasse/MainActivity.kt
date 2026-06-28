@@ -394,7 +394,7 @@ class MainActivity : Activity() {
                 openPublicDirectory(directoryType)
             },
             onBack = ::renderDashboard,
-            onOpenFile = ::openDeviceFile,
+            onOpenFile = { entry -> openDeviceFile(entry, entries) },
             onRegisterFile = { entry -> registerDeviceFile(entry, title) },
             onOpenLocation = ::openDeviceFileLocation,
         )
@@ -447,7 +447,14 @@ class MainActivity : Activity() {
                 onBack = ::renderDashboard,
                 onParent = parent?.let { { openLocalExplorer(it) } },
                 onOpenDirectory = ::openLocalExplorer,
-                onOpenFile = { file -> openViewer(file.absolutePath, mimeTypeFor(file), file.name) },
+                onOpenFile = { file ->
+                    openViewer(
+                        path = file.absolutePath,
+                        mimeType = mimeTypeFor(file),
+                        title = file.name,
+                        navigationItems = localViewerNavigation(entries),
+                    )
+                },
                 onRegisterFile = { file -> registerLocalExplorerFile(file, directory) },
                 onRenameEntry = { file -> showRenameExplorerEntryDialog(file, directory) },
                 onCopyEntry = { file -> copyExplorerEntryToInbox(file, directory) },
@@ -529,9 +536,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun openDeviceFile(entry: DeviceFileEntry) {
+    private fun openDeviceFile(entry: DeviceFileEntry, navigationEntries: List<DeviceFileEntry> = listOf(entry)) {
         runCatching {
-            openViewer(entry.uri, entry.mimeType.ifBlank { "*/*" }, entry.name)
+            openViewer(
+                path = entry.uri,
+                mimeType = entry.mimeType.ifBlank { "*/*" },
+                title = entry.name,
+                navigationItems = deviceViewerNavigation(navigationEntries),
+            )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "ファイルを開けませんでした", Toast.LENGTH_SHORT).show()
         }
@@ -1279,14 +1291,59 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun openViewer(path: String, mimeType: String, title: String) {
+    private fun openViewer(
+        path: String,
+        mimeType: String,
+        title: String,
+        navigationItems: List<ViewerNavigationItem> = emptyList(),
+    ) {
         startActivity(
             Intent(this, ViewerActivity::class.java).apply {
                 putExtra(ViewerActivity.EXTRA_PATH, path)
                 putExtra(ViewerActivity.EXTRA_MIME_TYPE, mimeType)
                 putExtra(ViewerActivity.EXTRA_TITLE, title)
+                if (navigationItems.isNotEmpty()) {
+                    putStringArrayListExtra(
+                        ViewerActivity.EXTRA_NAVIGATION_PATHS,
+                        ArrayList(navigationItems.map { it.path }),
+                    )
+                    putStringArrayListExtra(
+                        ViewerActivity.EXTRA_NAVIGATION_MIME_TYPES,
+                        ArrayList(navigationItems.map { it.mimeType }),
+                    )
+                    putStringArrayListExtra(
+                        ViewerActivity.EXTRA_NAVIGATION_TITLES,
+                        ArrayList(navigationItems.map { it.title }),
+                    )
+                    putExtra(
+                        ViewerActivity.EXTRA_NAVIGATION_INDEX,
+                        navigationItems.indexOfFirst { it.path == path }.coerceAtLeast(0),
+                    )
+                }
             },
         )
+    }
+
+    private fun localViewerNavigation(entries: List<LocalFileEntry>): List<ViewerNavigationItem> {
+        return entries
+            .filterNot { it.isDirectory }
+            .map { entry ->
+                ViewerNavigationItem(
+                    path = entry.file.absolutePath,
+                    mimeType = mimeTypeFor(entry.file),
+                    title = entry.file.name,
+                )
+            }
+    }
+
+    private fun deviceViewerNavigation(entries: List<DeviceFileEntry>): List<ViewerNavigationItem> {
+        return entries.map { entry ->
+            ViewerNavigationItem(
+                path = entry.uri,
+                mimeType = entry.mimeType.ifBlank { "*/*" },
+                title = entry.name,
+            )
+        }
     }
 
     private fun openRegisteredItem(itemId: String, path: String, mimeType: String, title: String) {
@@ -2219,4 +2276,10 @@ class MainActivity : Activity() {
         private const val DISPLAY_MODE_COMPACT = "compact"
         private const val DISPLAY_MODE_ELEGANT = "elegant"
     }
+
+    private data class ViewerNavigationItem(
+        val path: String,
+        val mimeType: String,
+        val title: String,
+    )
 }
