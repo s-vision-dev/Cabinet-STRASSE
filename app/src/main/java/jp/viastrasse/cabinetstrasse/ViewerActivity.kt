@@ -1,8 +1,10 @@
 package jp.viastrasse.cabinetstrasse
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.net.Uri
@@ -10,6 +12,9 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.graphics.pdf.PdfRenderer
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -86,23 +91,52 @@ class ViewerActivity : Activity() {
     }
 
     private fun renderText(title: String, body: String) {
-        val scrollView = ScrollView(this).apply {
-            setBackgroundColor(CabinetColors.AppBackground)
-        }
         val textView = TextView(this).apply {
             text = "$title\n\n$body"
             setTextColor(CabinetColors.TextPrimary)
             textSize = 15f
             setPadding(dp(18), dp(18), dp(18), dp(28))
         }
-        scrollView.addView(
-            textView,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
+        setContentView(zoomableScrollView(textView))
+    }
+
+    private fun zoomableScrollView(content: View): ScrollView {
+        return ZoomableScrollView(this).apply {
+            setBackgroundColor(CabinetColors.AppBackground)
+            addView(
+                content,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+    }
+
+    private class ZoomableScrollView(context: Context) : ScrollView(context) {
+        private var scaleFactor = 1f
+        private val scaleDetector = ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    scaleFactor = (scaleFactor * detector.scaleFactor).coerceIn(0.75f, 3.5f)
+                    invalidate()
+                    return true
+                }
+            },
         )
-        setContentView(scrollView)
+
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            scaleDetector.onTouchEvent(event)
+            return super.dispatchTouchEvent(event) || scaleDetector.isInProgress
+        }
+
+        override fun dispatchDraw(canvas: Canvas) {
+            canvas.save()
+            canvas.scale(scaleFactor, scaleFactor)
+            super.dispatchDraw(canvas)
+            canvas.restore()
+        }
     }
 
     private fun renderImage(title: String, uri: Uri) {
@@ -131,7 +165,7 @@ class ViewerActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ),
         )
-        setContentView(layout)
+        setContentView(zoomableScrollView(layout))
     }
 
     private fun renderPdf(title: String, uri: Uri) {
@@ -187,7 +221,7 @@ class ViewerActivity : Activity() {
             showPdfPage((pdfPageIndex + 1).coerceAtMost(renderer.pageCount - 1))
         })
         layout.addView(controls)
-        setContentView(layout)
+        setContentView(zoomableScrollView(layout))
         showPdfPage(0)
     }
 
@@ -303,9 +337,6 @@ class ViewerActivity : Activity() {
 
     private fun renderSpreadsheetPreview(title: String, uri: Uri, mimeType: String) {
         val preview = buildSpreadsheetPreview(uri)
-        val scrollView = ScrollView(this).apply {
-            setBackgroundColor(CabinetColors.AppBackground)
-        }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(28))
@@ -334,14 +365,7 @@ class ViewerActivity : Activity() {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
             },
         )
-        scrollView.addView(
-            container,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        setContentView(scrollView)
+        setContentView(zoomableScrollView(container))
     }
 
     private fun renderOfficePreview(title: String, uri: Uri, path: String, mimeType: String) {
@@ -358,9 +382,6 @@ class ViewerActivity : Activity() {
     }
 
     private fun renderOfficeTextPreview(title: String, preview: String, uri: Uri, mimeType: String) {
-        val scrollView = ScrollView(this).apply {
-            setBackgroundColor(CabinetColors.AppBackground)
-        }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(28))
@@ -388,14 +409,7 @@ class ViewerActivity : Activity() {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
             },
         )
-        scrollView.addView(
-            container,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        setContentView(scrollView)
+        setContentView(zoomableScrollView(container))
     }
 
     private fun buildSpreadsheetPreview(uri: Uri): String {
