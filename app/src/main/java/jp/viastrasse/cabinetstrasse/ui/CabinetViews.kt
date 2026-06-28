@@ -6,12 +6,15 @@ import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.text.Editable
 import android.text.TextUtils
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -1195,93 +1198,153 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(4), 0, dp(8))
             addView(
-                controlRow(
-                    listOf(
-                        "ソート: ${options.sort.label}" to { showSortMenu(options, onListOptionsChanged) },
-                        "期間: ${options.periodLabel}" to { showPeriodMenu(options, onListOptionsChanged) },
-                    ),
-                ),
-            )
-            addView(
-                controlRow(
-                    listOf(
-                        "ファイル名: ${options.nameQuery.ifBlank { "すべて" }}" to { showTextFilterDialog("ファイル名で絞り込み", options.nameQuery) { onListOptionsChanged(options.copy(nameQuery = it)) } },
-                        "拡張子: ${options.extensionQuery.ifBlank { "すべて" }}" to { showTextFilterDialog("拡張子で絞り込み", options.extensionQuery) { onListOptionsChanged(options.copy(extensionQuery = it.trimStart('.'))) } },
-                    ),
-                ),
-            )
-            addView(
-                controlRow(
-                    listOf(
-                        "表示: ${options.layout.label}" to {
-                            val next = if (options.layout == FileListLayout.LIST) FileListLayout.PREVIEW_GRID else FileListLayout.LIST
-                            onListOptionsChanged(options.copy(layout = next))
-                        },
-                        "絞り込み解除" to { onListOptionsChanged(options.copy(periodDays = null, nameQuery = "", extensionQuery = "")) },
-                    ),
-                ),
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(toolButton("⇅", "ソート: ${options.sort.label}") {
+                        showSortPopup(it, options, onListOptionsChanged)
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(dp(48), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setMargins(dp(2), dp(2), dp(2), dp(2))
+                        }
+                    })
+                    addView(toolButton("絞り込み", filterSummary(options)) {
+                        showFilterDialog(options, onListOptionsChanged)
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            setMargins(dp(2), dp(2), dp(2), dp(2))
+                        }
+                    })
+                    addView(toolButton(options.layout.shortLabel, "表示: ${options.layout.label}") {
+                        val next = if (options.layout == FileListLayout.LIST) FileListLayout.PREVIEW_GRID else FileListLayout.LIST
+                        onListOptionsChanged(options.copy(layout = next))
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(dp(74), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setMargins(dp(2), dp(2), dp(2), dp(2))
+                        }
+                    })
+                },
             )
         }
     }
 
-    private fun controlRow(actions: List<Pair<String, () -> Unit>>): View {
+    private fun toolButton(text: String, description: String, onClick: (View) -> Unit): TextView {
+        return label(text, 14, true, CabinetColors.Accent).apply {
+            gravity = Gravity.CENTER
+            contentDescription = description
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setBackgroundColor(CabinetColors.SurfaceAlt)
+            isClickable = true
+            setOnClickListener { onClick(this) }
+        }
+    }
+
+    private fun showSortPopup(
+        anchor: View,
+        options: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
+    ) {
+        var popup: PopupWindow? = null
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setBackgroundColor(CabinetColors.Surface)
+            FileListSort.entries.forEach { sort ->
+                addView(label(if (sort == options.sort) "✓ ${sort.label}" else "　${sort.label}", 14, true, CabinetColors.TextPrimary).apply {
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    isClickable = true
+                    setOnClickListener {
+                        popup?.dismiss()
+                        onListOptionsChanged(options.copy(sort = sort))
+                    }
+                })
+            }
+        }
+        popup = PopupWindow(container, dp(230), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+        }
+        popup.showAsDropDown(anchor)
+    }
+
+    private fun showFilterDialog(
+        options: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
+    ) {
+        var current = options
+        fun apply(update: FileListOptions) {
+            current = update
+            onListOptionsChanged(current)
+        }
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), 0)
+            addView(label("期間", 13, true, CabinetColors.Accent))
+            addView(filterChoiceRow(current) { apply(current.copy(periodDays = it)) })
+            addView(label("ファイル名（部分一致）", 13, true, CabinetColors.Accent).apply {
+                setPadding(0, dp(10), 0, 0)
+            })
+            addView(filterInput(current.nameQuery, "ファイル名") { apply(current.copy(nameQuery = it)) })
+            addView(label("拡張子", 13, true, CabinetColors.Accent).apply {
+                setPadding(0, dp(10), 0, 0)
+            })
+            addView(filterInput(current.extensionQuery, "例: xlsx") { apply(current.copy(extensionQuery = it.trimStart('.'))) })
+        }
+        AlertDialog.Builder(context)
+            .setTitle("絞り込み")
+            .setView(container)
+            .setPositiveButton("閉じる", null)
+            .setNegativeButton("クリア") { _, _ ->
+                onListOptionsChanged(options.copy(periodDays = null, nameQuery = "", extensionQuery = ""))
+            }
+            .show()
+    }
+
+    private fun filterChoiceRow(options: FileListOptions, onPeriodChanged: (Int?) -> Unit): View {
+        val choices = listOf(null to "すべて", 1 to "今日", 7 to "7日", 30 to "30日", 365 to "1年")
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            actions.forEach { (text, action) ->
-                addView(command(text, action).apply {
+            choices.forEach { (days, text) ->
+                addView(label(if (options.periodDays == days) "✓$text" else text, 12, true, CabinetColors.TextPrimary).apply {
                     gravity = Gravity.CENTER
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    setPadding(dp(6), dp(7), dp(6), dp(7))
+                    setBackgroundColor(if (options.periodDays == days) CabinetColors.SurfaceAlt else CabinetColors.Surface)
+                    isClickable = true
+                    setOnClickListener { onPeriodChanged(days) }
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        setMargins(dp(2), dp(2), dp(2), dp(2))
+                        setMargins(dp(2), dp(4), dp(2), dp(4))
                     }
-                    setBackgroundColor(CabinetColors.SurfaceAlt)
                 })
             }
         }
     }
 
-    private fun showSortMenu(options: FileListOptions, onListOptionsChanged: (FileListOptions) -> Unit) {
-        showChoiceDialog(
-            title = "ソート",
-            choices = FileListSort.entries.map { sort -> sort.label to { onListOptionsChanged(options.copy(sort = sort)) } },
-        )
-    }
-
-    private fun showPeriodMenu(options: FileListOptions, onListOptionsChanged: (FileListOptions) -> Unit) {
-        showChoiceDialog(
-            title = "期間",
-            choices = listOf(
-                "すべて" to { onListOptionsChanged(options.copy(periodDays = null)) },
-                "今日" to { onListOptionsChanged(options.copy(periodDays = 1)) },
-                "7日以内" to { onListOptionsChanged(options.copy(periodDays = 7)) },
-                "30日以内" to { onListOptionsChanged(options.copy(periodDays = 30)) },
-                "1年以内" to { onListOptionsChanged(options.copy(periodDays = 365)) },
-            ),
-        )
-    }
-
-    private fun showChoiceDialog(title: String, choices: List<Pair<String, () -> Unit>>) {
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setItems(choices.map { it.first }.toTypedArray()) { _, which -> choices[which].second() }
-            .show()
-    }
-
-    private fun showTextFilterDialog(title: String, initialValue: String, onApply: (String) -> Unit) {
-        val input = android.widget.EditText(context).apply {
+    private fun filterInput(initialValue: String, hint: String, onChanged: (String) -> Unit): View {
+        return android.widget.EditText(context).apply {
             setText(initialValue)
             setSingleLine(true)
+            this.hint = hint
             setTextColor(CabinetColors.TextPrimary)
             setHintTextColor(CabinetColors.TextSecondary)
             setBackgroundColor(CabinetColors.SurfaceAlt)
             setPadding(dp(10), dp(8), dp(10), dp(8))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    onChanged(s?.toString()?.trim().orEmpty())
+                }
+
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
         }
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setView(input)
-            .setPositiveButton("適用") { _, _ -> onApply(input.text.toString().trim()) }
-            .setNegativeButton("クリア") { _, _ -> onApply("") }
-            .show()
+    }
+
+    private fun filterSummary(options: FileListOptions): String {
+        if (!options.hasActiveFilter) return "絞り込み: なし"
+        return buildList {
+            if (options.periodDays != null) add(options.periodLabel)
+            if (options.nameQuery.isNotBlank()) add("名前:${options.nameQuery}")
+            if (options.extensionQuery.isNotBlank()) add("拡張子:${options.extensionQuery}")
+        }.joinToString(" / ", prefix = "絞り込み: ")
     }
 
     private fun fileListContainer(displayMode: String, layout: FileListLayout): LinearLayout {
@@ -1700,9 +1763,9 @@ enum class FileListSort(val label: String) {
     EXT_DESC("拡張子降順"),
 }
 
-enum class FileListLayout(val label: String) {
-    LIST("リスト"),
-    PREVIEW_GRID("横2列プレビュー付き"),
+enum class FileListLayout(val label: String, val shortLabel: String) {
+    LIST("リスト", "リスト"),
+    PREVIEW_GRID("横2列プレビュー付き", "2列"),
 }
 
 data class FileListOptions(
