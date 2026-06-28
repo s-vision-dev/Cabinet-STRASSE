@@ -61,7 +61,7 @@ class ViewerActivity : Activity() {
             } else if (mimeType.startsWith("audio/")) {
                 renderAudio(displayTitle, uri)
             } else {
-                renderUnsupported(displayTitle, mimeType)
+                renderUnsupported(displayTitle, uri, mimeType)
             }
         }.onFailure { error ->
             renderText(displayTitle, error.message ?: "ファイルを表示できませんでした。")
@@ -270,9 +270,28 @@ class ViewerActivity : Activity() {
         setContentView(layout)
     }
 
-    private fun renderUnsupported(title: String, mimeType: String) {
+    private fun renderUnsupported(title: String, uri: Uri, mimeType: String) {
         val typeText = mimeType.ifBlank { "unknown" }
-        renderText(title, "この形式はCabinet内ビューアでは表示できません。\nMIME: $typeText")
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(CabinetColors.AppBackground)
+            setPadding(dp(18), dp(18), dp(18), dp(28))
+        }
+        layout.addView(
+            TextView(this).apply {
+                text = "$title\n\nこの形式はCabinet内ビューアでは表示できません。\nMIME: $typeText"
+                setTextColor(CabinetColors.TextPrimary)
+                textSize = 15f
+            },
+        )
+        layout.addView(
+            commandButton("外部アプリで開く") {
+                openExternal(uri, mimeType)
+            }.apply {
+                setPadding(dp(18), dp(14), dp(18), dp(14))
+            },
+        )
+        setContentView(layout)
     }
 
     private fun readText(uri: Uri): String {
@@ -296,6 +315,9 @@ class ViewerActivity : Activity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { startActivity(intent) }
+            .onFailure { error ->
+                renderText("Viewer", error.message ?: "外部アプリで開けませんでした。")
+            }
     }
 
     private fun viewerUri(path: String): Uri {
