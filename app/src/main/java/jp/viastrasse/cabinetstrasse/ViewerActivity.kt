@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.net.Uri
@@ -16,6 +15,8 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.MediaController
@@ -34,6 +35,7 @@ import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
 import java.io.StringReader
 import java.nio.charset.Charset
+import kotlin.math.roundToInt
 import java.util.zip.ZipInputStream
 
 class ViewerActivity : Activity() {
@@ -153,42 +155,125 @@ class ViewerActivity : Activity() {
         }
     }
 
-    private fun zoomableScrollView(content: View): ScrollView {
-        return ZoomableScrollView(this).apply {
+    private fun zoomableScrollView(content: View): View {
+        return ZoomablePreviewScrollView(this).apply {
             setBackgroundColor(CabinetColors.AppBackground)
-            addView(
-                content,
-                ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
+            setContent(content)
         }
     }
 
-    private class ZoomableScrollView(context: Context) : ScrollView(context) {
+    private class ZoomablePreviewScrollView(context: Context) : HorizontalScrollView(context) {
         private var scaleFactor = 1f
+        private var baseContentWidth = 0
+        private var baseContentHeight = 0
+        private var contentView: View? = null
+        private val verticalScroll = ScrollView(context).apply {
+            setBackgroundColor(CabinetColors.AppBackground)
+            isFillViewport = true
+        }
+        private val zoomBounds = FrameLayout(context).apply {
+            setBackgroundColor(CabinetColors.AppBackground)
+        }
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    scaleFactor = (scaleFactor * detector.scaleFactor).coerceIn(0.75f, 3.5f)
-                    invalidate()
+                    val oldScale = scaleFactor
+                    val nextScale = (scaleFactor * detector.scaleFactor).coerceIn(0.75f, 3.5f)
+                    if (nextScale == oldScale) return true
+                    val focusContentX = (scrollX + detector.focusX) / oldScale
+                    val focusContentY = (verticalScroll.scrollY + detector.focusY) / oldScale
+                    scaleFactor = nextScale
+                    applyZoom()
+                    post {
+                        scrollTo(((focusContentX * scaleFactor) - detector.focusX).roundToInt(), scrollY)
+                        verticalScroll.scrollTo(
+                            verticalScroll.scrollX,
+                            ((focusContentY * scaleFactor) - detector.focusY).roundToInt(),
+                        )
+                    }
                     return true
                 }
             },
         )
+
+        init {
+            isFillViewport = true
+            addView(
+                verticalScroll,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            verticalScroll.addView(
+                zoomBounds,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+
+        fun setContent(content: View) {
+            contentView = content
+            zoomBounds.removeAllViews()
+            zoomBounds.addView(
+                content,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            post {
+                captureBaseContentSize()
+                applyZoom()
+            }
+        }
+
+        override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+            super.onSizeChanged(width, height, oldWidth, oldHeight)
+            post {
+                captureBaseContentSize()
+                applyZoom()
+            }
+        }
 
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
             return super.dispatchTouchEvent(event) || scaleDetector.isInProgress
         }
 
-        override fun dispatchDraw(canvas: Canvas) {
-            canvas.save()
-            canvas.scale(scaleFactor, scaleFactor)
-            super.dispatchDraw(canvas)
-            canvas.restore()
+        private fun captureBaseContentSize() {
+            val content = contentView ?: return
+            val availableWidth = (width - paddingLeft - paddingRight).coerceAtLeast(1)
+            val measureWidth = baseContentWidth.takeIf { it > 0 } ?: availableWidth
+            content.measure(
+                MeasureSpec.makeMeasureSpec(measureWidth, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+            )
+            baseContentWidth = availableWidth
+            baseContentHeight = content.measuredHeight.coerceAtLeast(1)
+        }
+
+        private fun applyZoom() {
+            val content = contentView ?: return
+            if (baseContentWidth <= 0 || baseContentHeight <= 0) return
+            val scaledWidth = (baseContentWidth * scaleFactor).roundToInt().coerceAtLeast(1)
+            val scaledHeight = (baseContentHeight * scaleFactor).roundToInt().coerceAtLeast(1)
+            zoomBounds.layoutParams = zoomBounds.layoutParams.apply {
+                width = scaledWidth
+                height = scaledHeight
+            }
+            content.layoutParams = content.layoutParams.apply {
+                width = baseContentWidth
+                height = baseContentHeight
+            }
+            content.pivotX = 0f
+            content.pivotY = 0f
+            content.scaleX = scaleFactor
+            content.scaleY = scaleFactor
+            zoomBounds.requestLayout()
         }
     }
 
