@@ -1214,11 +1214,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                             setMargins(dp(2), dp(2), dp(2), dp(2))
                         }
                     })
-                    addView(toolButton(options.layout.shortLabel, "表示: ${options.layout.label}") {
+                    addView(toolButton(options.layout.icon, "表示: ${options.layout.label}") {
                         val next = if (options.layout == FileListLayout.LIST) FileListLayout.PREVIEW_GRID else FileListLayout.LIST
                         onListOptionsChanged(options.copy(layout = next))
                     }.apply {
-                        layoutParams = LinearLayout.LayoutParams(dp(74), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        layoutParams = LinearLayout.LayoutParams(dp(48), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                             setMargins(dp(2), dp(2), dp(2), dp(2))
                         }
                     })
@@ -1763,9 +1763,9 @@ enum class FileListSort(val label: String) {
     EXT_DESC("拡張子降順"),
 }
 
-enum class FileListLayout(val label: String, val shortLabel: String) {
-    LIST("リスト", "リスト"),
-    PREVIEW_GRID("横2列プレビュー付き", "2列"),
+enum class FileListLayout(val label: String, val icon: String) {
+    LIST("リスト", "☷"),
+    PREVIEW_GRID("横2列プレビュー付き", "▦"),
 }
 
 data class FileListOptions(
