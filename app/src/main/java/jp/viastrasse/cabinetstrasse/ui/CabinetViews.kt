@@ -18,6 +18,7 @@ import android.widget.PopupWindow
 import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetDashboard
 import jp.viastrasse.cabinetstrasse.data.CabinetItemDetail
@@ -84,6 +85,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     fun renderMode(
         mode: ModeResponse,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        listOptions: FileListOptions,
+        showItemList: Boolean,
+        onListOptionsChanged: (FileListOptions) -> Unit,
         onBack: () -> Unit,
         onItemSelected: (String) -> Unit,
         onCollectionSelected: (CabinetCollectionSummary) -> Unit,
@@ -95,9 +101,22 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(command("← Cabinet", onBack))
         content.addView(title(mode.title))
         content.addView(subtitle(mode.mode))
-        if (mode.items.isNotEmpty()) {
+        if (showItemList) {
             content.addView(section("資料"))
-            mode.items.forEach { content.addView(itemRow(it, onItemSelected, onToggleFavorite, onMoveTrash)) }
+            content.addView(fileListControls(listOptions, onListOptionsChanged))
+            if (mode.items.isEmpty()) {
+                val message = if (listOptions.hasActiveFilter) "条件に一致するファイルはありません" else "表示できるファイルはありません"
+                content.addView(label(message, 13, false, CabinetColors.TextSecondary))
+            }
+            val fileList = fileListContainer(displayMode, listOptions.layout)
+            if (listOptions.layout == FileListLayout.PREVIEW_GRID) {
+                addCabinetPreviewGrid(fileList, mode.items, fontPreference, onItemSelected, onToggleFavorite, onMoveTrash)
+            } else {
+                mode.items.forEach {
+                    fileList.addView(cabinetFileRow(it, displayMode, fontPreference, onItemSelected, onToggleFavorite, onMoveTrash))
+                }
+            }
+            content.addView(fileList)
         }
         if (mode.collections.isNotEmpty()) {
             content.addView(section("Collection"))
@@ -203,6 +222,47 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         } else {
             entries.forEach { entry ->
                 fileList.addView(deviceFileRow(entry, displayMode, fontPreference, onOpenFile, onRegisterFile, onOpenLocation))
+            }
+        }
+        content.addView(fileList)
+    }
+
+    fun renderDocumentTree(
+        title: String,
+        location: String,
+        entries: List<DocumentFileEntry>,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        listOptions: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
+        onBack: () -> Unit,
+        onParent: (() -> Unit)?,
+        onOpenDirectory: (DocumentFileEntry) -> Unit,
+        onOpenFile: (DocumentFileEntry) -> Unit,
+        onRegisterFile: (DocumentFileEntry) -> Unit,
+        onChooseRoot: () -> Unit,
+    ) {
+        content.removeAllViews()
+        content.addView(command("← Cabinet", onBack))
+        content.addView(title(title))
+        content.addView(subtitle(location))
+        content.addView(command("SDカード/外部ストレージを選択", onChooseRoot))
+        if (onParent != null) {
+            content.addView(command("親フォルダへ移動", onParent))
+        }
+        content.addView(section("Files"))
+        content.addView(fileListControls(listOptions, onListOptionsChanged))
+        if (entries.isEmpty()) {
+            val message = if (listOptions.hasActiveFilter) "条件に一致するファイルはありません" else "表示できるファイルはありません"
+            content.addView(label(message, 13, false, CabinetColors.TextSecondary))
+            return
+        }
+        val fileList = fileListContainer(displayMode, listOptions.layout)
+        if (listOptions.layout == FileListLayout.PREVIEW_GRID) {
+            addDocumentPreviewGrid(fileList, entries, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile)
+        } else {
+            entries.forEach { entry ->
+                fileList.addView(documentFileRow(entry, displayMode, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile))
             }
         }
         content.addView(fileList)
@@ -737,11 +797,14 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     CabinetMode("Explorer", dashboard.explorerCount, "ローカル"),
                 ),
                 listOf(
+                    CabinetMode("SDCard", 0, "SDカード"),
                     CabinetMode("Documents", 0, "ドキュメント"),
-                    CabinetMode("Pictures", 0, "画像"),
                 ),
                 listOf(
+                    CabinetMode("Pictures", 0, "画像"),
                     CabinetMode("Movies", 0, "動画"),
+                ),
+                listOf(
                     CabinetMode("Music", 0, "音声"),
                 ),
             ).forEach { rowModes ->
@@ -879,6 +942,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             "Downloads" -> "DL"
             "Inbox" -> "IN"
             "Explorer" -> "LOC"
+            "SDCard" -> "SD"
             "Documents" -> "DOC"
             "Pictures" -> "IMG"
             "Movies" -> "MOV"
@@ -1091,6 +1155,67 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun documentFileRow(
+        entry: DocumentFileEntry,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        onOpenDirectory: (DocumentFileEntry) -> Unit,
+        onOpenFile: (DocumentFileEntry) -> Unit,
+        onRegisterFile: (DocumentFileEntry) -> Unit,
+    ): View {
+        val isElegant = isElegantDisplayMode(displayMode)
+        return listRow(isElegant, fontPreference) {
+            isClickable = true
+            val openAction = {
+                if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry)
+            }
+            setOnClickListener { openAction() }
+            setOnLongClickListener {
+                showDocumentFileMenu(this, entry, openAction, onRegisterFile)
+                true
+            }
+            addView(
+                fileRowBody(
+                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                    name = entry.name,
+                    updatedLabel = entry.updatedLabel,
+                    sizeLabel = entry.sizeLabel,
+                    isElegant = isElegant,
+                    fontPreference = fontPreference,
+                ),
+            )
+        }
+    }
+
+    private fun cabinetFileRow(
+        item: CabinetItemSummary,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        onItemSelected: (String) -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
+    ): View {
+        val isElegant = isElegantDisplayMode(displayMode)
+        return listRow(isElegant, fontPreference) {
+            isClickable = true
+            setOnClickListener { onItemSelected(item.id) }
+            setOnLongClickListener {
+                showCabinetItemMenu(this, item, onItemSelected, onToggleFavorite, onMoveTrash)
+                true
+            }
+            addView(
+                fileRowBody(
+                    kind = fileKindLabel(item.mimeType),
+                    name = item.displayName.ifBlank { item.title },
+                    updatedLabel = item.updatedAt.ifBlank { "更新日時なし" },
+                    sizeLabel = readableSize(item.size),
+                    isElegant = isElegant,
+                    fontPreference = fontPreference,
+                ),
+            )
+        }
+    }
+
     private fun showLocalFileMenu(
         anchor: View,
         entry: LocalFileEntry,
@@ -1136,6 +1261,48 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             actions = listOf(
                 "開く" to { onOpenFile(entry) },
                 "Cabinetへ登録" to { onRegisterFile(entry) },
+            ),
+        )
+    }
+
+    private fun showDocumentFileMenu(
+        anchor: View,
+        entry: DocumentFileEntry,
+        onOpen: () -> Unit,
+        onRegisterFile: (DocumentFileEntry) -> Unit,
+    ) {
+        showActionSheet(
+            title = entry.name,
+            path = entry.uri,
+            onPathLongClick = null,
+            actions = buildList {
+                add("開く" to onOpen)
+                if (!entry.isDirectory) {
+                    add("Cabinetへ登録" to { onRegisterFile(entry) })
+                }
+            },
+        )
+    }
+
+    private fun showCabinetItemMenu(
+        anchor: View,
+        item: CabinetItemSummary,
+        onItemSelected: (String) -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
+    ) {
+        showActionSheet(
+            title = item.displayName.ifBlank { item.title },
+            path = "${item.mimeType} / ${item.sourceKind}",
+            onPathLongClick = null,
+            actions = listOf(
+                "開く" to { onItemSelected(item.id) },
+                if (item.isFavorite) {
+                    "お気に入り解除" to { onToggleFavorite(item) }
+                } else {
+                    "お気に入り" to { onToggleFavorite(item) }
+                },
+                "ゴミ箱へ移動" to { onMoveTrash(item) },
             ),
         )
     }
@@ -1433,6 +1600,69 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun addDocumentPreviewGrid(
+        container: LinearLayout,
+        entries: List<DocumentFileEntry>,
+        fontPreference: FileListDisplayPreference,
+        onOpenDirectory: (DocumentFileEntry) -> Unit,
+        onOpenFile: (DocumentFileEntry) -> Unit,
+        onRegisterFile: (DocumentFileEntry) -> Unit,
+    ) {
+        entries.chunked(2).forEach { pair ->
+            container.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                pair.forEach { entry ->
+                    val openAction = {
+                        if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry)
+                    }
+                    addView(previewCard(
+                        title = entry.name,
+                        kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                        meta = "${entry.updatedLabel}  ${entry.sizeLabel}",
+                        isImage = !entry.isDirectory && entry.mimeType.startsWith("image/"),
+                        imageUri = Uri.parse(entry.uri),
+                        fontPreference = fontPreference,
+                        onOpen = openAction,
+                        onMenu = { showDocumentFileMenu(it, entry, openAction, onRegisterFile) },
+                    ))
+                }
+                if (pair.size == 1) addView(View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                })
+            })
+        }
+    }
+
+    private fun addCabinetPreviewGrid(
+        container: LinearLayout,
+        entries: List<CabinetItemSummary>,
+        fontPreference: FileListDisplayPreference,
+        onItemSelected: (String) -> Unit,
+        onToggleFavorite: (CabinetItemSummary) -> Unit,
+        onMoveTrash: (CabinetItemSummary) -> Unit,
+    ) {
+        entries.chunked(2).forEach { pair ->
+            container.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                pair.forEach { item ->
+                    addView(previewCard(
+                        title = item.displayName.ifBlank { item.title },
+                        kind = fileKindLabel(item.mimeType),
+                        meta = "${item.updatedAt.ifBlank { "更新日時なし" }}  ${readableSize(item.size)}",
+                        isImage = item.mimeType.startsWith("image/"),
+                        imageUri = Uri.EMPTY,
+                        fontPreference = fontPreference,
+                        onOpen = { onItemSelected(item.id) },
+                        onMenu = { showCabinetItemMenu(it, item, onItemSelected, onToggleFavorite, onMoveTrash) },
+                    ))
+                }
+                if (pair.size == 1) addView(View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                })
+            })
+        }
+    }
+
     private fun previewCard(
         title: String,
         kind: String,
@@ -1581,6 +1811,18 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 setPadding(0, dp(2), 0, 0)
             }
         }
+    }
+
+    private fun readableSize(size: Long): String {
+        if (size < 1024L) return "${size}B"
+        val units = listOf("KB", "MB", "GB", "TB")
+        var value = size / 1024.0
+        var unitIndex = 0
+        while (value >= 1024.0 && unitIndex < units.lastIndex) {
+            value /= 1024.0
+            unitIndex += 1
+        }
+        return "%.2f%s".format(value, units[unitIndex])
     }
 
     private fun actionRow(text: String, onClick: () -> Unit): TextView {
@@ -1753,6 +1995,19 @@ data class DeviceFileEntry(
     val sizeLabel: String,
     val updatedLabel: String,
     val location: String,
+    val updatedAtMillis: Long,
+    val extension: String,
+)
+
+data class DocumentFileEntry(
+    val document: DocumentFile,
+    val uri: String,
+    val name: String,
+    val isDirectory: Boolean,
+    val mimeType: String,
+    val size: Long,
+    val sizeLabel: String,
+    val updatedLabel: String,
     val updatedAtMillis: Long,
     val extension: String,
 )

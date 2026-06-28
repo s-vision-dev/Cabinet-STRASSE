@@ -18,6 +18,7 @@ import android.window.OnBackInvokedDispatcher
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinetstrasse.backup.BackupWorker
+import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
 import jp.viastrasse.cabinetstrasse.data.CabinetRepository
 import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
 import jp.viastrasse.cabinetstrasse.preview.OcrTextRecognizer
@@ -25,6 +26,7 @@ import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
 import jp.viastrasse.cabinetstrasse.preview.ThumbnailGenerator
 import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
 import jp.viastrasse.cabinetstrasse.ui.DeviceFileEntry
+import jp.viastrasse.cabinetstrasse.ui.DocumentFileEntry
 import jp.viastrasse.cabinetstrasse.ui.FileListDisplayPreference
 import jp.viastrasse.cabinetstrasse.ui.FileListOptions
 import jp.viastrasse.cabinetstrasse.ui.FileListSort
@@ -34,7 +36,9 @@ import java.io.File
 import java.net.URL
 import java.net.URLConnection
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.concurrent.thread
 
@@ -46,6 +50,7 @@ class MainActivity : Activity() {
     private var systemBackCallback: Any? = null
     private var pendingPublicDirectoryType: String? = null
     private var fileListOptions: FileListOptions = FileListOptions()
+    private var currentDocumentParents: List<DocumentFile> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -280,6 +285,16 @@ class MainActivity : Activity() {
             importFolder(uri)
             return
         }
+        if (requestCode == REQUEST_OPEN_SD_TREE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+            appPrefs().edit().putString(KEY_SD_TREE_URI, uri.toString()).apply()
+            openDocumentTreeRoot(uri)
+            return
+        }
         if (requestCode == REQUEST_OPEN_BACKUP && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             importBackup(uri)
@@ -302,6 +317,10 @@ class MainActivity : Activity() {
         }
         if (mode == "Explorer") {
             openLocalExplorer(explorerRoots().first())
+            return
+        }
+        if (mode == "SDCard") {
+            openSdCardExplorer()
             return
         }
         if (mode == "Downloads") {
@@ -328,8 +347,17 @@ class MainActivity : Activity() {
             repository.mode(mode)
         }.onSuccess {
             isDashboardVisible = false
+            val displayedMode = it.copy(items = applyCabinetItemListOptions(it.items))
             dashboardView.renderMode(
-                mode = it,
+                mode = displayedMode,
+                displayMode = displayModePreference(),
+                fontPreference = fileListDisplayPreference(),
+                listOptions = fileListOptions,
+                showItemList = it.items.isNotEmpty() || fileListOptions.hasActiveFilter,
+                onListOptionsChanged = { options ->
+                    fileListOptions = options
+                    openMode(mode)
+                },
                 onBack = ::renderDashboard,
                 onItemSelected = ::openDetail,
                 onCollectionSelected = { collection -> openMode("collection:${collection.id}") },
@@ -340,6 +368,59 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun applyCabinetItemListOptions(items: List<CabinetItemSummary>): List<CabinetItemSummary> {
+        val cutoff = fileListOptions.periodDays?.let { System.currentTimeMillis() - it * 24L * 60L * 60L * 1000L }
+        return items
+            .asSequence()
+            .filter { item ->
+                val updatedAt = cabinetItemUpdatedAtMillis(item)
+                cutoff == null || updatedAt == null || updatedAt >= cutoff
+            }
+            .filter { item ->
+                fileListOptions.nameQuery.isBlank() ||
+                    item.displayName.contains(fileListOptions.nameQuery, ignoreCase = true) ||
+                    item.title.contains(fileListOptions.nameQuery, ignoreCase = true)
+            }
+            .filter { item ->
+                fileListOptions.extensionQuery.isBlank() ||
+                    cabinetItemExtension(item).equals(fileListOptions.extensionQuery.trimStart('.'), ignoreCase = true)
+            }
+            .toList()
+            .let { sortCabinetItems(it) }
+    }
+
+    private fun sortCabinetItems(items: List<CabinetItemSummary>): List<CabinetItemSummary> {
+        return when (fileListOptions.sort) {
+            FileListSort.DATE_DESC -> items.sortedWith(compareByDescending<CabinetItemSummary> { cabinetItemUpdatedAtMillis(it) ?: Long.MIN_VALUE })
+            FileListSort.DATE_ASC -> items.sortedWith(compareBy<CabinetItemSummary> { cabinetItemUpdatedAtMillis(it) ?: Long.MAX_VALUE })
+            FileListSort.NAME_ASC -> items.sortedBy { it.displayName.ifBlank { it.title }.lowercase() }
+            FileListSort.NAME_DESC -> items.sortedByDescending { it.displayName.ifBlank { it.title }.lowercase() }
+            FileListSort.EXT_ASC -> items.sortedWith(compareBy<CabinetItemSummary> { cabinetItemExtension(it).lowercase() }.thenBy { it.displayName.ifBlank { it.title }.lowercase() })
+            FileListSort.EXT_DESC -> items.sortedWith(compareByDescending<CabinetItemSummary> { cabinetItemExtension(it).lowercase() }.thenBy { it.displayName.ifBlank { it.title }.lowercase() })
+        }
+    }
+
+    private fun cabinetItemExtension(item: CabinetItemSummary): String {
+        return extensionOf(item.displayName.ifBlank { item.title })
+    }
+
+    private fun cabinetItemUpdatedAtMillis(item: CabinetItemSummary): Long? {
+        val value = item.updatedAt.trim()
+        if (value.isBlank()) return null
+        return runCatching { Instant.parse(value).toEpochMilli() }
+            .getOrElse {
+                runCatching { ZonedDateTime.parse(value).toInstant().toEpochMilli() }
+                    .getOrElse {
+                        runCatching {
+                            LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                                .atZone(ZoneId.systemDefault())
+                                .toInstant()
+                                .toEpochMilli()
+                        }.getOrNull()
+                    }
+            }
     }
 
     private fun explorerRoots(): List<File> {
@@ -402,6 +483,151 @@ class MainActivity : Activity() {
 
     private fun canReadPublicDirectories(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+    }
+
+    private fun openSdCardExplorer() {
+        val saved = appPrefs().getString(KEY_SD_TREE_URI, null)
+        if (saved.isNullOrBlank()) {
+            openSdCardPicker()
+            return
+        }
+        runCatching {
+            openDocumentTreeRoot(Uri.parse(saved))
+        }.onFailure {
+            appPrefs().edit().remove(KEY_SD_TREE_URI).apply()
+            openSdCardPicker()
+        }
+    }
+
+    private fun openSdCardPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        startActivityForResult(intent, REQUEST_OPEN_SD_TREE)
+    }
+
+    private fun openDocumentTreeRoot(treeUri: Uri) {
+        val root = DocumentFile.fromTreeUri(this, treeUri) ?: error("SDカードを開けませんでした")
+        openDocumentDirectory(root, emptyList())
+    }
+
+    private fun openDocumentDirectory(directory: DocumentFile, parents: List<DocumentFile>) {
+        require(directory.isDirectory) { "フォルダを開けませんでした" }
+        currentDocumentParents = parents
+        val rawEntries = directory.listFiles()
+            .sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenBy { it.name.orEmpty().lowercase() })
+            .map(::toDocumentFileEntry)
+        val entries = applyDocumentFileListOptions(rawEntries)
+        isDashboardVisible = false
+        dashboardView.renderDocumentTree(
+            title = "SDカード",
+            location = directory.name ?: directory.uri.toString(),
+            entries = entries,
+            displayMode = displayModePreference(),
+            fontPreference = fileListDisplayPreference(),
+            listOptions = fileListOptions,
+            onListOptionsChanged = { options ->
+                fileListOptions = options
+                openDocumentDirectory(directory, parents)
+            },
+            onBack = ::renderDashboard,
+            onParent = parents.lastOrNull()?.let { parent ->
+                { openDocumentDirectory(parent, parents.dropLast(1)) }
+            },
+            onOpenDirectory = { entry -> openDocumentDirectory(entry.document, parents + directory) },
+            onOpenFile = { entry ->
+                openViewer(
+                    path = entry.uri,
+                    mimeType = entry.mimeType.ifBlank { "*/*" },
+                    title = entry.name,
+                    navigationItems = documentViewerNavigation(entries),
+                )
+            },
+            onRegisterFile = { entry -> registerDocumentFile(entry, directory) },
+            onChooseRoot = ::openSdCardPicker,
+        )
+    }
+
+    private fun toDocumentFileEntry(document: DocumentFile): DocumentFileEntry {
+        val name = document.name.orEmpty().ifBlank { document.uri.lastPathSegment ?: "document" }
+        val updatedAtMillis = document.lastModified()
+        val updated = if (updatedAtMillis > 0L) {
+            Instant.ofEpochMilli(updatedAtMillis)
+                .atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        } else {
+            "更新日時なし"
+        }
+        val isDirectory = document.isDirectory
+        val size = if (isDirectory) document.listFiles().size.toLong() else document.length().coerceAtLeast(0L)
+        val mimeType = if (isDirectory) {
+            "folder"
+        } else {
+            document.type.orEmpty().ifBlank {
+                mimeTypeForExtension(extensionOf(name)) ?: "application/octet-stream"
+            }
+        }
+        return DocumentFileEntry(
+            document = document,
+            uri = document.uri.toString(),
+            name = name,
+            isDirectory = isDirectory,
+            mimeType = mimeType,
+            size = size,
+            sizeLabel = if (isDirectory) "$size items" else readableSize(size),
+            updatedLabel = updated,
+            updatedAtMillis = updatedAtMillis,
+            extension = extensionOf(name),
+        )
+    }
+
+    private fun applyDocumentFileListOptions(entries: List<DocumentFileEntry>): List<DocumentFileEntry> {
+        val cutoff = fileListOptions.periodDays?.let { System.currentTimeMillis() - it * 24L * 60L * 60L * 1000L }
+        return entries
+            .asSequence()
+            .filter { cutoff == null || it.updatedAtMillis <= 0L || it.updatedAtMillis >= cutoff }
+            .filter { fileListOptions.nameQuery.isBlank() || it.name.contains(fileListOptions.nameQuery, ignoreCase = true) }
+            .filter { fileListOptions.extensionQuery.isBlank() || it.extension.equals(fileListOptions.extensionQuery.trimStart('.'), ignoreCase = true) }
+            .toList()
+            .let { sortDocumentEntries(it) }
+    }
+
+    private fun sortDocumentEntries(entries: List<DocumentFileEntry>): List<DocumentFileEntry> {
+        return when (fileListOptions.sort) {
+            FileListSort.DATE_DESC -> entries.sortedWith(compareBy<DocumentFileEntry> { !it.isDirectory }.thenByDescending { it.updatedAtMillis })
+            FileListSort.DATE_ASC -> entries.sortedWith(compareBy<DocumentFileEntry> { !it.isDirectory }.thenBy { it.updatedAtMillis })
+            FileListSort.NAME_ASC -> entries.sortedWith(compareBy<DocumentFileEntry> { !it.isDirectory }.thenBy { it.name.lowercase() })
+            FileListSort.NAME_DESC -> entries.sortedWith(compareBy<DocumentFileEntry> { !it.isDirectory }.thenByDescending { it.name.lowercase() })
+            FileListSort.EXT_ASC -> entries.sortedWith(compareBy<DocumentFileEntry> { !it.isDirectory }.thenBy { it.extension.lowercase() }.thenBy { it.name.lowercase() })
+            FileListSort.EXT_DESC -> entries.sortedWith(compareBy<DocumentFileEntry> { !it.isDirectory }.thenByDescending { it.extension.lowercase() }.thenBy { it.name.lowercase() })
+        }
+    }
+
+    private fun registerDocumentFile(entry: DocumentFileEntry, currentDirectory: DocumentFile) {
+        runCatching {
+            require(!entry.isDirectory) { "登録対象ファイルが見つかりません" }
+            val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
+            val destination = uniqueDestination(inboxDir, sanitizeFileName(entry.name))
+            contentResolver.openInputStream(Uri.parse(entry.uri)).use { input ->
+                requireNotNull(input) { "ファイルを開けませんでした" }
+                destination.outputStream().buffered().use { output -> input.copyTo(output) }
+            }
+            repository.registerFile(
+                path = destination.absolutePath,
+                displayName = destination.name,
+                mimeType = entry.mimeType,
+                size = destination.length(),
+                sourceKind = "saf-explorer",
+                note = "SDカード/外部ストレージから登録",
+            )
+        }.onSuccess {
+            PreviewWorker.enqueue(applicationContext)
+            Toast.makeText(this, "登録しました: ${entry.name}", Toast.LENGTH_SHORT).show()
+            openDocumentDirectory(currentDirectory, currentDocumentParents)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun promptAllFilesAccess(directoryType: String) {
@@ -1348,6 +1574,18 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun documentViewerNavigation(entries: List<DocumentFileEntry>): List<ViewerNavigationItem> {
+        return entries
+            .filterNot { it.isDirectory }
+            .map { entry ->
+                ViewerNavigationItem(
+                    path = entry.uri,
+                    mimeType = entry.mimeType.ifBlank { "*/*" },
+                    title = entry.name,
+                )
+            }
+    }
+
     private fun openRegisteredItem(itemId: String, path: String, mimeType: String, title: String) {
         runCatching {
             repository.markOpened(itemId)
@@ -1842,7 +2080,7 @@ class MainActivity : Activity() {
                         mimeType = document.type ?: "application/octet-stream",
                         size = destination.length(),
                         sourceKind = "saf-folder",
-                        note = "SAFフォルダから取り込み",
+                        note = "選択フォルダから取り込み",
                     )
                 }.onSuccess {
                     imported += 1
@@ -2023,6 +2261,8 @@ class MainActivity : Activity() {
         Toast.makeText(this, "文字サイズを保存しました", Toast.LENGTH_SHORT).show()
         openSettings()
     }
+
+    private fun appPrefs() = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
 
     private fun showStorageProviderDialog(provider: StorageProviderAccountSummary) {
         val container = android.widget.LinearLayout(this).apply {
@@ -2270,7 +2510,9 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_TREE = 2401
         private const val REQUEST_OPEN_BACKUP = 2402
         private const val REQUEST_ADD_VERSION = 2403
+        private const val REQUEST_OPEN_SD_TREE = 2404
         private const val APP_PREFS_NAME = "cabinet-app-settings"
+        private const val KEY_SD_TREE_URI = "sd_tree_uri"
         private const val KEY_DISPLAY_MODE = "display_mode"
         private const val KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"
         private const val KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
