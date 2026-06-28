@@ -241,6 +241,56 @@ class ViewerActivity : Activity() {
         }
     }
 
+    private fun swipeNavigationHost(content: View): View {
+        return SwipeNavigationFrame(this).apply {
+            setBackgroundColor(CabinetColors.AppBackground)
+            onPrevious = ::showPreviousPreview
+            onNext = ::showNextPreview
+            addView(
+                content,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+    }
+
+    private class SwipeNavigationFrame(context: Context) : FrameLayout(context) {
+        private var touchStartX = 0f
+        private var touchStartY = 0f
+        private val navigationSwipeDistance = context.resources.displayMetrics.density * 80f
+        var onPrevious: (() -> Unit)? = null
+        var onNext: (() -> Unit)? = null
+
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchStartX = event.x
+                    touchStartY = event.y
+                }
+                MotionEvent.ACTION_UP -> handleNavigationSwipe(event)
+                MotionEvent.ACTION_CANCEL -> {
+                    touchStartX = 0f
+                    touchStartY = 0f
+                }
+            }
+            return super.dispatchTouchEvent(event)
+        }
+
+        private fun handleNavigationSwipe(event: MotionEvent) {
+            val deltaX = event.x - touchStartX
+            val deltaY = event.y - touchStartY
+            if (kotlin.math.abs(deltaX) < navigationSwipeDistance) return
+            if (kotlin.math.abs(deltaX) < kotlin.math.abs(deltaY) * 1.2f) return
+            if (deltaX < 0) {
+                onNext?.invoke()
+            } else {
+                onPrevious?.invoke()
+            }
+        }
+    }
+
     private class ZoomablePreviewScrollView(context: Context) : HorizontalScrollView(context) {
         private var scaleFactor = 1f
         private var baseContentWidth = 0
@@ -540,7 +590,7 @@ class ViewerActivity : Activity() {
             )
             addView(control)
         }
-        setContentView(layout)
+        setContentView(swipeNavigationHost(layout))
     }
 
     private fun renderAudio(title: String, uri: Uri) {
@@ -584,7 +634,7 @@ class ViewerActivity : Activity() {
         }
         layout.addView(titleView)
         layout.addView(control)
-        setContentView(layout)
+        setContentView(swipeNavigationHost(layout))
     }
 
     private fun renderUnsupported(title: String, uri: Uri, mimeType: String) {
