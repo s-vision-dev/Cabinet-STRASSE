@@ -16,7 +16,6 @@ import android.widget.MediaController
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.VideoView
-import androidx.core.content.FileProvider
 import jp.viastrasse.cabinetstrasse.theme.CabinetColors
 import java.io.File
 import java.nio.charset.Charset
@@ -302,12 +301,9 @@ class ViewerActivity : Activity() {
     private fun viewerUri(path: String): Uri {
         val parsed = Uri.parse(path)
         if (parsed.scheme == "content") return parsed
+        if (parsed.scheme == "file") return parsed
         val file = File(path)
-        return FileProvider.getUriForFile(
-            this,
-            "jp.viastrasse.cabinetstrasse.fileprovider",
-            file,
-        )
+        return Uri.fromFile(file)
     }
 
     private fun dp(value: Int): Int {
