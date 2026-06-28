@@ -67,7 +67,7 @@ class ViewerActivity : Activity() {
             } else if (isPdfFile(path, mimeType)) {
                 renderPdf(displayTitle, uri)
             } else if (isVideoFile(path, mimeType)) {
-                renderVideo(uri)
+                renderVideo(displayTitle, uri)
             } else if (isAudioFile(path, mimeType)) {
                 renderAudio(displayTitle, uri)
             } else if (isOfficeOpenXml(path, mimeType)) {
@@ -92,12 +92,39 @@ class ViewerActivity : Activity() {
 
     private fun renderText(title: String, body: String) {
         val textView = TextView(this).apply {
-            text = "$title\n\n$body"
+            text = body
             setTextColor(CabinetColors.TextPrimary)
             textSize = 15f
             setPadding(dp(18), dp(18), dp(18), dp(28))
         }
-        setContentView(zoomableScrollView(textView))
+        setContentView(zoomablePreview(title, textView))
+    }
+
+    private fun zoomablePreview(title: String, content: View): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(CabinetColors.AppBackground)
+            addView(fixedTitle(title))
+            addView(
+                zoomableScrollView(content),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f,
+                ),
+            )
+        }
+    }
+
+    private fun fixedTitle(title: String): TextView {
+        return TextView(this).apply {
+            text = title
+            setTextColor(CabinetColors.TextPrimary)
+            textSize = 16f
+            setPadding(dp(18), dp(12), dp(18), dp(10))
+            setBackgroundColor(CabinetColors.AppBackground)
+            maxLines = 3
+        }
     }
 
     private fun zoomableScrollView(content: View): ScrollView {
@@ -146,14 +173,6 @@ class ViewerActivity : Activity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         layout.addView(
-            TextView(this).apply {
-                text = title
-                setTextColor(CabinetColors.TextPrimary)
-                textSize = 16f
-                setPadding(0, 0, 0, dp(12))
-            },
-        )
-        layout.addView(
             ImageView(this).apply {
                 setImageURI(uri)
                 adjustViewBounds = true
@@ -165,7 +184,7 @@ class ViewerActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ),
         )
-        setContentView(zoomableScrollView(layout))
+        setContentView(zoomablePreview(title, layout))
     }
 
     private fun renderPdf(title: String, uri: Uri) {
@@ -181,14 +200,6 @@ class ViewerActivity : Activity() {
             setBackgroundColor(CabinetColors.AppBackground)
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        layout.addView(
-            TextView(this).apply {
-                text = title
-                setTextColor(CabinetColors.TextPrimary)
-                textSize = 16f
-                setPadding(0, 0, 0, dp(10))
-            },
-        )
         pdfCounterView = TextView(this).apply {
             setTextColor(CabinetColors.TextSecondary)
             textSize = 13f
@@ -221,7 +232,7 @@ class ViewerActivity : Activity() {
             showPdfPage((pdfPageIndex + 1).coerceAtMost(renderer.pageCount - 1))
         })
         layout.addView(controls)
-        setContentView(zoomableScrollView(layout))
+        setContentView(zoomablePreview(title, layout))
         showPdfPage(0)
     }
 
@@ -251,20 +262,44 @@ class ViewerActivity : Activity() {
         }
     }
 
-    private fun renderVideo(uri: Uri) {
+    private fun renderVideo(title: String, uri: Uri) {
+        lateinit var control: TextView
         val videoView = VideoView(this).apply {
             setBackgroundColor(CabinetColors.AppBackground)
             setVideoURI(uri)
             setMediaController(MediaController(this@ViewerActivity).also { it.setAnchorView(this) })
-            setOnPreparedListener { start() }
+            setOnPreparedListener {
+                start()
+                control.text = "一時停止"
+            }
+            setOnCompletionListener {
+                control.text = "再生"
+            }
         }
-        setContentView(
-            videoView,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            ),
-        )
+        control = commandButton("再生") {
+            if (videoView.isPlaying) {
+                videoView.pause()
+                control.text = "再生"
+            } else {
+                videoView.start()
+                control.text = "一時停止"
+            }
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(CabinetColors.AppBackground)
+            addView(fixedTitle(title))
+            addView(
+                videoView,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f,
+                ),
+            )
+            addView(control)
+        }
+        setContentView(layout)
     }
 
     private fun renderAudio(title: String, uri: Uri) {
@@ -343,7 +378,7 @@ class ViewerActivity : Activity() {
         }
         container.addView(
             TextView(this).apply {
-                text = "$title\n\n先頭シートのプレビュー"
+                text = "先頭シートのプレビュー"
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 16f
                 setPadding(0, 0, 0, dp(12))
@@ -365,7 +400,7 @@ class ViewerActivity : Activity() {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
             },
         )
-        setContentView(zoomableScrollView(container))
+        setContentView(zoomablePreview(title, container))
     }
 
     private fun renderOfficePreview(title: String, uri: Uri, path: String, mimeType: String) {
@@ -388,7 +423,7 @@ class ViewerActivity : Activity() {
         }
         container.addView(
             TextView(this).apply {
-                text = "$title\n\nプレビュー"
+                text = "プレビュー"
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 16f
                 setPadding(0, 0, 0, dp(12))
@@ -409,7 +444,7 @@ class ViewerActivity : Activity() {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
             },
         )
-        setContentView(zoomableScrollView(container))
+        setContentView(zoomablePreview(title, container))
     }
 
     private fun buildSpreadsheetPreview(uri: Uri): String {
