@@ -234,9 +234,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         displayMode: String,
         fontPreference: FileListDisplayPreference,
         listOptions: FileListOptions,
+        sectionTitle: String = "Files",
+        emptyMessage: String? = null,
+        showListControls: Boolean = true,
         onListOptionsChanged: (FileListOptions) -> Unit,
         onBack: () -> Unit,
         onParent: (() -> Unit)?,
+        parentLabel: String = "親フォルダへ移動",
         onOpenDirectory: (DocumentFileEntry) -> Unit,
         onOpenFile: (DocumentFileEntry) -> Unit,
         onRegisterFile: (DocumentFileEntry) -> Unit,
@@ -247,13 +251,27 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         content.addView(title(title))
         content.addView(subtitle(location))
         content.addView(command("SDカード/外部ストレージを選択", onChooseRoot))
+        content.addView(
+            label(
+                "Androidの制約により、ストレージのルートは選択できません。\n内部ストレージまたはSDカード内のフォルダを選択してください。",
+                12,
+                false,
+                CabinetColors.TextSecondary,
+            ),
+        )
         if (onParent != null) {
-            content.addView(command("親フォルダへ移動", onParent))
+            content.addView(command(parentLabel, onParent))
         }
-        content.addView(section("Files"))
-        content.addView(fileListControls(listOptions, onListOptionsChanged))
+        content.addView(section(sectionTitle))
+        if (showListControls) {
+            content.addView(fileListControls(listOptions, onListOptionsChanged))
+        }
         if (entries.isEmpty()) {
-            val message = if (listOptions.hasActiveFilter) "条件に一致するファイルはありません" else "表示できるファイルはありません"
+            val message = if (listOptions.hasActiveFilter) {
+                "条件に一致するファイルはありません"
+            } else {
+                emptyMessage ?: "表示できるファイルはありません"
+            }
             content.addView(label(message, 13, false, CabinetColors.TextSecondary))
             return
         }

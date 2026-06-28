@@ -291,7 +291,7 @@ class MainActivity : Activity() {
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
-            appPrefs().edit().putString(KEY_SD_TREE_URI, uri.toString()).apply()
+            rememberSdTreeUri(uri)
             openDocumentTreeRoot(uri)
             return
         }
@@ -486,25 +486,59 @@ class MainActivity : Activity() {
     }
 
     private fun openSdCardExplorer() {
-        val saved = appPrefs().getString(KEY_SD_TREE_URI, null)
-        if (saved.isNullOrBlank()) {
-            openSdCardPicker()
-            return
+        val roots = savedSdTreeUris().mapNotNull { saved ->
+            val uri = Uri.parse(saved)
+            DocumentFile.fromTreeUri(this, uri)?.takeIf { it.isDirectory }?.let { document ->
+                uri to document
+            }
         }
-        runCatching {
-            openDocumentTreeRoot(Uri.parse(saved))
-        }.onFailure {
-            appPrefs().edit().remove(KEY_SD_TREE_URI).apply()
-            openSdCardPicker()
-        }
+        storeSdTreeUris(roots.map { it.first.toString() })
+        renderSdCardRootList(roots.map { (_, document) -> toDocumentFileEntry(document).asSdRootEntry() })
     }
 
     private fun openSdCardPicker() {
+        AlertDialog.Builder(this)
+            .setMessage(
+                "Androidの制約により、ストレージのルートは選択できません。\n" +
+                    "内部ストレージまたはSDカード内のフォルダを選択してください。",
+            )
+            .setPositiveButton("フォルダを選択") { _, _ -> launchSdCardPicker() }
+            .setNegativeButton("キャンセル", null)
+            .show()
+    }
+
+    private fun launchSdCardPicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
         startActivityForResult(intent, REQUEST_OPEN_SD_TREE)
+    }
+
+    private fun renderSdCardRootList(roots: List<DocumentFileEntry>) {
+        val entries = roots.sortedBy { it.name.lowercase() }
+        isDashboardVisible = false
+        dashboardView.renderDocumentTree(
+            title = "SDカード",
+            location = "追加済みフォルダ",
+            entries = entries,
+            displayMode = displayModePreference(),
+            fontPreference = fileListDisplayPreference(),
+            listOptions = fileListOptions,
+            sectionTitle = "追加済みフォルダ",
+            emptyMessage = "追加済みフォルダはありません。フォルダを追加してください。",
+            showListControls = false,
+            onListOptionsChanged = { options ->
+                fileListOptions = options
+                openSdCardExplorer()
+            },
+            onBack = ::renderDashboard,
+            onParent = null,
+            onOpenDirectory = { entry -> openDocumentDirectory(entry.document, emptyList()) },
+            onOpenFile = {},
+            onRegisterFile = {},
+            onChooseRoot = ::openSdCardPicker,
+        )
     }
 
     private fun openDocumentTreeRoot(treeUri: Uri) {
@@ -534,7 +568,8 @@ class MainActivity : Activity() {
             onBack = ::renderDashboard,
             onParent = parents.lastOrNull()?.let { parent ->
                 { openDocumentDirectory(parent, parents.dropLast(1)) }
-            },
+            } ?: ::openSdCardExplorer,
+            parentLabel = if (parents.isEmpty()) "追加済みフォルダ一覧へ戻る" else "親フォルダへ移動",
             onOpenDirectory = { entry -> openDocumentDirectory(entry.document, parents + directory) },
             onOpenFile = { entry ->
                 openViewer(
@@ -547,6 +582,39 @@ class MainActivity : Activity() {
             onRegisterFile = { entry -> registerDocumentFile(entry, directory) },
             onChooseRoot = ::openSdCardPicker,
         )
+    }
+
+    private fun DocumentFileEntry.asSdRootEntry(): DocumentFileEntry {
+        val fallback = document.uri.lastPathSegment.orEmpty().substringAfterLast(':').ifBlank { name }
+        val displayName = name.ifBlank { fallback }.ifBlank { "選択フォルダ" }
+        return copy(
+            name = displayName,
+            sizeLabel = "フォルダ",
+            updatedLabel = if (updatedAtMillis > 0L) updatedLabel else "追加済み",
+        )
+    }
+
+    private fun savedSdTreeUris(): List<String> {
+        val prefs = appPrefs()
+        val current = prefs.getString(KEY_SD_TREE_URIS, null)
+            ?.lineSequence()
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.toList()
+            .orEmpty()
+        val legacy = prefs.getString(KEY_SD_TREE_URI, null).orEmpty().trim()
+        return (current + legacy).filter { it.isNotBlank() }.distinct()
+    }
+
+    private fun rememberSdTreeUri(uri: Uri) {
+        storeSdTreeUris((savedSdTreeUris() + uri.toString()).distinct())
+    }
+
+    private fun storeSdTreeUris(uris: List<String>) {
+        appPrefs().edit()
+            .putString(KEY_SD_TREE_URIS, uris.distinct().joinToString("\n"))
+            .remove(KEY_SD_TREE_URI)
+            .apply()
     }
 
     private fun toDocumentFileEntry(document: DocumentFile): DocumentFileEntry {
@@ -2513,6 +2581,7 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_SD_TREE = 2404
         private const val APP_PREFS_NAME = "cabinet-app-settings"
         private const val KEY_SD_TREE_URI = "sd_tree_uri"
+        private const val KEY_SD_TREE_URIS = "sd_tree_uris"
         private const val KEY_DISPLAY_MODE = "display_mode"
         private const val KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"
         private const val KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
