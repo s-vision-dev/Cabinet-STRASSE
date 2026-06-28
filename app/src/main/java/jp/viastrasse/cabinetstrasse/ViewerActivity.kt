@@ -31,6 +31,14 @@ class ViewerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runCatching {
+            openFromIntent()
+        }.onFailure { error ->
+            renderText("Viewer", error.message ?: "ファイルを表示できませんでした。")
+        }
+    }
+
+    private fun openFromIntent() {
         val path = intent.getStringExtra(EXTRA_PATH).orEmpty()
         val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE).orEmpty()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
@@ -54,8 +62,7 @@ class ViewerActivity : Activity() {
             } else if (mimeType.startsWith("audio/")) {
                 renderAudio(displayTitle, uri)
             } else {
-                openExternal(uri, mimeType)
-                finish()
+                renderUnsupported(displayTitle, mimeType)
             }
         }.onFailure { error ->
             renderText(displayTitle, error.message ?: "ファイルを表示できませんでした。")
@@ -262,6 +269,11 @@ class ViewerActivity : Activity() {
         layout.addView(titleView)
         layout.addView(control)
         setContentView(layout)
+    }
+
+    private fun renderUnsupported(title: String, mimeType: String) {
+        val typeText = mimeType.ifBlank { "unknown" }
+        renderText(title, "この形式はCabinet内ビューアでは表示できません。\nMIME: $typeText")
     }
 
     private fun readText(uri: Uri): String {
