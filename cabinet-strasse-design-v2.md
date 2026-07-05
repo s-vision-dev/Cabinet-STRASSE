@@ -1,11 +1,11 @@
-# Cabinet by VIASTRASSE 理想形設計書
+# Cabinet-STRASSE 理想形設計書
 
 ## 1. 文書情報
 
 |項目|内容|
 |---|---|
-|文書名|Cabinet by VIASTRASSE 理想形設計書|
-|対象アプリ|Cabinet by VIASTRASSE|
+|文書名|Cabinet-STRASSE 理想形設計書|
+|対象アプリ|Cabinet-STRASSE|
 |パッケージ名|`jp.viastrasse.cabinet`|
 |コンセプト名|The Cabinet|
 |ブランド表記|Powered by VIASTRASSE|
@@ -16,14 +16,14 @@
 
 ## 2. 概要
 
-Cabinet by VIASTRASSE は、通常のファイルマネージャーとして利用できることを前提にしながら、VIASTRASSE ファミリーと連携し、ファイル、資料、添付、URL、成果物を整理、検索、参照、関連付けできるデジタル資産管理アプリである。
+Cabinet-STRASSE は、通常のファイルマネージャーとして利用できることを前提にしながら、VIASTRASSE ファミリーと連携し、ファイル、資料、添付、URL、成果物を整理、検索、参照、関連付けできるデジタル資産管理アプリである。
 
 単なるファイル一覧ではなく、資料を保管し、整理し、必要なときに取り出すための「書庫」として機能する。
 
 コンセプトは以下とする。
 
 ```text
-Cabinet by VIASTRASSE
+Cabinet-STRASSE
 The Cabinet
 Powered by VIASTRASSE
 ```
@@ -32,7 +32,7 @@ Powered by VIASTRASSE
 
 ## 3. 基本思想
 
-Cabinet by VIASTRASSE は、普通のファイルマネージャーとして成立することを前提とする。
+Cabinet-STRASSE は、普通のファイルマネージャーとして成立することを前提とする。
 
 ただし、それだけではなく、VIASTRASSE ファミリーの中では「資料の正本」を管理する役割を持つ。
 
@@ -40,12 +40,12 @@ Cabinet by VIASTRASSE は、普通のファイルマネージャーとして成�
 
 |アプリ|役割|
 |---|---|
-|Home by VIASTRASSE|入口・ダッシュボード|
-|Mail by VIASTRASSE|情報取得・添付取得|
-|Notify by VIASTRASSE|イベント取得|
-|Task by VIASTRASSE|実行管理|
-|Atelier by VIASTRASSE|思考・調査・結果・整理|
-|Cabinet by VIASTRASSE|資料・ファイル・URL・成果物の保管庫|
+|Home-STRASSE|入口・ダッシュボード|
+|Mail-STRASSE|情報取得・添付取得|
+|Notify-STRASSE|イベント取得|
+|Task-STRASSE|実行管理|
+|Atelier-STRASSE|思考・調査・結果・整理|
+|Cabinet-STRASSE|資料・ファイル・URL・成果物の保管庫|
 
 ### 3.2 Atelierとの違い
 
@@ -64,7 +64,7 @@ Atelier はファイル本体を抱え込まず、Cabinet上の資料を参照�
 
 ## 4. 単体アプリとしての価値
 
-Cabinet by VIASTRASSE は、他の STRASSE アプリがインストールされていなくても、通常のファイルマネージャーとして成立する必要がある。
+Cabinet-STRASSE は、他の STRASSE アプリがインストールされていなくても、通常のファイルマネージャーとして成立する必要がある。
 
 ### 4.1 単体利用で提供する価値
 
@@ -96,7 +96,7 @@ Cabinet by VIASTRASSE は、他の STRASSE アプリがインストールされ�
 
 ## 5. 主要モード
 
-Cabinet by VIASTRASSE は以下の主要モードを持つ。
+Cabinet-STRASSE は以下の主要モードを持つ。
 
 ```text
 Explorer
@@ -317,7 +317,7 @@ Cabinet 内で主要ファイルを閲覧できるようにする。
 
 ## 13. プレビュー生成
 
-Cabinet by VIASTRASSE は、ファイルを開かなくても内容を推測できるように、可能な範囲でプレビュー情報を生成して保存する。
+Cabinet-STRASSE は、ファイルを開かなくても内容を推測できるように、可能な範囲でプレビュー情報を生成して保存する。
 
 スマホではファイル名だけでは内容を判断しにくいため、プレビューは重要機能とする。
 
@@ -450,7 +450,7 @@ Cabinet はファイルそのものに加えて、STRASSE独自のメタデー�
 
 ## 16. Cabinet内検索
 
-Cabinet by VIASTRASSE は、Cabinet内のファイル・URL・メモ・タグ・プレビュー情報を検索できる。
+Cabinet-STRASSE は、Cabinet内のファイル・URL・メモ・タグ・プレビュー情報を検索できる。
 
 ### 16.1 Search Pluginとの役割分担
 
@@ -555,7 +555,7 @@ Cabinet はファイルだけでなく URL も資料として扱う。
 
 ## 19. バージョン管理
 
-Cabinet by VIASTRASSE は、同一資料の版を管理できる。
+Cabinet-STRASSE は、同一資料の版を管理できる。
 
 ### 19.1 基本思想
 
@@ -739,9 +739,9 @@ Android共有メニューから Cabinet に保存できる。
 
 ---
 
-## 24. Mail by VIASTRASSE連携
+## 24. Mail-STRASSE連携
 
-Mail by VIASTRASSEとの連携は、Cabinet by VIASTRASSEの重要機能である。
+Mail-STRASSEとの連携は、Cabinet-STRASSEの重要機能である。
 
 ### 24.1 添付保存
 
@@ -758,7 +758,7 @@ Mailの添付を Cabinet へ保存できる。
 
 ### 24.2 保存メモ
 
-Mail by VIASTRASSEから添付ファイルをCabinetへ保存する場合、保存時に任意のメモを入力できる。
+Mail-STRASSEから添付ファイルをCabinetへ保存する場合、保存時に任意のメモを入力できる。
 
 用途例:
 
@@ -790,7 +790,7 @@ Cabinet Item
 
 Cabinet側から元メールや関連メールを開ける。
 
-Mail本文をCabinetへ丸ごとコピーするのではなく、原則としてMail by VIASTRASSEへの参照を保持する。
+Mail本文をCabinetへ丸ごとコピーするのではなく、原則としてMail-STRASSEへの参照を保持する。
 
 ### 24.5 添付分類
 
@@ -807,7 +807,7 @@ Mail本文をCabinetへ丸ごとコピーするのではなく、原則として
 
 ---
 
-## 25. Task by VIASTRASSE連携
+## 25. Task-STRASSE連携
 
 ### 25.1 Taskへ添付
 
@@ -831,7 +831,7 @@ Cabinetの資料から関連Taskを確認できる。
 
 ---
 
-## 26. Atelier by VIASTRASSE連携
+## 26. Atelier-STRASSE連携
 
 ### 26.1 Atelierへ関連付け
 
@@ -854,7 +854,7 @@ Cabinet = 資料・添付・ファイル・URLの正本
 
 ---
 
-## 27. Notify by VIASTRASSE連携
+## 27. Notify-STRASSE連携
 
 通知から保存すべき情報を Cabinet に追加できる。
 
@@ -869,7 +869,7 @@ Cabinet = 資料・添付・ファイル・URLの正本
 
 ---
 
-## 28. Home by VIASTRASSE連携
+## 28. Home-STRASSE連携
 
 Homeタイルに以下を表示できる。
 
@@ -1153,7 +1153,7 @@ updatedAt
 
 ## 35. リモートストレージ連携
 
-Cabinet by VIASTRASSE は、将来的にローカルストレージだけでなく、クラウドストレージ、NAS、ネットワークストレージを同じ UI で扱えるようにする。
+Cabinet-STRASSE は、将来的にローカルストレージだけでなく、クラウドストレージ、NAS、ネットワークストレージを同じ UI で扱えるようにする。
 
 ただし、各サービスのファイルを端末へ常時同期することを前提とはしない。
 
@@ -1428,7 +1428,7 @@ CabinetItem
 
 ## 36. まとめ
 
-Cabinet by VIASTRASSE は、普通のファイルマネージャーとして利用できることを前提としながら、VIASTRASSEファミリーの中では「資料の正本」を管理するアプリである。
+Cabinet-STRASSE は、普通のファイルマネージャーとして利用できることを前提としながら、VIASTRASSEファミリーの中では「資料の正本」を管理するアプリである。
 
 Atelier が思考と成果を育てる工房であるのに対し、Cabinet は資料・添付・URL・成果物を保管し、整理し、必要なときに取り出す書庫である。
 
@@ -1441,7 +1441,7 @@ Atelier が思考と成果を育てる工房であるのに対し、Cabinet は�
 
 ### 37.1 基本方針
 
-Cabinet by VIASTRASSE は STRASSE Platform のストレージ基盤となり得るが、必須コンポーネントではない。
+Cabinet-STRASSE は STRASSE Platform のストレージ基盤となり得るが、必須コンポーネントではない。
 
 各 STRASSE アプリは Cabinet がインストールされていなくても単体で正常動作し、自身で保存・読込を行えることを前提とする。
 
