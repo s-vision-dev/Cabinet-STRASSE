@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.preview
+package jp.viastrasse.cabinet.preview
 
 import android.content.Context
 import androidx.work.CoroutineWorker
@@ -6,7 +6,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinet.data.CabinetRepository
 
 class PreviewWorker(
     appContext: Context,

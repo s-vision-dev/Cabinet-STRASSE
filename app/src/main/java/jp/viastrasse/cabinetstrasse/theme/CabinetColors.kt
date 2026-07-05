@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.theme
+package jp.viastrasse.cabinet.theme
 
 import android.graphics.Color
 

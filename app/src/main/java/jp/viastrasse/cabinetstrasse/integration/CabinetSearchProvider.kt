@@ -1,12 +1,12 @@
-package jp.viastrasse.cabinetstrasse.integration
+package jp.viastrasse.cabinet.integration
 
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import jp.viastrasse.cabinetstrasse.data.CabinetItemDetail
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinet.data.CabinetItemDetail
+import jp.viastrasse.cabinet.data.CabinetRepository
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -50,14 +50,14 @@ class CabinetSearchProvider : ContentProvider() {
                 val detail = runCatching { repository.detail(item.id) }.getOrNull()
                 cursor.addRow(
                     arrayOf<Any>(
-                        "Cabinet-STRASSE",
+                        "Cabinet by VIASTRASSE",
                         item.id,
                         item.title,
                         item.displayName,
                         item.mimeType,
                         item.sourceKind,
                         item.summaryText,
-                        "strasse://cabinet/open/${item.id}",
+                        "viastrasse-cabinet://open/${item.id}",
                         item.updatedAt,
                         if (item.isFavorite) 1 else 0,
                         if (item.isUnsorted) 1 else 0,
@@ -102,7 +102,7 @@ class CabinetSearchProvider : ContentProvider() {
                     .put("id", collection.id)
                     .put("title", collection.title)
                     .put("item_count", collection.itemCount)
-                    .put("deep_link", "strasse://cabinet/collection/${collection.id}")
+                    .put("deep_link", "viastrasse-cabinet://collection/${collection.id}")
             },
         ).toString()
     }

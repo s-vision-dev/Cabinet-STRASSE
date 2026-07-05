@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.data
+package jp.viastrasse.cabinet.data
 
 data class CabinetDashboard(
     val version: Long,

@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.integration
+package jp.viastrasse.cabinet.integration
 
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -6,8 +6,8 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.OpenableColumns
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
-import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
+import jp.viastrasse.cabinet.data.CabinetRepository
+import jp.viastrasse.cabinet.preview.PreviewWorker
 import org.json.JSONObject
 import java.io.File
 import java.net.URLConnection
@@ -62,10 +62,10 @@ class CabinetEventProvider : ContentProvider() {
                             itemId,
                             event.optJSONObject("payload")?.toString().orEmpty(),
                             event.optString("created_at"),
-                            if (itemId.isBlank()) "" else "strasse://cabinet/open/$itemId",
+                            if (itemId.isBlank()) "" else "viastrasse-cabinet://open/$itemId",
                             CONTRACT_VERSION,
                             event.optJSONObject("payload")?.optString("source_app").orEmpty(),
-                            "content://jp.viastrasse.cabinetstrasse.provider.events",
+                            "content://jp.viastrasse.cabinet.provider.events",
                         ),
                     )
                 }
@@ -123,7 +123,7 @@ class CabinetEventProvider : ContentProvider() {
                     .ifBlank { "STRASSE EventからURL保存" },
             )
             attachSourceReference(repository, item.id, payload, values, url)
-            return Uri.parse("strasse://cabinet/open/${item.id}")
+            return Uri.parse("viastrasse-cabinet://open/${item.id}")
         }
 
         val fileUriText = values?.getAsString("fileUri").orEmpty().ifBlank { payload.optString("fileUri") }
@@ -162,7 +162,7 @@ class CabinetEventProvider : ContentProvider() {
         )
         attachSourceReference(repository, item.id, payload, values, fileUriText)
         PreviewWorker.enqueue(context)
-        return Uri.parse("strasse://cabinet/open/${item.id}")
+        return Uri.parse("viastrasse-cabinet://open/${item.id}")
     }
 
     private fun addReferenceRequestedPayload(
@@ -184,7 +184,7 @@ class CabinetEventProvider : ContentProvider() {
             itemId = itemId,
             referenceType = values?.getAsString("referenceType").orEmpty()
                 .ifBlank { payload.optString("referenceType") }
-                .ifBlank { sourceApp.lowercase() },
+                .ifBlank { appKey(sourceApp) },
             sourceApp = sourceApp,
             sourceId = sourceId,
             title = values?.getAsString("title").orEmpty()
@@ -192,12 +192,12 @@ class CabinetEventProvider : ContentProvider() {
                 .ifBlank { "$sourceApp reference" },
             uri = values?.getAsString("uri").orEmpty()
                 .ifBlank { payload.optString("uri") }
-                .ifBlank { "strasse://${sourceApp.lowercase()}/open/$sourceId" },
+                .ifBlank { "viastrasse-${appKey(sourceApp)}://open/$sourceId" },
             note = values?.getAsString("note").orEmpty()
                 .ifBlank { payload.optString("note") }
                 .ifBlank { "STRASSE Eventから参照追加" },
         )
-        return Uri.parse("strasse://cabinet/open/$itemId")
+        return Uri.parse("viastrasse-cabinet://open/$itemId")
     }
 
     private fun attachSourceReference(
@@ -219,7 +219,7 @@ class CabinetEventProvider : ContentProvider() {
             itemId = itemId,
             referenceType = values?.getAsString("referenceType").orEmpty()
                 .ifBlank { payload.optString("referenceType") }
-                .ifBlank { sourceApp.lowercase() },
+                .ifBlank { appKey(sourceApp) },
             sourceApp = sourceApp,
             sourceId = sourceId,
             title = values?.getAsString("sourceTitle").orEmpty()
@@ -234,6 +234,24 @@ class CabinetEventProvider : ContentProvider() {
                 .ifBlank { payload.optString("referenceNote") }
                 .ifBlank { "STRASSE Eventから自動関連付け" },
         )
+    }
+
+    private fun appKey(sourceApp: String): String {
+        val normalized = sourceApp.trim().lowercase()
+        return when {
+            normalized.startsWith("mail") -> "mail"
+            normalized.startsWith("home") -> "home"
+            normalized.startsWith("task") -> "task"
+            normalized.startsWith("notify") -> "notify"
+            normalized.startsWith("atelier") -> "atelier"
+            normalized.startsWith("cabinet") -> "cabinet"
+            else -> normalized
+                .replace(" by viastrasse", "")
+                .replace("-strasse", "")
+                .replace(Regex("[^a-z0-9-]"), "-")
+                .trim('-')
+                .ifBlank { "external" }
+        }
     }
 
     private fun queryOpenable(uri: Uri, payload: JSONObject, values: ContentValues?): EventFileInfo {

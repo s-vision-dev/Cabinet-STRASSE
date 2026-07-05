@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.preview
+package jp.viastrasse.cabinet.preview
 
 import android.content.Context
 import android.graphics.Bitmap

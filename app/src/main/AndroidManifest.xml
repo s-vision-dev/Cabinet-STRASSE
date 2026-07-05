@@ -9,14 +9,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
-        <package android:name="jp.viastrasse.homestrasse" />
-        <package android:name="jp.viastrasse.mailstrasse" />
-        <package android:name="jp.viastrasse.taskstrasse" />
-        <package android:name="jp.viastrasse.atelierstrasse" />
-        <package android:name="jp.viastrasse.notifystrasse" />
+        <package android:name="jp.viastrasse.home" />
+        <package android:name="jp.viastrasse.mail" />
+        <package android:name="jp.viastrasse.task" />
+        <package android:name="jp.viastrasse.atelier" />
+        <package android:name="jp.viastrasse.notify" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="strasse" />
+            <data android:scheme="viastrasse-cabinet" />
         </intent>
     </queries>
 
@@ -41,7 +41,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="strasse" android:host="cabinet" />
+                <data android:scheme="viastrasse-cabinet" />
             </intent-filter>
         </activity>
 
@@ -68,27 +68,27 @@
 
         <provider
             android:name=".integration.CabinetHomeSummaryProvider"
-            android:authorities="jp.viastrasse.cabinetstrasse.provider.home"
+            android:authorities="jp.viastrasse.cabinet.provider.home"
             android:exported="true" />
 
         <provider
             android:name=".integration.CabinetSearchProvider"
-            android:authorities="jp.viastrasse.cabinetstrasse.provider.search"
+            android:authorities="jp.viastrasse.cabinet.provider.search"
             android:exported="true" />
 
         <provider
             android:name=".integration.CabinetEventProvider"
-            android:authorities="jp.viastrasse.cabinetstrasse.provider.events"
+            android:authorities="jp.viastrasse.cabinet.provider.events"
             android:exported="true" />
 
         <provider
             android:name=".integration.CabinetSaveProvider"
-            android:authorities="jp.viastrasse.cabinetstrasse.provider.save"
+            android:authorities="jp.viastrasse.cabinet.provider.save"
             android:exported="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="jp.viastrasse.cabinetstrasse.fileprovider"
+            android:authorities="jp.viastrasse.cabinet.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

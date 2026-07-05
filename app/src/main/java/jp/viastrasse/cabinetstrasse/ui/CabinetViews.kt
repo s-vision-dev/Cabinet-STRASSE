@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.ui
+package jp.viastrasse.cabinet.ui
 
 import android.app.AlertDialog
 import android.content.Context
@@ -19,17 +19,17 @@ import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.documentfile.provider.DocumentFile
-import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
-import jp.viastrasse.cabinetstrasse.data.CabinetDashboard
-import jp.viastrasse.cabinetstrasse.data.CabinetItemDetail
-import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
-import jp.viastrasse.cabinetstrasse.data.DuplicateReport
-import jp.viastrasse.cabinetstrasse.data.ModeResponse
-import jp.viastrasse.cabinetstrasse.data.SearchResponse
-import jp.viastrasse.cabinetstrasse.data.SettingsSnapshot
-import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
-import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
-import jp.viastrasse.cabinetstrasse.theme.CabinetColors
+import jp.viastrasse.cabinet.data.CabinetCollectionSummary
+import jp.viastrasse.cabinet.data.CabinetDashboard
+import jp.viastrasse.cabinet.data.CabinetItemDetail
+import jp.viastrasse.cabinet.data.CabinetItemSummary
+import jp.viastrasse.cabinet.data.DuplicateReport
+import jp.viastrasse.cabinet.data.ModeResponse
+import jp.viastrasse.cabinet.data.SearchResponse
+import jp.viastrasse.cabinet.data.SettingsSnapshot
+import jp.viastrasse.cabinet.data.SmartFolderSummary
+import jp.viastrasse.cabinet.data.StorageProviderAccountSummary
+import jp.viastrasse.cabinet.theme.CabinetColors
 import java.io.File
 
 class CabinetDashboardView(context: Context) : ScrollView(context) {
@@ -79,7 +79,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     fun renderError(message: String) {
         content.removeAllViews()
-        content.addView(title("Cabinet-STRASSE"))
+        content.addView(title("Cabinet by VIASTRASSE"))
         content.addView(errorText(message))
     }
 
@@ -994,7 +994,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(8))
-            addView(title("Cabinet-STRASSE"))
+            addView(title("Cabinet by VIASTRASSE"))
             addView(subtitle("File Manager / Powered by VIASTRASSE"))
             addView(label("${dashboard.libraryCount} files / Inbox ${dashboard.inboxCount} / Favorites ${dashboard.favoriteCount}", 12, false, CabinetColors.TextSecondary))
         }
@@ -1954,7 +1954,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun jp.viastrasse.cabinetstrasse.data.CabinetPreviewSummary.metadataText(): String {
+    private fun jp.viastrasse.cabinet.data.CabinetPreviewSummary.metadataText(): String {
         return listOfNotNull(
             pageCount?.let { "$it pages" },
             duration?.let { "${it}ms" },

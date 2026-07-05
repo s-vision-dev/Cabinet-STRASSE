@@ -4,7 +4,7 @@ use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jstring};
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_dashboardJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_dashboardJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -13,7 +13,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_dash
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_searchJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_searchJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -29,7 +29,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_sear
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_modeJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_modeJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -43,7 +43,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_mode
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_itemDetailJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_itemDetailJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -59,7 +59,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_item
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_itemDetailUnlockedJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_itemDetailUnlockedJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -80,7 +80,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_item
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_processPreviewQueueJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_processPreviewQueueJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -92,7 +92,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_proc
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_settingsJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_settingsJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -101,7 +101,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_sett
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_updateStorageProviderJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_updateStorageProviderJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -131,7 +131,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_upda
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_createSmartFolderJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_createSmartFolderJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -152,7 +152,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_crea
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_eventsJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_eventsJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -162,7 +162,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_even
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_backupExportJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_backupExportJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -171,7 +171,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_back
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_backupImportJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_backupImportJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -187,7 +187,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_back
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_duplicateReportJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_duplicateReportJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -196,7 +196,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_dupl
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_updateItemFlagsJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_updateItemFlagsJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -214,7 +214,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_upda
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_markItemOpenedJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_markItemOpenedJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -230,7 +230,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_mark
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addTagToItemJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_addTagToItemJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -256,7 +256,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addT
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_removeTagFromItemJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_removeTagFromItemJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -277,7 +277,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_remo
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addItemToCollectionJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_addItemToCollectionJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -298,7 +298,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addI
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_removeItemFromCollectionJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_removeItemFromCollectionJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -319,7 +319,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_remo
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_moveItemToTrashJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_moveItemToTrashJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -335,7 +335,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_move
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_restoreItemFromTrashJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_restoreItemFromTrashJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -351,7 +351,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_rest
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_deleteItemPermanentlyJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_deleteItemPermanentlyJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -367,7 +367,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_dele
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_duplicateItemJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_duplicateItemJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -383,7 +383,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_dupl
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_renameItemJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_renameItemJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -404,7 +404,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_rena
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addVersionJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_addVersionJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -448,7 +448,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addV
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setCurrentVersionJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_setCurrentVersionJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -469,7 +469,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setC
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addReferenceJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_addReferenceJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -523,7 +523,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addR
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addMemoJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_addMemoJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -545,7 +545,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addM
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addOcrTextJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_addOcrTextJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -571,7 +571,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_addO
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setItemThumbnailJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_setItemThumbnailJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -592,7 +592,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setI
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setSecurityPinJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_setSecurityPinJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -608,7 +608,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_verifySecurityPinJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_verifySecurityPinJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -624,7 +624,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_veri
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setItemProtectedJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_setItemProtectedJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -641,7 +641,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_setI
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerUrlJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_registerUrlJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -667,7 +667,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_regi
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerFileJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_registerFileJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -711,7 +711,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_regi
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_registerRemoteFileJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_registerRemoteFileJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,
@@ -767,7 +767,7 @@ pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_regi
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_jp_viastrasse_cabinetstrasse_core_CabinetNative_markRemoteFileCachedJson(
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_markRemoteFileCachedJson(
     mut env: JNIEnv,
     _class: JClass,
     database_path: JString,

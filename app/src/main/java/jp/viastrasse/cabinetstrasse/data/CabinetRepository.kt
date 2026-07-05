@@ -1,7 +1,7 @@
-package jp.viastrasse.cabinetstrasse.data
+package jp.viastrasse.cabinet.data
 
 import android.content.Context
-import jp.viastrasse.cabinetstrasse.core.CabinetNative
+import jp.viastrasse.cabinet.core.CabinetNative
 import org.json.JSONObject
 import java.io.File
 import java.time.OffsetDateTime
@@ -11,7 +11,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 class CabinetRepository(context: Context) {
-    private val databasePath = File(context.filesDir, "cabinet-strasse.db").absolutePath
+    private val databasePath = resolveDatabaseFile(context).absolutePath
     private val backupDir = File(context.filesDir, "backups").apply { mkdirs() }
     private val archiveDir = File(context.filesDir, "archives").apply { mkdirs() }
     private val extractDir = File(context.filesDir, "extracted").apply { mkdirs() }
@@ -69,7 +69,7 @@ class CabinetRepository(context: Context) {
     fun exportBackup(): File {
         val json = CabinetNative.backupExportJson(databasePath)
         val timestamp = OffsetDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-        val file = File(backupDir, "cabinet-strasse-backup-$timestamp.json")
+        val file = File(backupDir, "$BACKUP_FILE_PREFIX$timestamp.json")
         file.writeText(json, Charsets.UTF_8)
         pruneBackups(maxGenerations = 10)
         return file
@@ -83,7 +83,7 @@ class CabinetRepository(context: Context) {
 
     fun restoreLatestLocalBackup(): SettingsSnapshot {
         val backup = backupDir
-            .listFiles { file -> file.isFile && file.name.startsWith("cabinet-strasse-backup-") && file.name.endsWith(".json") }
+            .listFiles { file -> isCabinetBackupFile(file) }
             ?.maxByOrNull { it.lastModified() }
             ?: error("ローカルバックアップがありません")
         return importBackup(backup.readText(Charsets.UTF_8))
@@ -340,7 +340,7 @@ class CabinetRepository(context: Context) {
     }
 
     private fun pruneBackups(maxGenerations: Int) {
-        backupDir.listFiles { file -> file.isFile && file.name.startsWith("cabinet-strasse-backup-") && file.name.endsWith(".json") }
+        backupDir.listFiles { file -> isCabinetBackupFile(file) }
             ?.sortedByDescending { it.lastModified() }
             ?.drop(maxGenerations)
             ?.forEach { it.delete() }
@@ -351,5 +351,30 @@ class CabinetRepository(context: Context) {
             .split("/")
             .filter { it.isNotBlank() && it != "." && it != ".." }
             .joinToString("/")
+    }
+
+    private fun isCabinetBackupFile(file: File): Boolean {
+        return file.isFile &&
+            file.name.endsWith(".json") &&
+            (file.name.startsWith(BACKUP_FILE_PREFIX) || file.name.startsWith(LEGACY_BACKUP_FILE_PREFIX))
+    }
+
+    private fun resolveDatabaseFile(context: Context): File {
+        val current = File(context.filesDir, DATABASE_FILE_NAME)
+        val legacy = File(context.filesDir, LEGACY_DATABASE_FILE_NAME)
+        if (!current.exists() && legacy.exists()) {
+            val moved = legacy.renameTo(current)
+            if (!moved && current.parentFile?.canWrite() == true) {
+                legacy.copyTo(current, overwrite = false)
+            }
+        }
+        return current
+    }
+
+    companion object {
+        private const val DATABASE_FILE_NAME = "cabinet.db"
+        private const val LEGACY_DATABASE_FILE_NAME = "cabinet-strasse.db"
+        private const val BACKUP_FILE_PREFIX = "cabinet-backup-"
+        private const val LEGACY_BACKUP_FILE_PREFIX = "cabinet-strasse-backup-"
     }
 }

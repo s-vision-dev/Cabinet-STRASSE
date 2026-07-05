@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.core
+package jp.viastrasse.cabinet.core
 
 object CabinetNative {
     init {

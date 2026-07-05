@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.integration
+package jp.viastrasse.cabinet.integration
 
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -6,8 +6,8 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.OpenableColumns
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
-import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
+import jp.viastrasse.cabinet.data.CabinetRepository
+import jp.viastrasse.cabinet.preview.PreviewWorker
 import java.io.File
 import java.net.URLConnection
 
@@ -73,7 +73,7 @@ class CabinetSaveProvider : ContentProvider() {
                     note = values?.getAsString("note").orEmpty().ifBlank { "CabinetSaveProviderからファイル保存" },
                 )
                 PreviewWorker.enqueue(context)
-                Uri.parse("strasse://cabinet/open/${item.id}")
+                Uri.parse("viastrasse-cabinet://open/${item.id}")
             }.getOrNull()
         }
         val url = values?.getAsString("url").orEmpty()
@@ -86,7 +86,7 @@ class CabinetSaveProvider : ContentProvider() {
                 title = values?.getAsString("title").orEmpty().ifBlank { url },
                 note = values?.getAsString("note").orEmpty().ifBlank { "CabinetSaveProviderから保存" },
             )
-            Uri.parse("strasse://cabinet/open/${item.id}")
+            Uri.parse("viastrasse-cabinet://open/${item.id}")
         }.getOrNull()
     }
 

@@ -167,7 +167,7 @@ try {
 
     $versionName = Read-VersionName -VersionFile $versionFile
     $buildNumber = Read-BuildNumber -BuildFile $buildFile
-    $releaseName = "Cabinet-STRASSE-$versionName-build-$buildNumber"
+    $releaseName = "Cabinet by VIASTRASSE-$versionName-build-$buildNumber"
 
     Write-Step "Release build: version $versionName build $buildNumber on $branch"
     Invoke-ReleaseBuild -RepoRoot $repoRoot
@@ -177,7 +177,7 @@ try {
 
     Write-Step "Copy artifacts to Dropbox"
     $resolvedDropboxRoot = Resolve-DropboxRoot -RequestedRoot $DropboxRoot
-    $releaseFile = Join-Path $resolvedDropboxRoot "Cabinet-STRASSE\Cabinet-STRASSE-release.apk"
+    $releaseFile = Join-Path $resolvedDropboxRoot "Cabinet by VIASTRASSE\Cabinet by VIASTRASSE-release.apk"
     Copy-ReleaseArtifacts -Artifacts $artifacts -DestinationFile $releaseFile
 
     Write-Step "Increment build number"
@@ -191,7 +191,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($status)) {
         Write-Host "No Git changes to commit."
     } else {
-        git commit -m "Release Cabinet-STRASSE $versionName build $buildNumber"
+        git commit -m "Release Cabinet by VIASTRASSE $versionName build $buildNumber"
     }
 
     Write-Step "Push"

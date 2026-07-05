@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.data
+package jp.viastrasse.cabinet.data
 
 import org.json.JSONArray
 import org.json.JSONObject

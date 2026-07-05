@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse
+package jp.viastrasse.cabinet
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -10,10 +10,10 @@ import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
-import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
-import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
-import jp.viastrasse.cabinetstrasse.theme.CabinetColors
+import jp.viastrasse.cabinet.data.CabinetItemSummary
+import jp.viastrasse.cabinet.data.CabinetRepository
+import jp.viastrasse.cabinet.preview.PreviewWorker
+import jp.viastrasse.cabinet.theme.CabinetColors
 import java.io.File
 
 class ShareReceiverActivity : Activity() {
@@ -199,8 +199,8 @@ class ShareReceiverActivity : Activity() {
     )
 
     companion object {
-        private const val EXTRA_TAG = "jp.viastrasse.cabinetstrasse.extra.TAG"
-        private const val EXTRA_COLLECTION = "jp.viastrasse.cabinetstrasse.extra.COLLECTION"
-        private const val EXTRA_NOTE = "jp.viastrasse.cabinetstrasse.extra.NOTE"
+        private const val EXTRA_TAG = "jp.viastrasse.cabinet.extra.TAG"
+        private const val EXTRA_COLLECTION = "jp.viastrasse.cabinet.extra.COLLECTION"
+        private const val EXTRA_NOTE = "jp.viastrasse.cabinet.extra.NOTE"
     }
 }

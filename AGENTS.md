@@ -8,7 +8,7 @@
 
 ## Project Direction
 
-- Cabinet-STRASSE targets Android.
+- Cabinet by VIASTRASSE targets Android.
 - The Android layer is implemented in Kotlin.
 - The lower-level core is implemented in Rust.
 - SQLite direct access is the persistence strategy.
@@ -49,7 +49,7 @@
   4. Commit release-related tracked changes.
   5. Push the current branch.
 - Do not run the release script with Windows PowerShell 5.1 because UTF-8 strings may be parsed incorrectly. Use PowerShell 7 or later via `pwsh`.
-- Release APK is copied to `Dropbox\Cabinet-STRASSE\Cabinet-STRASSE-release.apk` by default.
+- Release APK is copied to `Dropbox\Cabinet by VIASTRASSE\Cabinet by VIASTRASSE-release.apk` by default.
 
 ## Line Endings
 

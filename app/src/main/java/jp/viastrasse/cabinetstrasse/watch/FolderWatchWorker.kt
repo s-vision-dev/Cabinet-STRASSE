@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.watch
+package jp.viastrasse.cabinet.watch
 
 import android.content.Context
 import android.net.Uri
@@ -10,8 +10,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
-import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
+import jp.viastrasse.cabinet.data.CabinetRepository
+import jp.viastrasse.cabinet.preview.PreviewWorker
 import java.io.File
 import java.util.concurrent.TimeUnit
 

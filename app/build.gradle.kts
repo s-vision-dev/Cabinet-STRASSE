@@ -20,11 +20,11 @@ val buildNumber = if (buildNumberFile.exists()) {
 }
 
 android {
-    namespace = "jp.viastrasse.cabinetstrasse"
+    namespace = "jp.viastrasse.cabinet"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "jp.viastrasse.cabinetstrasse"
+        applicationId = "jp.viastrasse.cabinet"
         minSdk = 26
         targetSdk = 36
         versionCode = buildNumber

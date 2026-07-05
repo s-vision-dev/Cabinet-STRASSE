@@ -858,7 +858,7 @@ impl CabinetCore {
     pub fn backup_export_json(&self) -> CabinetResult<String> {
         let tables = self.backup_tables_json()?;
         let value = serde_json::json!({
-            "app": "Cabinet-STRASSE",
+            "app": "Cabinet by VIASTRASSE",
             "schema_version": SCHEMA_VERSION,
             "exported_at": now_string(),
             "summary": self.backup_summary()?,
@@ -873,9 +873,9 @@ impl CabinetCore {
 
     pub fn backup_import_json(&self, backup_json: &str) -> CabinetResult<String> {
         let backup: BackupEnvelope = serde_json::from_str(backup_json)?;
-        if backup.app != "Cabinet-STRASSE" {
+        if backup.app != "Cabinet by VIASTRASSE" && backup.app != "Cabinet-STRASSE" {
             return Err(CabinetError::Message(
-                "Backup is not for Cabinet-STRASSE.".to_owned(),
+                "Backup is not for Cabinet by VIASTRASSE.".to_owned(),
             ));
         }
         if backup.schema_version > SCHEMA_VERSION {
@@ -1146,7 +1146,7 @@ impl CabinetCore {
             "INSERT INTO cabinet_versions(
                 id, document_id, version_number, file_id, display_name, original_file_name,
                 registered_at, source_app, source_id, note, is_current
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, 'Cabinet-STRASSE', NULL, ?7, 1)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, 'Cabinet by VIASTRASSE', NULL, ?7, 1)",
             params![
                 version_id,
                 document_id,
@@ -1636,7 +1636,7 @@ impl CabinetCore {
             "INSERT INTO cabinet_versions (
                 id, document_id, version_number, file_id, display_name, original_file_name,
                 registered_at, source_app, source_id, note, is_current
-            ) VALUES (?1, ?2, 1, ?3, ?4, ?4, ?5, 'Cabinet-STRASSE', NULL, ?6, 1)",
+            ) VALUES (?1, ?2, 1, ?3, ?4, ?4, ?5, 'Cabinet by VIASTRASSE', NULL, ?6, 1)",
             params![version_id, document_id, file_id, display_name, now, note],
         )?;
         self.conn.execute(
@@ -2147,7 +2147,7 @@ impl CabinetCore {
 
         let samples = [
             (
-                "Cabinet-STRASSE 理想形設計書",
+                "Cabinet by VIASTRASSE 理想形設計書",
                 "cabinet-strasse-design-v2.md",
                 "text/markdown",
                 "local",
@@ -3690,7 +3690,7 @@ mod tests {
         assert!(detail_json.contains("\"is_favorite\":true"));
         assert!(detail_json.contains("\"is_unsorted\":false"));
         let backup = core.backup_export_json().expect("backup");
-        assert!(backup.contains("Cabinet-STRASSE"));
+        assert!(backup.contains("Cabinet by VIASTRASSE"));
         let _ = fs::remove_file(path);
     }
 }

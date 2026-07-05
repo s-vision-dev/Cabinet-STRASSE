@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse
+package jp.viastrasse.cabinet
 
 import android.app.Activity
 import android.content.Context
@@ -23,7 +23,7 @@ import android.widget.MediaController
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.VideoView
-import jp.viastrasse.cabinetstrasse.theme.CabinetColors
+import jp.viastrasse.cabinet.theme.CabinetColors
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin

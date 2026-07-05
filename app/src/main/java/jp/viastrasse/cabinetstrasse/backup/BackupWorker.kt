@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse.backup
+package jp.viastrasse.cabinet.backup
 
 import android.content.Context
 import androidx.work.CoroutineWorker
@@ -8,7 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
+import jp.viastrasse.cabinet.data.CabinetRepository
 import java.util.concurrent.TimeUnit
 
 class BackupWorker(

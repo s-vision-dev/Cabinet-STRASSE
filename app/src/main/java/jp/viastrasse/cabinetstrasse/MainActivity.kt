@@ -1,4 +1,4 @@
-package jp.viastrasse.cabinetstrasse
+package jp.viastrasse.cabinet
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -18,21 +18,21 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
-import jp.viastrasse.cabinetstrasse.backup.BackupWorker
-import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
-import jp.viastrasse.cabinetstrasse.data.StorageProviderAccountSummary
-import jp.viastrasse.cabinetstrasse.preview.OcrTextRecognizer
-import jp.viastrasse.cabinetstrasse.preview.PreviewWorker
-import jp.viastrasse.cabinetstrasse.preview.ThumbnailGenerator
-import jp.viastrasse.cabinetstrasse.ui.CabinetDashboardView
-import jp.viastrasse.cabinetstrasse.ui.DeviceFileEntry
-import jp.viastrasse.cabinetstrasse.ui.DocumentFileEntry
-import jp.viastrasse.cabinetstrasse.ui.FileListDisplayPreference
-import jp.viastrasse.cabinetstrasse.ui.FileListOptions
-import jp.viastrasse.cabinetstrasse.ui.FileListSort
-import jp.viastrasse.cabinetstrasse.ui.LocalFileEntry
-import jp.viastrasse.cabinetstrasse.watch.FolderWatchWorker
+import jp.viastrasse.cabinet.backup.BackupWorker
+import jp.viastrasse.cabinet.data.CabinetItemSummary
+import jp.viastrasse.cabinet.data.CabinetRepository
+import jp.viastrasse.cabinet.data.StorageProviderAccountSummary
+import jp.viastrasse.cabinet.preview.OcrTextRecognizer
+import jp.viastrasse.cabinet.preview.PreviewWorker
+import jp.viastrasse.cabinet.preview.ThumbnailGenerator
+import jp.viastrasse.cabinet.ui.CabinetDashboardView
+import jp.viastrasse.cabinet.ui.DeviceFileEntry
+import jp.viastrasse.cabinet.ui.DocumentFileEntry
+import jp.viastrasse.cabinet.ui.FileListDisplayPreference
+import jp.viastrasse.cabinet.ui.FileListOptions
+import jp.viastrasse.cabinet.ui.FileListSort
+import jp.viastrasse.cabinet.ui.LocalFileEntry
+import jp.viastrasse.cabinet.watch.FolderWatchWorker
 import java.io.File
 import java.net.URL
 import java.net.URLConnection
@@ -234,7 +234,7 @@ class MainActivity : Activity() {
         val sourceApp = uri.getQueryParameter("sourceApp").orEmpty().ifBlank { "STRASSE" }
         val sourceId = uri.getQueryParameter("sourceId").orEmpty().ifBlank { "deeplink-${System.currentTimeMillis()}" }
         val title = uri.getQueryParameter("title").orEmpty().ifBlank { "$sourceApp 参照" }
-        val referenceUri = uri.getQueryParameter("uri").orEmpty().ifBlank { "strasse://${sourceApp.lowercase()}/open/$sourceId" }
+        val referenceUri = uri.getQueryParameter("uri").orEmpty().ifBlank { "viastrasse-${appKey(sourceApp)}://open/$sourceId" }
         val note = uri.getQueryParameter("note").orEmpty().ifBlank { "Deep Linkから参照追加" }
         runCatching {
             repository.addReference(
@@ -713,7 +713,7 @@ class MainActivity : Activity() {
         pendingPublicDirectoryType = directoryType
         AlertDialog.Builder(this)
             .setTitle("端末フォルダへのアクセス")
-            .setMessage("DownloadsやDocumentsをファイルマネージャーとして表示するには、Cabinet-STRASSEにすべてのファイルへのアクセスを許可してください。")
+            .setMessage("DownloadsやDocumentsをファイルマネージャーとして表示するには、Cabinet by VIASTRASSEにすべてのファイルへのアクセスを許可してください。")
             .setPositiveButton("設定を開く") { _, _ ->
                 val uri = Uri.parse("package:$packageName")
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, uri)
@@ -1266,13 +1266,13 @@ class MainActivity : Activity() {
                     extractZip(detail)
                 },
                 onAddMailReference = {
-                    showReferenceDialog(itemId, "mail", "Mail-STRASSE", "strasse://mail/open/")
+                    showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
                 },
                 onAddTaskReference = {
-                    showReferenceDialog(itemId, "task", "Task-STRASSE", "strasse://task/open/")
+                    showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
                 },
                 onAddAtelierReference = {
-                    showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
+                    showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
                 },
                 onOpenReference = ::openReferenceUri,
                 onAddMemo = {
@@ -1372,13 +1372,13 @@ class MainActivity : Activity() {
                     extractZip(it)
                 },
                 onAddMailReference = {
-                    showReferenceDialog(itemId, "mail", "Mail-STRASSE", "strasse://mail/open/")
+                    showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
                 },
                 onAddTaskReference = {
-                    showReferenceDialog(itemId, "task", "Task-STRASSE", "strasse://task/open/")
+                    showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
                 },
                 onAddAtelierReference = {
-                    showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
+                    showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
                 },
                 onOpenReference = ::openReferenceUri,
                 onAddMemo = {
@@ -1417,7 +1417,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun toggleFavoriteFromSummary(item: jp.viastrasse.cabinetstrasse.data.CabinetItemSummary) {
+    private fun toggleFavoriteFromSummary(item: jp.viastrasse.cabinet.data.CabinetItemSummary) {
         runCatching {
             repository.updateItemFlags(item.id, !item.isFavorite, item.isUnsorted)
         }.onSuccess {
@@ -1428,7 +1428,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun moveSummaryToTrash(item: jp.viastrasse.cabinetstrasse.data.CabinetItemSummary) {
+    private fun moveSummaryToTrash(item: jp.viastrasse.cabinet.data.CabinetItemSummary) {
         runCatching {
             repository.moveToTrash(item.id)
         }.onSuccess {
@@ -1675,21 +1675,21 @@ class MainActivity : Activity() {
 
     private fun openProtectedAwareItem(
         itemId: String,
-        detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail,
+        detail: jp.viastrasse.cabinet.data.CabinetItemDetail,
     ) {
         runAfterProtectionCheck(detail) {
             openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
         }
     }
 
-    private fun shareProtectedAwareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+    private fun shareProtectedAwareItem(detail: jp.viastrasse.cabinet.data.CabinetItemDetail) {
         runAfterProtectionCheck(detail) {
             shareItem(detail)
         }
     }
 
     private fun runAfterProtectionCheck(
-        detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail,
+        detail: jp.viastrasse.cabinet.data.CabinetItemDetail,
         action: () -> Unit,
     ) {
         if (!detail.isProtected) {
@@ -1714,7 +1714,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun shareItem(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+    private fun shareItem(detail: jp.viastrasse.cabinet.data.CabinetItemDetail) {
         runCatching {
             if (detail.item.sourceKind == "url" || detail.item.sourceKind == "remote") {
                 val intent = Intent(Intent.ACTION_SEND).apply {
@@ -1729,7 +1729,7 @@ class MainActivity : Activity() {
             require(file.exists()) { "共有対象ファイルが見つかりません" }
             val uri = FileProvider.getUriForFile(
                 this,
-                "jp.viastrasse.cabinetstrasse.fileprovider",
+                "jp.viastrasse.cabinet.fileprovider",
                 file,
             )
             val intent = Intent(Intent.ACTION_SEND).apply {
@@ -1744,7 +1744,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun cacheRemoteFile(itemId: String, detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+    private fun cacheRemoteFile(itemId: String, detail: jp.viastrasse.cabinet.data.CabinetItemDetail) {
         val remote = detail.remote
         if (remote == null || remote.webUrl.isBlank()) {
             Toast.makeText(this, "Web URL付きのリモート参照だけキャッシュできます", Toast.LENGTH_SHORT).show()
@@ -1772,7 +1772,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun createZip(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+    private fun createZip(detail: jp.viastrasse.cabinet.data.CabinetItemDetail) {
         runCatching {
             repository.createZipFromItem(detail)
         }.onSuccess { item ->
@@ -1784,7 +1784,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun extractZip(detail: jp.viastrasse.cabinetstrasse.data.CabinetItemDetail) {
+    private fun extractZip(detail: jp.viastrasse.cabinet.data.CabinetItemDetail) {
         runCatching {
             repository.extractZipItem(detail)
         }.onSuccess { items ->
@@ -1826,6 +1826,24 @@ class MainActivity : Activity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: "参照を開けませんでした", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun appKey(sourceApp: String): String {
+        val normalized = sourceApp.trim().lowercase()
+        return when {
+            normalized.startsWith("mail") -> "mail"
+            normalized.startsWith("home") -> "home"
+            normalized.startsWith("task") -> "task"
+            normalized.startsWith("notify") -> "notify"
+            normalized.startsWith("atelier") -> "atelier"
+            normalized.startsWith("cabinet") -> "cabinet"
+            else -> normalized
+                .replace(" by viastrasse", "")
+                .replace("-strasse", "")
+                .replace(Regex("[^a-z0-9-]"), "-")
+                .trim('-')
+                .ifBlank { "external" }
         }
     }
 
@@ -1939,13 +1957,13 @@ class MainActivity : Activity() {
                     extractZip(detail)
                 },
                 onAddMailReference = {
-                    showReferenceDialog(itemId, "mail", "Mail-STRASSE", "strasse://mail/open/")
+                    showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
                 },
                 onAddTaskReference = {
-                    showReferenceDialog(itemId, "task", "Task-STRASSE", "strasse://task/open/")
+                    showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
                 },
                 onAddAtelierReference = {
-                    showReferenceDialog(itemId, "atelier", "Atelier-STRASSE", "strasse://atelier/open/")
+                    showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
                 },
                 onOpenReference = ::openReferenceUri,
                 onAddMemo = {
@@ -2112,9 +2130,9 @@ class MainActivity : Activity() {
     private fun darkInput(hintText: String): EditText {
         return EditText(this).apply {
             hint = hintText
-            setTextColor(jp.viastrasse.cabinetstrasse.theme.CabinetColors.TextPrimary)
-            setHintTextColor(jp.viastrasse.cabinetstrasse.theme.CabinetColors.TextSecondary)
-            setBackgroundColor(jp.viastrasse.cabinetstrasse.theme.CabinetColors.SurfaceAlt)
+            setTextColor(jp.viastrasse.cabinet.theme.CabinetColors.TextPrimary)
+            setHintTextColor(jp.viastrasse.cabinet.theme.CabinetColors.TextSecondary)
+            setBackgroundColor(jp.viastrasse.cabinet.theme.CabinetColors.SurfaceAlt)
             setPadding(24, 18, 24, 18)
         }
     }

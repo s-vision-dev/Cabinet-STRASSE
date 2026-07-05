@@ -1,14 +1,14 @@
-package jp.viastrasse.cabinetstrasse.integration
+package jp.viastrasse.cabinet.integration
 
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import jp.viastrasse.cabinetstrasse.data.CabinetCollectionSummary
-import jp.viastrasse.cabinetstrasse.data.CabinetItemSummary
-import jp.viastrasse.cabinetstrasse.data.CabinetRepository
-import jp.viastrasse.cabinetstrasse.data.SmartFolderSummary
+import jp.viastrasse.cabinet.data.CabinetCollectionSummary
+import jp.viastrasse.cabinet.data.CabinetItemSummary
+import jp.viastrasse.cabinet.data.CabinetRepository
+import jp.viastrasse.cabinet.data.SmartFolderSummary
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,7 +42,7 @@ class CabinetHomeSummaryProvider : ContentProvider() {
         return MatrixCursor(columns).apply {
             addRow(
                 arrayOf<Any>(
-                    "Cabinet-STRASSE",
+                    "Cabinet by VIASTRASSE",
                     dashboard?.libraryCount ?: 0,
                     dashboard?.inboxCount ?: 0,
                     dashboard?.favoriteCount ?: 0,
@@ -85,7 +85,7 @@ class CabinetHomeSummaryProvider : ContentProvider() {
                     .put("source_kind", item.sourceKind)
                     .put("summary", item.summaryText)
                     .put("updated_at", item.updatedAt)
-                    .put("deep_link", "strasse://cabinet/open/${item.id}")
+                    .put("deep_link", "viastrasse-cabinet://open/${item.id}")
             },
         ).toString()
     }
@@ -98,7 +98,7 @@ class CabinetHomeSummaryProvider : ContentProvider() {
                     .put("id", collection.id)
                     .put("title", collection.title)
                     .put("item_count", collection.itemCount)
-                    .put("deep_link", "strasse://cabinet/collection/${collection.id}")
+                    .put("deep_link", "viastrasse-cabinet://collection/${collection.id}")
             },
         ).toString()
     }
@@ -112,7 +112,7 @@ class CabinetHomeSummaryProvider : ContentProvider() {
                     .put("title", folder.title)
                     .put("condition", folder.condition)
                     .put("item_count", folder.itemCount)
-                    .put("deep_link", "strasse://cabinet/smart/${folder.id}")
+                    .put("deep_link", "viastrasse-cabinet://smart/${folder.id}")
             },
         ).toString()
     }
