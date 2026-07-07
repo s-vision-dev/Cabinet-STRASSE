@@ -755,7 +755,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         return panel {
             addView(finderToolbar(dashboard, onModeSelected, onImportFolder))
             addView(finderLocations(dashboard, onModeSelected))
-            addView(pathBar("Cabinet > 最近", "${dashboard.libraryCount} files"))
+            addView(pathBar("Explorer > 最近使ったファイル", "${dashboard.libraryCount} files"))
             if (dashboard.recentItems.isEmpty()) {
                 addView(emptyState("表示できるファイルはまだありません"))
             } else {
@@ -773,15 +773,15 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     ): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label("Cabinet", 20, true))
-            addView(label("場所を選び、ファイルを開く", 12, false, CabinetColors.TextSecondary))
+            addView(label("Explorer", 20, true))
+            addView(label("端末内の場所を選び、ファイルを開く・整理する", 12, false, CabinetColors.TextSecondary))
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     weightSum = 3f
                     addView(
-                        toolbarCommand("新規表示") {
-                            onModeSelected(CabinetMode("Library", dashboard.libraryCount, "Cabinet内の資料"))
+                        toolbarCommand("端末") {
+                            onModeSelected(CabinetMode("Explorer", dashboard.explorerCount, "端末ストレージ"))
                         },
                     )
                     addView(toolbarCommand("Downloads") {
@@ -802,28 +802,28 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     private fun finderLocations(dashboard: CabinetDashboard, onModeSelected: (CabinetMode) -> Unit): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label("場所", 15, true).apply {
+            addView(label("ストレージ", 15, true).apply {
                 setPadding(0, dp(2), 0, dp(6))
             })
             listOf(
                 listOf(
-                    CabinetMode("Library", dashboard.libraryCount, "Cabinet"),
+                    CabinetMode("Explorer", dashboard.explorerCount, "端末ストレージ"),
                     CabinetMode("Downloads", 0, "ダウンロード"),
                 ),
                 listOf(
-                    CabinetMode("Inbox", dashboard.inboxCount, "未整理"),
-                    CabinetMode("Explorer", dashboard.explorerCount, "ローカル"),
+                    CabinetMode("Documents", 0, "ドキュメント"),
+                    CabinetMode("Pictures", 0, "画像"),
                 ),
                 listOf(
                     CabinetMode("SDCard", 0, "SDカード"),
-                    CabinetMode("Documents", 0, "ドキュメント"),
-                ),
-                listOf(
-                    CabinetMode("Pictures", 0, "画像"),
-                    CabinetMode("Movies", 0, "動画"),
-                ),
-                listOf(
                     CabinetMode("Music", 0, "音声"),
+                ),
+                listOf(
+                    CabinetMode("Movies", 0, "動画"),
+                    CabinetMode("Inbox", dashboard.inboxCount, "Inbox"),
+                ),
+                listOf(
+                    CabinetMode("Library", dashboard.libraryCount, "Cabinet内の資料"),
                 ),
             ).forEach { rowModes ->
                 addView(
