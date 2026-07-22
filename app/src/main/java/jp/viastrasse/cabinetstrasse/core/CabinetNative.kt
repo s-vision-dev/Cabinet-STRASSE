@@ -115,6 +115,16 @@ object CabinetNative {
         note: String,
     ): String
 
+    external fun registerMailAttachmentJson(
+        databasePath: String,
+        path: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        hash: String,
+        metadataJson: String,
+    ): String
+
     external fun registerRemoteFileJson(
         databasePath: String,
         providerId: String,

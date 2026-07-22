@@ -1,5 +1,5 @@
 use rusqlite::types::{Value as SqlValue, ValueRef};
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use zip::read::ZipArchive;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const BACKUP_TABLES: &[(&str, &[&str])] = &[
     (
         "storage_provider_accounts",
@@ -131,6 +131,24 @@ const BACKUP_TABLES: &[(&str, &[&str])] = &[
             "uri",
             "note",
             "created_at",
+        ],
+    ),
+    (
+        "cabinet_mail_references",
+        &[
+            "reference_id",
+            "item_id",
+            "document_type",
+            "related_party",
+            "document_date",
+            "due_date",
+            "email_subject",
+            "email_sender",
+            "email_received_at",
+            "email_account",
+            "message_id",
+            "size_bytes",
+            "sha256",
         ],
     ),
     (
@@ -331,9 +349,60 @@ pub struct CabinetReferenceSummary {
     pub id: String,
     pub reference_type: String,
     pub source_app: String,
+    pub source_id: String,
     pub title: String,
     pub uri: String,
     pub note: String,
+    pub document_type: String,
+    pub related_party: String,
+    pub document_date: String,
+    pub due_date: String,
+    pub email_subject: String,
+    pub email_sender: String,
+    pub email_received_at: String,
+    pub email_account: String,
+    pub message_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MailAttachmentMetadata {
+    pub contract_version: i64,
+    pub source_app: String,
+    pub source_id: String,
+    pub title: String,
+    pub reference_type: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub document_type: String,
+    #[serde(default)]
+    pub related_party: String,
+    #[serde(default)]
+    pub document_date: String,
+    #[serde(default)]
+    pub due_date: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub source_uri: String,
+    #[serde(default)]
+    pub email_subject: String,
+    #[serde(default)]
+    pub email_sender: String,
+    #[serde(default)]
+    pub email_received_at: String,
+    #[serde(default)]
+    pub email_account: String,
+    #[serde(default)]
+    pub message_id: String,
+}
+
+#[derive(Serialize)]
+pub struct MailAttachmentRegistrationResult {
+    pub item_id: String,
+    pub created: bool,
+    pub retained_file: bool,
 }
 
 #[derive(Serialize)]
@@ -1699,6 +1768,177 @@ impl CabinetCore {
         Ok(serde_json::to_string(&item)?)
     }
 
+    pub fn register_mail_attachment_json(
+        &self,
+        path: &str,
+        display_name: &str,
+        mime_type: &str,
+        size: i64,
+        hash: &str,
+        metadata_json: &str,
+    ) -> CabinetResult<String> {
+        let metadata: MailAttachmentMetadata = serde_json::from_str(metadata_json)?;
+        if !matches!(metadata.contract_version, 1 | 2) {
+            return Err(CabinetError::Message(format!(
+                "Unsupported Mail attachment contract version: {}",
+                metadata.contract_version
+            )));
+        }
+        if metadata.source_app.trim().is_empty()
+            || metadata.source_id.trim().is_empty()
+            || metadata.title.trim().is_empty()
+            || metadata.reference_type.trim() != "mail"
+        {
+            return Err(CabinetError::Message(
+                "Mail attachment metadata is incomplete.".to_owned(),
+            ));
+        }
+
+        let transaction = self.conn.unchecked_transaction()?;
+        let existing_source_item: Option<String> = transaction
+            .query_row(
+                "SELECT item_id FROM cabinet_references
+                 WHERE source_app = ?1 AND source_id = ?2
+                 ORDER BY created_at ASC LIMIT 1",
+                params![metadata.source_app.trim(), metadata.source_id.trim()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(item_id) = existing_source_item {
+            transaction.commit()?;
+            return Ok(serde_json::to_string(&MailAttachmentRegistrationResult {
+                item_id,
+                created: false,
+                retained_file: false,
+            })?);
+        }
+
+        let existing_content_item: Option<String> = transaction
+            .query_row(
+                "SELECT id FROM cabinet_items
+                 WHERE hash = ?1 AND size = ?2 AND is_archived = 0
+                 ORDER BY created_at ASC LIMIT 1",
+                params![hash, size],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(item_id) = existing_content_item {
+            insert_mail_reference(&transaction, &item_id, &metadata, size, hash)?;
+            add_mail_tags(&transaction, &item_id, &metadata.tags)?;
+            transaction.execute(
+                "UPDATE cabinet_items SET updated_at = ?1 WHERE id = ?2",
+                params![now_string(), item_id],
+            )?;
+            rebuild_fts_for_item_in(&transaction, &item_id)?;
+            log_event_in(
+                &transaction,
+                "Cabinet.ReferenceAdded",
+                Some(&item_id),
+                serde_json::json!({
+                    "reference_type": "mail",
+                    "source_app": metadata.source_app,
+                    "source_id": metadata.source_id,
+                    "duplicate_content": true,
+                }),
+            )?;
+            transaction.commit()?;
+            return Ok(serde_json::to_string(&MailAttachmentRegistrationResult {
+                item_id,
+                created: false,
+                retained_file: false,
+            })?);
+        }
+
+        let now = now_string();
+        let file_id = new_id();
+        let item_id = new_id();
+        let document_id = new_id();
+        let version_id = new_id();
+        transaction.execute(
+            "INSERT INTO cabinet_files (
+                id, path, original_file_name, mime_type, size, hash, created_at, updated_at, storage_type
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'local')",
+            params![file_id, path, display_name, mime_type, size, hash, now],
+        )?;
+        transaction.execute(
+            "INSERT INTO cabinet_documents(id, title, description, current_version_id, created_at, updated_at, status)
+             VALUES (?1, ?2, '', ?3, ?4, ?4, 'active')",
+            params![document_id, metadata.title.trim(), version_id, now],
+        )?;
+        transaction.execute(
+            "INSERT INTO cabinet_versions (
+                id, document_id, version_number, file_id, display_name, original_file_name,
+                registered_at, source_app, source_id, note, is_current
+            ) VALUES (?1, ?2, 1, ?3, ?4, ?4, ?5, ?6, ?7, ?8, 1)",
+            params![
+                version_id,
+                document_id,
+                file_id,
+                display_name,
+                now,
+                metadata.source_app.trim(),
+                metadata.source_id.trim(),
+                metadata.note,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO cabinet_items (
+                id, file_id, document_id, title, display_name, mime_type, path, source_kind,
+                size, hash, created_at, updated_at, last_opened_at, is_favorite, is_archived,
+                is_unsorted, note
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'mail', ?8, ?9, ?10, ?10, NULL, 0, 0, 1, ?11)",
+            params![
+                item_id,
+                file_id,
+                document_id,
+                metadata.title.trim(),
+                display_name,
+                mime_type,
+                path,
+                size,
+                hash,
+                now,
+                metadata.note,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO cabinet_previews (
+                id, item_id, preview_type, title, summary_text, thumbnail_path, extracted_text,
+                page_count, duration, width, height, generated_at, status
+            ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?5, NULL, NULL, NULL, NULL, ?6, 'queued')",
+            params![
+                new_id(),
+                item_id,
+                preview_type_for_mime(mime_type),
+                metadata.title.trim(),
+                metadata.note,
+                now,
+            ],
+        )?;
+        insert_mail_reference(&transaction, &item_id, &metadata, size, hash)?;
+        add_mail_tags(&transaction, &item_id, &metadata.tags)?;
+        rebuild_fts_for_item_in(&transaction, &item_id)?;
+        log_event_in(
+            &transaction,
+            "Cabinet.ItemAdded",
+            Some(&item_id),
+            serde_json::json!({
+                "display_name": display_name,
+                "mime_type": mime_type,
+                "source_kind": "mail",
+                "size": size,
+                "source_app": metadata.source_app,
+                "source_id": metadata.source_id,
+            }),
+        )?;
+        transaction.commit()?;
+        Ok(serde_json::to_string(&MailAttachmentRegistrationResult {
+            item_id,
+            created: true,
+            retained_file: true,
+        })?)
+    }
+
     pub fn register_remote_file_json(
         &self,
         provider_id: &str,
@@ -2040,6 +2280,24 @@ impl CabinetCore {
                 FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS cabinet_mail_references (
+                reference_id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                document_type TEXT NOT NULL DEFAULT '',
+                related_party TEXT NOT NULL DEFAULT '',
+                document_date TEXT NOT NULL DEFAULT '',
+                due_date TEXT NOT NULL DEFAULT '',
+                email_subject TEXT NOT NULL DEFAULT '',
+                email_sender TEXT NOT NULL DEFAULT '',
+                email_received_at TEXT NOT NULL DEFAULT '',
+                email_account TEXT NOT NULL DEFAULT '',
+                message_id TEXT NOT NULL DEFAULT '',
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                sha256 TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(reference_id) REFERENCES cabinet_references(id) ON DELETE CASCADE,
+                FOREIGN KEY(item_id) REFERENCES cabinet_items(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS cabinet_previews (
                 id TEXT PRIMARY KEY,
                 item_id TEXT NOT NULL,
@@ -2116,6 +2374,8 @@ impl CabinetCore {
             CREATE INDEX IF NOT EXISTS idx_cabinet_items_unsorted ON cabinet_items(is_unsorted);
             CREATE INDEX IF NOT EXISTS idx_cabinet_versions_document ON cabinet_versions(document_id, version_number DESC);
             CREATE INDEX IF NOT EXISTS idx_cabinet_previews_item ON cabinet_previews(item_id);
+            CREATE INDEX IF NOT EXISTS idx_cabinet_references_source ON cabinet_references(source_app, source_id);
+            CREATE INDEX IF NOT EXISTS idx_cabinet_mail_references_item ON cabinet_mail_references(item_id);
             ",
         )?;
 
@@ -2128,6 +2388,11 @@ impl CabinetCore {
         if current.is_none() {
             self.conn.execute(
                 "INSERT INTO schema_info(version) VALUES (?1)",
+                params![SCHEMA_VERSION],
+            )?;
+        } else if current.unwrap_or_default() < SCHEMA_VERSION {
+            self.conn.execute(
+                "UPDATE schema_info SET version = ?1",
                 params![SCHEMA_VERSION],
             )?;
         }
@@ -2452,19 +2717,35 @@ impl CabinetCore {
 
     fn references_for_item(&self, item_id: &str) -> CabinetResult<Vec<CabinetReferenceSummary>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, reference_type, source_app, title, uri, note
-             FROM cabinet_references
-             WHERE item_id = ?1
-             ORDER BY created_at DESC",
+            "SELECT r.id, r.reference_type, r.source_app, r.source_id, r.title, r.uri, r.note,
+                    COALESCE(m.document_type, ''), COALESCE(m.related_party, ''),
+                    COALESCE(m.document_date, ''), COALESCE(m.due_date, ''),
+                    COALESCE(m.email_subject, ''), COALESCE(m.email_sender, ''),
+                    COALESCE(m.email_received_at, ''), COALESCE(m.email_account, ''),
+                    COALESCE(m.message_id, '')
+             FROM cabinet_references r
+             LEFT JOIN cabinet_mail_references m ON m.reference_id = r.id
+             WHERE r.item_id = ?1
+             ORDER BY r.created_at DESC",
         )?;
         let rows = stmt.query_map(params![item_id], |row| {
             Ok(CabinetReferenceSummary {
                 id: row.get(0)?,
                 reference_type: row.get(1)?,
                 source_app: row.get(2)?,
-                title: row.get(3)?,
-                uri: row.get(4)?,
-                note: row.get(5)?,
+                source_id: row.get(3)?,
+                title: row.get(4)?,
+                uri: row.get(5)?,
+                note: row.get(6)?,
+                document_type: row.get(7)?,
+                related_party: row.get(8)?,
+                document_date: row.get(9)?,
+                due_date: row.get(10)?,
+                email_subject: row.get(11)?,
+                email_sender: row.get(12)?,
+                email_received_at: row.get(13)?,
+                email_account: row.get(14)?,
+                message_id: row.get(15)?,
             })
         })?;
         let mut result = Vec::new();
@@ -2920,7 +3201,19 @@ impl CabinetCore {
                     COALESCE((SELECT group_concat(c.title, ' ') FROM cabinet_collection_items ci JOIN cabinet_collections c ON c.id = ci.collection_id WHERE ci.item_id = i.id), ''),
                     i.note,
                     COALESCE((SELECT group_concat(p.summary_text || ' ' || p.extracted_text, ' ') FROM cabinet_previews p WHERE p.item_id = i.id), ''),
-                    COALESCE((SELECT group_concat(r.title || ' ' || r.note, ' ') FROM cabinet_references r WHERE r.item_id = i.id), '')
+                    COALESCE((
+                        SELECT group_concat(
+                            r.title || ' ' || r.note || ' ' || r.source_app || ' ' || r.source_id || ' ' ||
+                            COALESCE(m.document_type, '') || ' ' || COALESCE(m.related_party, '') || ' ' ||
+                            COALESCE(m.document_date, '') || ' ' || COALESCE(m.due_date, '') || ' ' ||
+                            COALESCE(m.email_subject, '') || ' ' || COALESCE(m.email_sender, '') || ' ' ||
+                            COALESCE(m.email_received_at, '') || ' ' || COALESCE(m.email_account, '') || ' ' ||
+                            COALESCE(m.message_id, ''), ' '
+                        )
+                        FROM cabinet_references r
+                        LEFT JOIN cabinet_mail_references m ON m.reference_id = r.id
+                        WHERE r.item_id = i.id
+                    ), '')
              FROM cabinet_items i
              WHERE i.id = ?1",
             params![item_id],
@@ -2941,6 +3234,144 @@ impl CabinetCore {
         }
         Ok(())
     }
+}
+
+fn insert_mail_reference(
+    transaction: &Transaction<'_>,
+    item_id: &str,
+    metadata: &MailAttachmentMetadata,
+    size: i64,
+    hash: &str,
+) -> CabinetResult<()> {
+    let reference_id = new_id();
+    let reference_title = if metadata.email_subject.trim().is_empty() {
+        metadata.title.trim()
+    } else {
+        metadata.email_subject.trim()
+    };
+    transaction.execute(
+        "INSERT INTO cabinet_references(
+            id, item_id, reference_type, source_app, source_id, title, uri, note, created_at
+         ) VALUES (?1, ?2, 'mail', ?3, ?4, ?5, ?6, '', ?7)",
+        params![
+            reference_id,
+            item_id,
+            metadata.source_app.trim(),
+            metadata.source_id.trim(),
+            reference_title,
+            metadata.source_uri.trim(),
+            now_string(),
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO cabinet_mail_references(
+            reference_id, item_id, document_type, related_party, document_date, due_date,
+            email_subject, email_sender, email_received_at, email_account, message_id,
+            size_bytes, sha256
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            reference_id,
+            item_id,
+            metadata.document_type.trim(),
+            metadata.related_party.trim(),
+            metadata.document_date.trim(),
+            metadata.due_date.trim(),
+            metadata.email_subject.trim(),
+            metadata.email_sender.trim(),
+            metadata.email_received_at.trim(),
+            metadata.email_account.trim(),
+            metadata.message_id.trim(),
+            size,
+            hash,
+        ],
+    )?;
+    Ok(())
+}
+
+fn add_mail_tags(
+    transaction: &Transaction<'_>,
+    item_id: &str,
+    tags: &[String],
+) -> CabinetResult<()> {
+    for raw_tag in tags {
+        let tag = raw_tag.trim();
+        if tag.is_empty() {
+            continue;
+        }
+        let existing_id: Option<String> = transaction
+            .query_row(
+                "SELECT id FROM cabinet_tags WHERE name = ?1 COLLATE NOCASE LIMIT 1",
+                params![tag],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let tag_id = existing_id.unwrap_or_else(new_id);
+        transaction.execute(
+            "INSERT OR IGNORE INTO cabinet_tags(id, name, color, created_at)
+             VALUES (?1, ?2, '#607D8B', ?3)",
+            params![tag_id, tag, now_string()],
+        )?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO cabinet_item_tags(item_id, tag_id) VALUES (?1, ?2)",
+            params![item_id, tag_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn rebuild_fts_for_item_in(transaction: &Transaction<'_>, item_id: &str) -> CabinetResult<()> {
+    transaction.execute(
+        "DELETE FROM cabinet_fts WHERE item_id = ?1",
+        params![item_id],
+    )?;
+    transaction.execute(
+        "INSERT INTO cabinet_fts(item_id, title, display_name, mime_type, tags, collections, note, preview_text, references_text)
+         SELECT i.id,
+                i.title,
+                i.display_name,
+                i.mime_type,
+                COALESCE((SELECT group_concat(t.name, ' ') FROM cabinet_item_tags it JOIN cabinet_tags t ON t.id = it.tag_id WHERE it.item_id = i.id), ''),
+                COALESCE((SELECT group_concat(c.title, ' ') FROM cabinet_collection_items ci JOIN cabinet_collections c ON c.id = ci.collection_id WHERE ci.item_id = i.id), ''),
+                i.note,
+                COALESCE((SELECT group_concat(p.summary_text || ' ' || p.extracted_text, ' ') FROM cabinet_previews p WHERE p.item_id = i.id), ''),
+                COALESCE((
+                    SELECT group_concat(
+                        r.title || ' ' || r.note || ' ' || r.source_app || ' ' || r.source_id || ' ' ||
+                        COALESCE(m.document_type, '') || ' ' || COALESCE(m.related_party, '') || ' ' ||
+                        COALESCE(m.document_date, '') || ' ' || COALESCE(m.due_date, '') || ' ' ||
+                        COALESCE(m.email_subject, '') || ' ' || COALESCE(m.email_sender, '') || ' ' ||
+                        COALESCE(m.email_received_at, '') || ' ' || COALESCE(m.email_account, '') || ' ' ||
+                        COALESCE(m.message_id, ''), ' '
+                    )
+                    FROM cabinet_references r
+                    LEFT JOIN cabinet_mail_references m ON m.reference_id = r.id
+                    WHERE r.item_id = i.id
+                ), '')
+         FROM cabinet_items i
+         WHERE i.id = ?1",
+        params![item_id],
+    )?;
+    Ok(())
+}
+
+fn log_event_in(
+    transaction: &Transaction<'_>,
+    event_type: &str,
+    item_id: Option<&str>,
+    payload: Value,
+) -> CabinetResult<()> {
+    transaction.execute(
+        "INSERT INTO cabinet_events(id, event_type, item_id, payload_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            new_id(),
+            event_type,
+            item_id,
+            payload.to_string(),
+            now_string()
+        ],
+    )?;
+    Ok(())
 }
 
 fn read_item_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CabinetItemSummary> {
@@ -3563,6 +3994,102 @@ mod tests {
         let provider_mode = core.mode_json("provider:dropbox").expect("provider mode");
         assert!(provider_mode.contains("remote-plan.pdf"));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn registers_mail_attachment_metadata_and_prevents_duplicates() {
+        let path = test_db_path("mail-attachment");
+        let attachment_path = test_db_path("mail-attachment-file");
+        let duplicate_path = test_db_path("mail-attachment-duplicate");
+        let content = b"mail attachment contract v2 content";
+        fs::write(&attachment_path, content).expect("write attachment");
+        fs::write(&duplicate_path, content).expect("write duplicate attachment");
+        let hash = hash_file(&attachment_path.to_string_lossy()).expect("hash attachment");
+        let core = CabinetCore::open(&path).expect("open database");
+        let metadata = serde_json::json!({
+            "contractVersion": 2,
+            "sourceApp": "Mail by VIASTRASSE",
+            "sourceId": "mail:10:attachment:20",
+            "title": "契約資料",
+            "referenceType": "mail",
+            "note": "確認用メモ",
+            "documentType": "契約書",
+            "relatedParty": "VIASTRASSE商事",
+            "documentDate": "2026-07-23",
+            "dueDate": "2026-07-31",
+            "tags": ["契約", "重要"],
+            "sourceUri": "viastrasse-mail://message/10",
+            "emailSubject": "契約資料を送付します",
+            "emailSender": "sender@example.com",
+            "emailReceivedAt": "2026-07-23T10:00:00+09:00",
+            "emailAccount": "work@example.com",
+            "messageId": "message-10@example.com"
+        })
+        .to_string();
+        let first_json = core
+            .register_mail_attachment_json(
+                &attachment_path.to_string_lossy(),
+                "contract.pdf",
+                "application/pdf",
+                content.len() as i64,
+                &hash,
+                &metadata,
+            )
+            .expect("register mail attachment");
+        let first: Value = serde_json::from_str(&first_json).expect("parse registration");
+        let item_id = first["item_id"].as_str().expect("item id").to_owned();
+        assert_eq!(first["created"], true);
+        assert_eq!(first["retained_file"], true);
+
+        let detail = core.item_detail_json(&item_id).expect("mail detail");
+        assert!(detail.contains("VIASTRASSE商事"));
+        assert!(detail.contains("viastrasse-mail://message/10"));
+        assert_eq!(core.search("sender").expect("search sender").len(), 1);
+        assert_eq!(core.search("重要").expect("search tag").len(), 1);
+
+        let repeated_json = core
+            .register_mail_attachment_json(
+                &duplicate_path.to_string_lossy(),
+                "contract.pdf",
+                "application/pdf",
+                content.len() as i64,
+                &hash,
+                &metadata,
+            )
+            .expect("repeat source registration");
+        let repeated: Value = serde_json::from_str(&repeated_json).expect("parse repeated");
+        assert_eq!(repeated["item_id"], item_id);
+        assert_eq!(repeated["created"], false);
+        assert_eq!(repeated["retained_file"], false);
+
+        let second_metadata = metadata.replace("mail:10:attachment:20", "mail:11:attachment:21");
+        let content_duplicate_json = core
+            .register_mail_attachment_json(
+                &duplicate_path.to_string_lossy(),
+                "contract-copy.pdf",
+                "application/pdf",
+                content.len() as i64,
+                &hash,
+                &second_metadata,
+            )
+            .expect("register same content from another mail");
+        let content_duplicate: Value =
+            serde_json::from_str(&content_duplicate_json).expect("parse content duplicate");
+        assert_eq!(content_duplicate["item_id"], item_id);
+        assert_eq!(content_duplicate["created"], false);
+        let reference_count: i64 = core
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM cabinet_references WHERE item_id = ?1",
+                params![item_id],
+                |row| row.get(0),
+            )
+            .expect("reference count");
+        assert_eq!(reference_count, 2);
+
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(attachment_path);
+        let _ = fs::remove_file(duplicate_path);
     }
 
     #[test]

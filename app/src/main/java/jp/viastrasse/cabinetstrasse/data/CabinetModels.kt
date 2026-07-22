@@ -105,9 +105,19 @@ data class CabinetReferenceSummary(
     val id: String,
     val referenceType: String,
     val sourceApp: String,
+    val sourceId: String,
     val title: String,
     val uri: String,
     val note: String,
+    val documentType: String,
+    val relatedParty: String,
+    val documentDate: String,
+    val dueDate: String,
+    val emailSubject: String,
+    val emailSender: String,
+    val emailReceivedAt: String,
+    val emailAccount: String,
+    val messageId: String,
 )
 
 data class CabinetVersionSummary(
@@ -168,4 +178,10 @@ data class DuplicateGroup(
     val hash: String,
     val size: Long,
     val items: List<CabinetItemSummary>,
+)
+
+data class MailAttachmentRegistrationResult(
+    val itemId: String,
+    val created: Boolean,
+    val retainedFile: Boolean,
 )

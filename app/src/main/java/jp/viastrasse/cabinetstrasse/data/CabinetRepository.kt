@@ -283,6 +283,33 @@ class CabinetRepository(context: Context) {
         return CabinetJsonParser.search("""{"query":"","results":[$json]}""").results.first()
     }
 
+    fun registerMailAttachment(
+        path: String,
+        displayName: String,
+        mimeType: String,
+        size: Long,
+        hash: String,
+        metadata: JSONObject,
+    ): MailAttachmentRegistrationResult {
+        val result = JSONObject(
+            CabinetNative.registerMailAttachmentJson(
+                databasePath,
+                path,
+                displayName,
+                mimeType,
+                size,
+                hash,
+                metadata.toString(),
+            ),
+        )
+        result.optString("error").takeIf { it.isNotBlank() }?.let { error(it) }
+        return MailAttachmentRegistrationResult(
+            itemId = result.getString("item_id"),
+            created = result.optBoolean("created"),
+            retainedFile = result.optBoolean("retained_file"),
+        )
+    }
+
     fun registerRemoteFile(
         providerId: String,
         remoteFileId: String,

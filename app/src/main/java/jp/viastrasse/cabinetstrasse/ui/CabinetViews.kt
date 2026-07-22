@@ -461,8 +461,26 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 content.addView(panel {
                     addView(label("${reference.referenceType} / ${reference.sourceApp}", 14, true))
                     addView(label(reference.title, 13, false, CabinetColors.TextSecondary))
-                    addView(label(reference.uri, 12, false, CabinetColors.TextSecondary))
-                    addView(command("参照を開く") { onOpenReference(reference.uri) })
+                    listOf(
+                        "文書種別" to reference.documentType,
+                        "関連先" to reference.relatedParty,
+                        "文書日" to reference.documentDate,
+                        "期日" to reference.dueDate,
+                        "メール件名" to reference.emailSubject,
+                        "送信者" to reference.emailSender,
+                        "受信日時" to reference.emailReceivedAt,
+                        "アカウント" to reference.emailAccount,
+                        "Message-ID" to reference.messageId,
+                    ).filter { (_, value) -> value.isNotBlank() }
+                        .forEach { (name, value) ->
+                            addView(label("$name: $value", 12, false, CabinetColors.TextSecondary))
+                        }
+                    if (reference.uri.isNotBlank()) {
+                        addView(label(reference.uri, 12, false, CabinetColors.TextSecondary))
+                        addView(command(if (reference.referenceType == "mail") "元メールを開く" else "参照を開く") {
+                            onOpenReference(reference.uri)
+                        })
+                    }
                 })
             }
         }

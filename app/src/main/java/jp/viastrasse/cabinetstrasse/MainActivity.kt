@@ -123,15 +123,19 @@ class MainActivity : Activity() {
 
     private fun handleDeepLink(intent: Intent) {
         val uri = intent.data
-        if (uri?.scheme == "strasse" && uri.host == "cabinet") {
-            when (uri.pathSegments.firstOrNull()) {
-                "open" -> uri.pathSegments.getOrNull(1)?.let(::openDetail) ?: renderDashboard()
+        val isLegacyCabinetLink = uri?.scheme == "strasse" && uri.host == "cabinet"
+        val isCabinetLink = uri?.scheme == "viastrasse-cabinet"
+        if (uri != null && (isLegacyCabinetLink || isCabinetLink)) {
+            val command = if (isCabinetLink) uri.host else uri.pathSegments.firstOrNull()
+            val argumentIndex = if (isCabinetLink) 0 else 1
+            when (command) {
+                "open" -> uri.pathSegments.getOrNull(argumentIndex)?.let(::openDetail) ?: renderDashboard()
                 "search" -> openSearch(uri.getQueryParameter("q").orEmpty())
                 "inbox" -> openMode("Inbox")
-                "collection" -> uri.pathSegments.getOrNull(1)
+                "collection" -> uri.pathSegments.getOrNull(argumentIndex)
                     ?.let { openMode("collection:$it") }
                     ?: openMode("Collection")
-                "smart" -> uri.pathSegments.getOrNull(1)
+                "smart" -> uri.pathSegments.getOrNull(argumentIndex)
                     ?.let { openMode("smart:$it") }
                     ?: openMode("Smart Folder")
                 "reference" -> handleReferenceDeepLink(uri)
@@ -220,7 +224,8 @@ class MainActivity : Activity() {
     }
 
     private fun handleReferenceDeepLink(uri: Uri) {
-        if (uri.pathSegments.getOrNull(1) != "add") {
+        val actionIndex = if (uri.scheme == "viastrasse-cabinet") 0 else 1
+        if (uri.pathSegments.getOrNull(actionIndex) != "add") {
             renderDashboard()
             return
         }

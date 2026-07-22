@@ -711,6 +711,50 @@ pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_registerFil
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_registerMailAttachmentJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    database_path: JString,
+    path: JString,
+    display_name: JString,
+    mime_type: JString,
+    size: i64,
+    hash: JString,
+    metadata_json: JString,
+) -> jstring {
+    let path_value = match jstring_value(&mut env, &path) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let display_name_value = match jstring_value(&mut env, &display_name) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let mime_type_value = match jstring_value(&mut env, &mime_type) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let hash_value = match jstring_value(&mut env, &hash) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let metadata_json_value = match jstring_value(&mut env, &metadata_json) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    run_string(&mut env, database_path, |core| {
+        core.register_mail_attachment_json(
+            &path_value,
+            &display_name_value,
+            &mime_type_value,
+            size,
+            &hash_value,
+            &metadata_json_value,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_registerRemoteFileJson(
     mut env: JNIEnv,
     _class: JClass,
