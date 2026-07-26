@@ -109,6 +109,9 @@ class ViewerActivity : Activity() {
             return
         }
         val uri = viewerUri(path)
+        // 前のファイルの再生・レンダラを必ず手放してから次を開く。
+        // これを忘れると、前後移動しても音声が鳴り続けたり PDF の fd が溜まる。
+        releaseOpenedMedia()
         val displayTitle = title.ifBlank { File(path).name.ifBlank { path.substringAfterLast('/') } }
         val typeHint = "$path\n$displayTitle"
         runCatching {
@@ -139,6 +142,12 @@ class ViewerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        releaseOpenedMedia()
+        super.onDestroy()
+    }
+
+    /** 再生中のプレイヤーと開いている PDF を解放する。画面を離れるときと切り替えのたびに呼ぶ。 */
+    private fun releaseOpenedMedia() {
         audioPlayer?.release()
         audioPlayer = null
         videoPlayer?.release()
@@ -147,7 +156,8 @@ class ViewerActivity : Activity() {
         pdfRenderer = null
         pdfDescriptor?.close()
         pdfDescriptor = null
-        super.onDestroy()
+        pdfImageView = null
+        pdfCounterView = null
     }
 
     private fun renderText(title: String, body: String) {
@@ -506,6 +516,9 @@ class ViewerActivity : Activity() {
             contentView = content
             this.useNaturalWidth = useNaturalWidth
             zoomBounds.removeAllViews()
+            // 余白とスクロール位置は post 後に確定する。それまでコンテンツは左上に置かれるため、
+            // そのまま見せると切り替えのたびに画面上部で一瞬ちらつく。確定してから可視にする。
+            content.visibility = View.INVISIBLE
             zoomBounds.addView(
                 content,
                 FrameLayout.LayoutParams(
@@ -620,6 +633,7 @@ class ViewerActivity : Activity() {
             post {
                 scrollTo(panMarginX, 0)
                 verticalScroll.scrollTo(0, panMarginY)
+                contentView?.visibility = View.VISIBLE
             }
         }
 
@@ -834,12 +848,12 @@ class ViewerActivity : Activity() {
                     // エラーを握り潰すと「何も起きない」状態になり原因も分からない。
                     // 端末が対応しないコーデックは珍しくないため、外部アプリへ逃がす。
                     player.setOnErrorListener { _, what, extra ->
-                        renderVideoError(title, uri, what, extra)
+                        renderMediaError(title, uri, what, extra, "video/*")
                         true
                     }
                     player.prepareAsync()
                 }.onFailure {
-                    renderVideoError(title, uri, MediaPlayer.MEDIA_ERROR_UNKNOWN, 0)
+                    renderMediaError(title, uri, MediaPlayer.MEDIA_ERROR_UNKNOWN, 0, "video/*")
                 }
             }
 
@@ -850,7 +864,7 @@ class ViewerActivity : Activity() {
             override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
         }
 
-        controller.setMediaPlayer(videoPlayerControl(player))
+        controller.setMediaPlayer(mediaPlayerControl(player))
         controller.setAnchorView(stage)
 
         control = commandButton(getString(R.string.action_play)) {
@@ -912,8 +926,8 @@ class ViewerActivity : Activity() {
         )
     }
 
-    /** MediaController から MediaPlayer を操作させるためのアダプタ。 */
-    private fun videoPlayerControl(player: MediaPlayer): MediaController.MediaPlayerControl {
+    /** MediaController から MediaPlayer を操作させるためのアダプタ。動画・音声で共用。 */
+    private fun mediaPlayerControl(player: MediaPlayer): MediaController.MediaPlayerControl {
         return object : MediaController.MediaPlayerControl {
             override fun start() {
                 runCatching { player.start() }
@@ -982,8 +996,8 @@ class ViewerActivity : Activity() {
         }
     }
 
-    /** 内蔵プレイヤーで再生できなかったとき、原因コードと外部アプリへの導線を出す。 */
-    private fun renderVideoError(title: String, uri: Uri, what: Int, extra: Int) {
+    /** 内蔵プレイヤーで再生できなかったとき、原因コードと外部アプリへの導線を出す。動画・音声で共用。 */
+    private fun renderMediaError(title: String, uri: Uri, what: Int, extra: Int, mimeType: String) {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
@@ -998,7 +1012,7 @@ class ViewerActivity : Activity() {
             )
             addView(
                 commandButton(getString(R.string.action_open_external_app)) {
-                    openExternal(uri, "video/*")
+                    openExternal(uri, mimeType)
                 },
             )
         }
@@ -1019,43 +1033,78 @@ class ViewerActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(CabinetColors.AppBackground)
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setPadding(dp(CabinetMetrics.SPACE_XL), dp(CabinetMetrics.SPACE_XL), dp(CabinetMetrics.SPACE_XL), dp(CabinetMetrics.SPACE_XL))
         }
         val titleView = TextView(this).apply {
             text = title
             setTextColor(CabinetColors.TextPrimary)
-            textSize = 18f
+            textSize = CabinetType.TITLE.toFloat()
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(24))
+            setLineSpacing(0f, 1.2f)
+            setPadding(0, 0, 0, dp(CabinetMetrics.SPACE_XL))
         }
-        val control = TextView(this).apply {
-            text = getString(R.string.action_play)
-            setTextColor(CabinetColors.Accent)
-            textSize = 18f
-            gravity = Gravity.CENTER
-            setPadding(dp(24), dp(18), dp(24), dp(18))
-            setBackgroundColor(CabinetColors.SurfaceAlt)
-        }
-        audioPlayer = MediaPlayer().apply {
-            setDataSource(this@ViewerActivity, uri)
-            prepare()
-            setOnCompletionListener {
-                control.text = getString(R.string.action_play)
-            }
-        }
-        control.setOnClickListener {
-            val player = audioPlayer ?: return@setOnClickListener
-            if (player.isPlaying) {
-                player.pause()
-                control.text = getString(R.string.action_play)
+        val control = commandButton(getString(R.string.action_play)) {}
+
+        audioPlayer?.release()
+        val player = MediaPlayer()
+        audioPlayer = player
+        val controller = MediaController(this)
+
+        fun refreshControlLabel() {
+            control.text = if (runCatching { player.isPlaying }.getOrDefault(false)) {
+                getString(R.string.action_pause)
             } else {
-                player.start()
-                control.text = getString(R.string.action_pause)
+                getString(R.string.action_play)
             }
         }
+
+        control.setOnClickListener {
+            runCatching {
+                if (player.isPlaying) player.pause() else player.start()
+            }
+            refreshControlLabel()
+        }
+
+        runCatching {
+            player.setDataSource(this, uri)
+            // 動画と同じく、開いたら再生を始める。以前は prepare するだけで
+            // 再生ボタンを押すまで鳴らず、動画と挙動が食い違っていた。
+            player.setOnPreparedListener {
+                it.start()
+                refreshControlLabel()
+            }
+            player.setOnCompletionListener { refreshControlLabel() }
+            player.setOnErrorListener { _, what, extra ->
+                renderMediaError(title, uri, what, extra, "audio/*")
+                true
+            }
+            player.prepareAsync()
+        }.onFailure {
+            renderMediaError(title, uri, MediaPlayer.MEDIA_ERROR_UNKNOWN, 0, "audio/*")
+            return
+        }
+
+        controller.setMediaPlayer(mediaPlayerControl(player))
+        controller.setAnchorView(layout)
+
         layout.addView(titleView)
         layout.addView(control)
-        setContentView(swipeNavigationHost(layout))
+        setContentView(
+            SwipeNavigationFrame(this).apply {
+                setBackgroundColor(CabinetColors.AppBackground)
+                onPrevious = ::showPreviousPreview
+                onNext = ::showNextPreview
+                onTap = { if (controller.isShowing) controller.hide() else controller.show() }
+                addView(
+                    layout,
+                    ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            },
+        )
     }
 
     private fun renderUnsupported(title: String, uri: Uri, mimeType: String) {

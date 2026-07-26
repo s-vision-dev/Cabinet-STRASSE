@@ -372,7 +372,7 @@
 
 この形式はCabinet内ビューアでは表示できません。
 MIME: %2$s</string>
-    <string name="viewer_video_error">この動画はCabinet内ビューアでは再生できませんでした。
+    <string name="viewer_video_error">このファイルはCabinet内ビューアでは再生できませんでした。
 端末がこの形式に対応していない可能性があります。
 
 code: %1$s / %2$s</string>
