@@ -21,6 +21,8 @@ data class CabinetItemSummary(
     val sourceKind: String,
     val size: Long,
     val isFavorite: Boolean,
+    /** ゴミ箱に入っているか。詳細画面のゴミ箱操作の出し分けに使う。 */
+    val isArchived: Boolean,
     val isUnsorted: Boolean,
     val summaryText: String,
     val updatedAt: String,

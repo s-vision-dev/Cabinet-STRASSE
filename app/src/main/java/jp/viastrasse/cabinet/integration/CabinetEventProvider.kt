@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Binder
 import android.os.Process
 import android.provider.OpenableColumns
+import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.data.CabinetRepository
 import jp.viastrasse.cabinet.preview.PreviewWorker
 import org.json.JSONArray
@@ -399,27 +400,11 @@ class CabinetEventProvider : ContentProvider() {
         return EventFileInfo(sanitizedName, mimeType)
     }
 
-    private fun uniqueDestination(directory: File, displayName: String): File {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = if (extension.isBlank()) File(directory, "$base-$index") else File(directory, "$base-$index.$extension")
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueDestination(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDestination(directory, displayName)
 
-    private fun sanitizeFileName(value: String): String {
-        return value
-            .substringAfterLast('/')
-            .substringAfterLast('\\')
-            .replace(Regex("""[\u0000-\u001f\u007f\\/:*?"<>|]"""), "_")
-            .trim()
-            .take(MAX_FILE_NAME_LENGTH)
-            .ifBlank { "event-file" }
-    }
+    private fun sanitizeFileName(value: String): String =
+        CabinetFiles.sanitizeFileName(value, fallback = "event-file")
 
     private fun requiredText(values: ContentValues?, payload: JSONObject, key: String): String {
         return valueText(values, payload, key).also { require(it.isNotBlank()) { "$key is required." } }
@@ -463,7 +448,6 @@ class CabinetEventProvider : ContentProvider() {
         private const val MAIL_ATTACHMENT_EVENT = "Mail.AttachmentSaveRequested"
         private const val MAIL_PACKAGE = "jp.viastrasse.mail"
         private const val MAX_ATTACHMENT_BYTES = 100L * 1024L * 1024L
-        private const val MAX_FILE_NAME_LENGTH = 180
         private val SHA256_PATTERN = Regex("""[0-9a-f]{64}""")
     }
 }

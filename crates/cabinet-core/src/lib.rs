@@ -263,6 +263,8 @@ pub struct CabinetItemSummary {
     pub source_kind: String,
     pub size: i64,
     pub is_favorite: bool,
+    /// ゴミ箱に入っているか。UI 側でゴミ箱操作を出し分けるために返す。
+    pub is_archived: bool,
     pub is_unsorted: bool,
     pub summary_text: String,
     pub updated_at: String,
@@ -562,7 +564,7 @@ impl CabinetCore {
                 mode: "Explorer".to_owned(),
                 title: "Explorer".to_owned(),
                 items: self.query_items(
-                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                      FROM cabinet_items
                      WHERE source_kind IN ('local', 'mail', 'remote') AND is_archived = 0
                      ORDER BY updated_at DESC, title ASC
@@ -576,7 +578,7 @@ impl CabinetCore {
                 mode: "Library".to_owned(),
                 title: "Library".to_owned(),
                 items: self.query_items(
-                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                      FROM cabinet_items
                      WHERE is_archived = 0
                      ORDER BY mime_type ASC, title ASC
@@ -597,7 +599,7 @@ impl CabinetCore {
                 mode: "Inbox".to_owned(),
                 title: "Inbox".to_owned(),
                 items: self.query_items(
-                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                      FROM cabinet_items
                      WHERE is_unsorted = 1 AND is_archived = 0
                      ORDER BY updated_at DESC, title ASC
@@ -607,18 +609,32 @@ impl CabinetCore {
                 collections: Vec::new(),
                 smart_folders: Vec::new(),
             },
-            "smart folder" | "smartfolder" | "settings" => ModeResponse {
-                mode: mode.to_owned(),
-                title: mode.to_owned(),
+            "smart folder" | "smartfolder" => ModeResponse {
+                mode: "Smart Folder".to_owned(),
+                title: "Smart Folder".to_owned(),
                 items: Vec::new(),
                 collections: Vec::new(),
                 smart_folders: self.smart_folders()?,
+            },
+            "favorites" | "favorite" | "お気に入り" => ModeResponse {
+                mode: "Favorites".to_owned(),
+                title: "Favorites".to_owned(),
+                items: self.query_items(
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
+                     FROM cabinet_items
+                     WHERE is_favorite = 1 AND is_archived = 0
+                     ORDER BY updated_at DESC, title ASC
+                     LIMIT 100",
+                    [],
+                )?,
+                collections: Vec::new(),
+                smart_folders: Vec::new(),
             },
             "trash" | "ゴミ箱" => ModeResponse {
                 mode: "Trash".to_owned(),
                 title: "Trash".to_owned(),
                 items: self.query_items(
-                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                    "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                      FROM cabinet_items
                      WHERE is_archived = 1
                      ORDER BY updated_at DESC, title ASC
@@ -650,7 +666,7 @@ impl CabinetCore {
             title,
             items: self.query_items(
                 "SELECT i.id, i.title, i.display_name, i.mime_type, i.source_kind, i.size,
-                        i.is_favorite, i.is_unsorted, i.note, i.updated_at
+                        i.is_favorite, i.is_archived, i.is_unsorted, i.note, i.updated_at
                  FROM cabinet_items i
                  JOIN remote_file_references r ON r.id = i.remote_file_reference_id
                  WHERE r.provider_account_id = ?1 AND i.is_archived = 0
@@ -671,7 +687,7 @@ impl CabinetCore {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         let sql = format!(
-            "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+            "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
              FROM cabinet_items
              WHERE ({condition_sql}) AND is_archived = 0
              ORDER BY updated_at DESC, title ASC
@@ -698,7 +714,7 @@ impl CabinetCore {
             title,
             items: self.query_items(
                 "SELECT i.id, i.title, i.display_name, i.mime_type, i.source_kind, i.size,
-                        i.is_favorite, i.is_unsorted, i.note, i.updated_at
+                        i.is_favorite, i.is_archived, i.is_unsorted, i.note, i.updated_at
                  FROM cabinet_collection_items ci
                  JOIN cabinet_items i ON i.id = ci.item_id
                  WHERE ci.collection_id = ?1 AND i.is_archived = 0
@@ -2556,7 +2572,7 @@ impl CabinetCore {
             favorite_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_favorite = 1 AND is_archived = 0")?,
             trash_count: self.scalar("SELECT COUNT(*) FROM cabinet_items WHERE is_archived = 1")?,
             recent_items: self.query_items(
-                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                  FROM cabinet_items
                  WHERE is_archived = 0
                  ORDER BY COALESCE(last_opened_at, updated_at) DESC, updated_at DESC, title ASC
@@ -2572,7 +2588,7 @@ impl CabinetCore {
         let trimmed = query.trim();
         if trimmed.is_empty() {
             return self.query_items(
-                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                  FROM cabinet_items
                  WHERE is_archived = 0
                  ORDER BY updated_at DESC, title ASC
@@ -2588,7 +2604,7 @@ impl CabinetCore {
             .join(" ");
         let mut stmt = self.conn.prepare(
             "SELECT i.id, i.title, i.display_name, i.mime_type, i.source_kind, i.size,
-                    i.is_favorite, i.is_unsorted, i.note, i.updated_at
+                    i.is_favorite, i.is_archived, i.is_unsorted, i.note, i.updated_at
              FROM cabinet_fts f
              JOIN cabinet_items i ON i.id = f.item_id
              WHERE cabinet_fts MATCH ?1 AND i.is_archived = 0
@@ -3070,7 +3086,7 @@ impl CabinetCore {
         for row in rows {
             let (hash, size) = row?;
             let items = self.query_items(
-                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                  FROM cabinet_items
                  WHERE hash = ?1 AND size = ?2 AND is_archived = 0
                  ORDER BY updated_at DESC, title ASC",
@@ -3084,7 +3100,7 @@ impl CabinetCore {
     fn item_by_id(&self, id: &str) -> CabinetResult<Option<CabinetItemSummary>> {
         self.conn
             .query_row(
-                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_unsorted, note, updated_at
+                "SELECT id, title, display_name, mime_type, source_kind, size, is_favorite, is_archived, is_unsorted, note, updated_at
                  FROM cabinet_items WHERE id = ?1",
                 params![id],
                 read_item_summary,
@@ -3383,9 +3399,10 @@ fn read_item_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CabinetItemSum
         source_kind: row.get(4)?,
         size: row.get(5)?,
         is_favorite: row.get::<_, i64>(6)? != 0,
-        is_unsorted: row.get::<_, i64>(7)? != 0,
-        summary_text: row.get(8)?,
-        updated_at: row.get(9)?,
+        is_archived: row.get::<_, i64>(7)? != 0,
+        is_unsorted: row.get::<_, i64>(8)? != 0,
+        summary_text: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 

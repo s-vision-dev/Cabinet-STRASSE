@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.OpenableColumns
+import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.data.CabinetRepository
 import jp.viastrasse.cabinet.preview.PreviewWorker
 import java.io.File
@@ -120,25 +121,11 @@ class CabinetSaveProvider : ContentProvider() {
         return SaveFileInfo(displayName = sanitizedName, mimeType = mimeType)
     }
 
-    private fun uniqueDestination(directory: File, displayName: String): File {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = if (extension.isBlank()) {
-                File(directory, "$base-$index")
-            } else {
-                File(directory, "$base-$index.$extension")
-            }
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueDestination(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDestination(directory, displayName)
 
-    private fun sanitizeFileName(value: String): String {
-        return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "saved-file" }
-    }
+    private fun sanitizeFileName(value: String): String =
+        CabinetFiles.sanitizeFileName(value, fallback = "saved-file")
 
     private data class SaveFileInfo(
         val displayName: String,

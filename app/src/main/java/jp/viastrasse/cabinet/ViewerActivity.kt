@@ -23,7 +23,13 @@ import android.widget.MediaController
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.VideoView
+import androidx.annotation.StringRes
+import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.theme.CabinetColors
+import jp.viastrasse.cabinet.ui.CabinetMetrics
+import jp.viastrasse.cabinet.ui.CabinetType
+import jp.viastrasse.cabinet.ui.asTappable
+import jp.viastrasse.cabinet.ui.pressableShape
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -58,7 +64,7 @@ class ViewerActivity : Activity() {
         runCatching {
             openFromIntent()
         }.onFailure { error ->
-            renderText("Viewer", error.message ?: "ファイルを表示できませんでした。")
+            renderText("Viewer", error.message ?: getString(R.string.msg_preview_failed))
         }
     }
 
@@ -120,7 +126,7 @@ class ViewerActivity : Activity() {
                 renderUnsupported(displayTitle, uri, mimeType)
             }
         }.onFailure { error ->
-            renderText(displayTitle, error.message ?: "ファイルを表示できませんでした。")
+            renderText(displayTitle, error.message ?: getString(R.string.msg_preview_failed))
         }
     }
 
@@ -169,7 +175,7 @@ class ViewerActivity : Activity() {
             .filter { row -> row.any { it.isNotBlank() } }
             .take(80)
         val preview = if (rows.isEmpty()) {
-            "表示できる行がありません。"
+            getString(R.string.viewer_render_csv_preview)
         } else {
             formatDelimitedRows(rows)
         }
@@ -179,7 +185,7 @@ class ViewerActivity : Activity() {
         }
         container.addView(
             TextView(this).apply {
-                text = "CSVプレビュー"
+                text = getString(R.string.viewer_render_csv_preview_2)
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 16f
                 setPadding(0, 0, 0, dp(8))
@@ -187,7 +193,7 @@ class ViewerActivity : Activity() {
         )
         container.addView(
             TextView(this).apply {
-                text = "区切り文字: ${delimiter.label}"
+                text = getString(R.string.viewer_render_csv_preview_3, getString(delimiter.labelRes))
                 setTextColor(CabinetColors.TextSecondary)
                 textSize = 13f
                 setPadding(0, 0, 0, dp(12))
@@ -221,14 +227,27 @@ class ViewerActivity : Activity() {
         }
     }
 
-    private fun fixedTitle(title: String): TextView {
-        return TextView(this).apply {
-            text = title
-            setTextColor(CabinetColors.TextPrimary)
-            textSize = 16f
-            setPadding(dp(18), dp(12), dp(18), dp(10))
+    private fun fixedTitle(title: String): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
-            maxLines = 3
+            addView(
+                TextView(this@ViewerActivity).apply {
+                    text = title
+                    setTextColor(CabinetColors.TextPrimary)
+                    textSize = CabinetType.SECTION.toFloat()
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_MD))
+                    maxLines = 2
+                    ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                },
+            )
+            addView(
+                View(this@ViewerActivity).apply {
+                    setBackgroundColor(CabinetColors.Divider)
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
+                },
+            )
         }
     }
 
@@ -499,7 +518,7 @@ class ViewerActivity : Activity() {
         pdfRenderer = PdfRenderer(pdfDescriptor ?: return)
         val renderer = pdfRenderer ?: return
         if (renderer.pageCount == 0) {
-            renderText(title, "PDFページを表示できませんでした。")
+            renderText(title, getString(R.string.viewer_render_pdf))
             return
         }
         val layout = LinearLayout(this).apply {
@@ -532,10 +551,10 @@ class ViewerActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, 0)
         }
-        controls.addView(commandButton("前へ") {
+        controls.addView(commandButton(getString(R.string.viewer_render_pdf_2)) {
             showPdfPage((pdfPageIndex - 1).coerceAtLeast(0))
         })
-        controls.addView(commandButton("次へ") {
+        controls.addView(commandButton(getString(R.string.viewer_render_pdf_3)) {
             showPdfPage((pdfPageIndex + 1).coerceAtMost(renderer.pageCount - 1))
         })
         layout.addView(controls)
@@ -561,11 +580,19 @@ class ViewerActivity : Activity() {
         return TextView(this).apply {
             text = textValue
             setTextColor(CabinetColors.Accent)
-            textSize = 15f
+            textSize = CabinetType.BODY.toFloat()
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(dp(18), dp(12), dp(18), dp(12))
-            setBackgroundColor(CabinetColors.SurfaceAlt)
+            minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            setPadding(dp(CabinetMetrics.SPACE_XL), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_XL), dp(CabinetMetrics.SPACE_MD))
+            asTappable(pressableShape(CabinetColors.Surface, CabinetMetrics.RADIUS_CONTROL))
             setOnClickListener { action() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(dp(CabinetMetrics.SPACE_XS), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_XS), 0)
+            }
         }
     }
 
@@ -577,19 +604,19 @@ class ViewerActivity : Activity() {
             setMediaController(MediaController(this@ViewerActivity).also { it.setAnchorView(this) })
             setOnPreparedListener {
                 start()
-                control.text = "一時停止"
+                control.text = getString(R.string.action_pause)
             }
             setOnCompletionListener {
-                control.text = "再生"
+                control.text = getString(R.string.action_play)
             }
         }
-        control = commandButton("再生") {
+        control = commandButton(getString(R.string.action_play)) {
             if (videoView.isPlaying) {
                 videoView.pause()
-                control.text = "再生"
+                control.text = getString(R.string.action_play)
             } else {
                 videoView.start()
-                control.text = "一時停止"
+                control.text = getString(R.string.action_pause)
             }
         }
         val layout = LinearLayout(this).apply {
@@ -624,7 +651,7 @@ class ViewerActivity : Activity() {
             setPadding(0, 0, 0, dp(24))
         }
         val control = TextView(this).apply {
-            text = "再生"
+            text = getString(R.string.action_play)
             setTextColor(CabinetColors.Accent)
             textSize = 18f
             gravity = Gravity.CENTER
@@ -635,17 +662,17 @@ class ViewerActivity : Activity() {
             setDataSource(this@ViewerActivity, uri)
             prepare()
             setOnCompletionListener {
-                control.text = "再生"
+                control.text = getString(R.string.action_play)
             }
         }
         control.setOnClickListener {
             val player = audioPlayer ?: return@setOnClickListener
             if (player.isPlaying) {
                 player.pause()
-                control.text = "再生"
+                control.text = getString(R.string.action_play)
             } else {
                 player.start()
-                control.text = "一時停止"
+                control.text = getString(R.string.action_pause)
             }
         }
         layout.addView(titleView)
@@ -662,13 +689,13 @@ class ViewerActivity : Activity() {
         }
         layout.addView(
             TextView(this).apply {
-                text = "$title\n\nこの形式はCabinet内ビューアでは表示できません。\nMIME: $typeText"
+                text = getString(R.string.viewer_render_unsupported, title, typeText)
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 15f
             },
         )
         layout.addView(
-            commandButton("外部アプリで開く") {
+            commandButton(getString(R.string.action_open_external_app)) {
                 openExternal(uri, mimeType)
             }.apply {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
@@ -685,7 +712,7 @@ class ViewerActivity : Activity() {
         }
         container.addView(
             TextView(this).apply {
-                text = "先頭シートのプレビュー"
+                text = getString(R.string.viewer_render_spreadsheet_preview)
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 16f
                 setPadding(0, 0, 0, dp(12))
@@ -701,7 +728,7 @@ class ViewerActivity : Activity() {
             },
         )
         container.addView(
-            commandButton("外部アプリで開く") {
+            commandButton(getString(R.string.action_open_external_app)) {
                 openExternal(uri, mimeType)
             }.apply {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
@@ -718,7 +745,7 @@ class ViewerActivity : Activity() {
         val preview = when {
             isWordDocument(path, mimeType) -> buildWordPreview(uri)
             isPresentation(path, mimeType) -> buildPresentationPreview(uri)
-            else -> "このOffice形式はプレビューに対応していません。"
+            else -> getString(R.string.viewer_render_office_preview)
         }
         renderOfficeTextPreview(title, preview, uri, mimeType)
     }
@@ -730,7 +757,7 @@ class ViewerActivity : Activity() {
         }
         container.addView(
             TextView(this).apply {
-                text = "プレビュー"
+                text = getString(R.string.viewer_render_office_text_preview)
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 16f
                 setPadding(0, 0, 0, dp(12))
@@ -745,7 +772,7 @@ class ViewerActivity : Activity() {
             },
         )
         container.addView(
-            commandButton("外部アプリで開く") {
+            commandButton(getString(R.string.action_open_external_app)) {
                 openExternal(uri, mimeType)
             }.apply {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
@@ -762,7 +789,7 @@ class ViewerActivity : Activity() {
         }
         container.addView(
             TextView(this).apply {
-                text = "アーカイブ内容のプレビュー"
+                text = getString(R.string.viewer_render_archive_preview)
                 setTextColor(CabinetColors.TextPrimary)
                 textSize = 16f
                 setPadding(0, 0, 0, dp(12))
@@ -778,7 +805,7 @@ class ViewerActivity : Activity() {
             },
         )
         container.addView(
-            commandButton("外部アプリで開く") {
+            commandButton(getString(R.string.action_open_external_app)) {
                 openExternal(uri, mimeType)
             }.apply {
                 setPadding(dp(18), dp(14), dp(18), dp(14))
@@ -791,16 +818,16 @@ class ViewerActivity : Activity() {
         val entries = readSpreadsheetEntries(uri)
         val sharedStrings = parseSharedStrings(entries["xl/sharedStrings.xml"].orEmpty())
         val sheetXml = entries["xl/worksheets/sheet1.xml"].orEmpty()
-        if (sheetXml.isBlank()) return "プレビュー対象のシートを見つけられませんでした。"
+        if (sheetXml.isBlank()) return getString(R.string.viewer_build_spreadsheet_preview)
         val rows = parseSheetRows(sheetXml, sharedStrings)
-        if (rows.isEmpty()) return "表示できるセルがありません。"
+        if (rows.isEmpty()) return getString(R.string.viewer_build_spreadsheet_preview_2)
         return rows.take(40).joinToString("\n") { row ->
             row.take(8).joinToString(" | ") { it.ifBlank { "-" }.take(40) }
         }
     }
 
     private fun buildArchivePreview(uri: Uri): String {
-        val input = contentResolver.openInputStream(uri) ?: error("ファイルを開けませんでした。")
+        val input = contentResolver.openInputStream(uri) ?: error(getString(R.string.msg_file_open_failed))
         val rows = mutableListOf<String>()
         var totalCount = 0
         var directoryCount = 0
@@ -823,30 +850,19 @@ class ViewerActivity : Activity() {
                 entry = zip.nextEntry
             }
         }
-        if (totalCount == 0) return "表示できるエントリがありません。"
+        if (totalCount == 0) return getString(R.string.viewer_build_archive_preview)
         val header = "entries: $totalCount / files: $fileCount / dirs: $directoryCount"
         val body = rows.joinToString("\n")
-        val suffix = if (totalCount > rows.size) "\n...ほか ${totalCount - rows.size} 件" else ""
+        val suffix = if (totalCount > rows.size) getString(R.string.viewer_build_archive_preview_2, totalCount - rows.size) else ""
         return "$header\n\n$body$suffix"
     }
 
-    private fun archiveEntrySize(size: Long): String {
-        if (size < 0L) return "unknown"
-        if (size < 1024L) return "${size}B"
-        val units = listOf("KB", "MB", "GB", "TB")
-        var value = size / 1024.0
-        var unitIndex = 0
-        while (value >= 1024.0 && unitIndex < units.lastIndex) {
-            value /= 1024.0
-            unitIndex += 1
-        }
-        return "%.2f%s".format(value, units[unitIndex])
-    }
+    private fun archiveEntrySize(size: Long): String = CabinetFiles.readableSize(size)
 
     private fun readSpreadsheetEntries(uri: Uri): Map<String, String> {
         val targets = setOf("xl/sharedStrings.xml", "xl/worksheets/sheet1.xml")
         val result = mutableMapOf<String, String>()
-        val input = contentResolver.openInputStream(uri) ?: error("ファイルを開けませんでした。")
+        val input = contentResolver.openInputStream(uri) ?: error(getString(R.string.msg_file_open_failed))
         ZipInputStream(input.buffered()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
@@ -863,9 +879,9 @@ class ViewerActivity : Activity() {
 
     private fun buildWordPreview(uri: Uri): String {
         val xml = readZipTextEntries(uri) { it == "word/document.xml" }["word/document.xml"].orEmpty()
-        if (xml.isBlank()) return "本文を見つけられませんでした。"
+        if (xml.isBlank()) return getString(R.string.viewer_build_word_preview)
         val paragraphs = parseWordParagraphs(xml)
-        if (paragraphs.isEmpty()) return "表示できる本文がありません。"
+        if (paragraphs.isEmpty()) return getString(R.string.viewer_build_word_preview_2)
         return paragraphs.take(80).joinToString("\n")
     }
 
@@ -873,21 +889,21 @@ class ViewerActivity : Activity() {
         val entries = readZipTextEntries(uri) {
             it.startsWith("ppt/slides/slide") && it.endsWith(".xml")
         }
-        if (entries.isEmpty()) return "スライドを見つけられませんでした。"
+        if (entries.isEmpty()) return getString(R.string.viewer_build_presentation_preview)
         return entries.toSortedMap(compareBy(::slideNumberFromPath).thenBy { it })
             .entries
             .take(20)
             .joinToString("\n\n") { (path, xml) ->
                 val slideNumber = slideNumberFromPath(path)
                 val texts = parseTextRuns(xml).filter { it.isNotBlank() }
-                val body = if (texts.isEmpty()) "表示できるテキストがありません。" else texts.joinToString("\n")
+                val body = if (texts.isEmpty()) getString(R.string.viewer_build_presentation_preview_2) else texts.joinToString("\n")
                 "Slide $slideNumber\n$body"
             }
     }
 
     private fun readZipTextEntries(uri: Uri, include: (String) -> Boolean): Map<String, String> {
         val result = mutableMapOf<String, String>()
-        val input = contentResolver.openInputStream(uri) ?: error("ファイルを開けませんでした。")
+        val input = contentResolver.openInputStream(uri) ?: error(getString(R.string.msg_file_open_failed))
         ZipInputStream(input.buffered()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
@@ -1037,7 +1053,7 @@ class ViewerActivity : Activity() {
     private fun readText(uri: Uri): String {
         val bytes = contentResolver.openInputStream(uri)
             ?.use { it.readBytes() }
-            ?: error("ファイルを開けませんでした。")
+            ?: error(getString(R.string.msg_file_open_failed))
         return decodeText(bytes)
     }
 
@@ -1092,7 +1108,7 @@ class ViewerActivity : Activity() {
 
     private fun formatDelimitedRows(rows: List<List<String>>): String {
         val columnCount = rows.maxOfOrNull { it.size }?.coerceAtMost(12) ?: 0
-        if (columnCount == 0) return "表示できる列がありません。"
+        if (columnCount == 0) return getString(R.string.viewer_format_delimited_rows)
         val widths = (0 until columnCount).map { column ->
             rows.maxOf { row -> row.getOrNull(column).orEmpty().singleLineCell().length.coerceAtMost(24) }
                 .coerceAtLeast(1)
@@ -1199,7 +1215,7 @@ class ViewerActivity : Activity() {
     private fun openReadDescriptor(uri: Uri): ParcelFileDescriptor {
         if (uri.scheme == "content") {
             return contentResolver.openFileDescriptor(uri, "r")
-                ?: error("ファイルを開けませんでした。")
+                ?: error(getString(R.string.msg_file_open_failed))
         }
         return ParcelFileDescriptor.open(File(requireNotNull(uri.path)), ParcelFileDescriptor.MODE_READ_ONLY)
     }
@@ -1211,7 +1227,7 @@ class ViewerActivity : Activity() {
         }
         runCatching { startActivity(intent) }
             .onFailure { error ->
-                renderText("Viewer", error.message ?: "外部アプリで開けませんでした。")
+                renderText("Viewer", error.message ?: getString(R.string.viewer_open_external))
             }
     }
 
@@ -1369,9 +1385,10 @@ class ViewerActivity : Activity() {
         val charset: Charset,
     )
 
-    private enum class DelimitedTextSeparator(val value: Char, val label: String) {
-        COMMA(',', "カンマ"),
-        TAB('\t', "タブ"),
-        SEMICOLON(';', "セミコロン"),
+    /** enum は Context を持てないため、文言ではなく文字列リソースIDを保持する。 */
+    private enum class DelimitedTextSeparator(val value: Char, @param:StringRes val labelRes: Int) {
+        COMMA(',', R.string.separator_comma),
+        TAB('\t', R.string.separator_tab),
+        SEMICOLON(';', R.string.separator_semicolon),
     }
 }

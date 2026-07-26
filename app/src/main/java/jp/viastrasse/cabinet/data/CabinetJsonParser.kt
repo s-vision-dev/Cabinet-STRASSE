@@ -104,6 +104,7 @@ object CabinetJsonParser {
             sourceKind = optString("source_kind"),
             size = optLong("size"),
             isFavorite = optBoolean("is_favorite"),
+            isArchived = optBoolean("is_archived"),
             isUnsorted = optBoolean("is_unsorted"),
             summaryText = optString("summary_text"),
             updatedAt = optString("updated_at"),

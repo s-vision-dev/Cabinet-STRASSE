@@ -5,6 +5,16 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!--
+        MANAGE_EXTERNAL_STORAGE は Explorer / Downloads / Documents で端末の共有ストレージを
+        そのまま一覧するために必要。SAF と MediaStore だけでは設計書 6 章の
+        「普通のファイルマネージャーとして成立する」要件を満たせない。
+
+        本アプリは Google Play ではなく Dropbox 経由のサイドロードで配布しているため
+        （scripts/release_build.ps1 を参照）、Play の制限付き権限の審査対象外。
+        Play 配布に切り替える場合はこの権限を外し、SAF ベースへ設計変更すること。
+    -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -14,9 +24,41 @@
         <package android:name="jp.viastrasse.task" />
         <package android:name="jp.viastrasse.atelier" />
         <package android:name="jp.viastrasse.notify" />
+
+        <!--
+            資料詳細から Mail / Task / Atelier の参照を開くために、
+            相手側のスキームを解決できる必要がある。
+            自分自身のスキーム（viastrasse-cabinet）を宣言しても意味がない。
+        -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="viastrasse-cabinet" />
+            <data android:scheme="viastrasse-mail" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="viastrasse-task" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="viastrasse-atelier" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="viastrasse-home" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="viastrasse-notify" />
+        </intent>
+
+        <!-- 内蔵ビューアが非対応の形式を外部アプリへ渡すため。 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="*/*" />
         </intent>
     </queries>
 

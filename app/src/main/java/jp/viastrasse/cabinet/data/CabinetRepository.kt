@@ -81,11 +81,16 @@ class CabinetRepository(context: Context) {
         return settings()
     }
 
+    /**
+     * 最新のローカルバックアップを復元する。
+     * バックアップが1件も無い場合は [NoSuchElementException] を投げる。
+     * 文言は Context を持つ UI 層で組み立てる（このクラスは表示文言を持たない）。
+     */
     fun restoreLatestLocalBackup(): SettingsSnapshot {
         val backup = backupDir
             .listFiles { file -> isCabinetBackupFile(file) }
             ?.maxByOrNull { it.lastModified() }
-            ?: error("ローカルバックアップがありません")
+            ?: throw NoSuchElementException("No local backup file exists.")
         return importBackup(backup.readText(Charsets.UTF_8))
     }
 
@@ -340,31 +345,11 @@ class CabinetRepository(context: Context) {
         )
     }
 
-    private fun uniqueFile(directory: File, displayName: String): File {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = if (extension.isBlank()) {
-                File(directory, "$base-$index")
-            } else {
-                File(directory, "$base-$index.$extension")
-            }
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueFile(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDestination(directory, displayName)
 
-    private fun uniqueDirectory(directory: File, displayName: String): File {
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = File(directory, "$displayName-$index")
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueDirectory(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDirectory(directory, displayName)
 
     private fun pruneBackups(maxGenerations: Int) {
         backupDir.listFiles { file -> isCabinetBackupFile(file) }

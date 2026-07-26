@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.data.CabinetRepository
 import jp.viastrasse.cabinet.preview.PreviewWorker
 import java.io.File
@@ -111,24 +112,10 @@ class FolderWatchWorker(
             return "${document.uri}|${document.lastModified()}|${document.length()}"
         }
 
-        private fun uniqueDestination(directory: File, displayName: String): File {
-            val base = displayName.substringBeforeLast('.', displayName)
-            val extension = displayName.substringAfterLast('.', "")
-            var candidate = File(directory, displayName)
-            var index = 1
-            while (candidate.exists()) {
-                candidate = if (extension.isBlank()) {
-                    File(directory, "$base-$index")
-                } else {
-                    File(directory, "$base-$index.$extension")
-                }
-                index += 1
-            }
-            return candidate
-        }
+        private fun uniqueDestination(directory: File, displayName: String): File =
+            CabinetFiles.uniqueDestination(directory, displayName)
 
-        private fun sanitizeFileName(value: String): String {
-            return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "document" }
-        }
+        private fun sanitizeFileName(value: String): String =
+            CabinetFiles.sanitizeFileName(value)
     }
 }

@@ -17,6 +17,27 @@
 - Cabinet core responsibilities such as schema management, migrations, metadata rules, search, Smart Folder evaluation, versioning rules, backup import/export logic, hashing, and duplicate detection should be placed in Rust where practical.
 - App-to-app integration must use explicit contracts such as Intent, Deep Link, ContentProvider, or STRASSE Platform contracts. Do not directly read another STRASSE app's private SQLite database.
 
+## UI Strings
+
+- All user-facing Japanese text lives in `app/src/main/res/values/strings.xml`.
+- Do not add Japanese string literals to Kotlin UI code.
+- Values persisted to the database are the exception: `CabinetItem.note` defaults and
+  reference titles stay as Kotlin literals, because a locale change must not alter stored data.
+- Classes without a `Context` (enums, data classes) hold a `@StringRes` id instead of the text,
+  and the caller resolves it with `getString`.
+
+## Colors
+
+- `jp.viastrasse.cabinet.theme.CabinetColors` and `res/values/colors.xml` intentionally hold the
+  same palette, because an XML theme cannot reference a Kotlin object.
+- `CabinetColorsSyncTest` verifies the two stay in sync. Update both when changing a color.
+- Shared UI dimensions and type scale live in `jp.viastrasse.cabinet.ui.CabinetMetrics` / `CabinetType`.
+
+## Shared Utilities
+
+- File name sanitising, unique destination paths and human readable sizes live in
+  `jp.viastrasse.cabinet.data.CabinetFiles`. Do not reimplement them per class.
+
 ## Versioning
 
 - Initial app version is `0.1.1`.

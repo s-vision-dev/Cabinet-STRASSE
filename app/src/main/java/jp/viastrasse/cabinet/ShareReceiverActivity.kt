@@ -4,16 +4,19 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
+import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.data.CabinetItemSummary
 import jp.viastrasse.cabinet.data.CabinetRepository
 import jp.viastrasse.cabinet.preview.PreviewWorker
-import jp.viastrasse.cabinet.theme.CabinetColors
+import jp.viastrasse.cabinet.ui.CabinetMetrics
+import jp.viastrasse.cabinet.ui.cabinetInput
 import java.io.File
 
 class ShareReceiverActivity : Activity() {
@@ -23,28 +26,36 @@ class ShareReceiverActivity : Activity() {
     }
 
     private fun showShareOptions(intent: Intent) {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
-        }
-        val tagInput = darkInput("タグ").apply {
+        val tagInput = darkInput(getString(R.string.share_show_share_options)).apply {
             setText(intent.getStringExtra(EXTRA_TAG).orEmpty())
         }
         val collectionInput = darkInput("Collection").apply {
             setText(intent.getStringExtra(EXTRA_COLLECTION).orEmpty())
         }
-        val memoInput = darkInput("メモ").apply {
+        val memoInput = darkInput(getString(R.string.label_memo)).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 3
             setText(intent.getStringExtra(EXTRA_NOTE).orEmpty())
         }
-        container.addView(tagInput)
-        container.addView(collectionInput)
-        container.addView(memoInput)
-        AlertDialog.Builder(this)
-            .setTitle("Cabinet Inboxへ保存")
+        val spacing = (CabinetMetrics.SPACE_SM * resources.displayMetrics.density).toInt()
+        val padding = (CabinetMetrics.SPACE_XL * resources.displayMetrics.density).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, spacing, padding, 0)
+            listOf(tagInput, collectionInput, memoInput).forEachIndexed { index, input ->
+                addView(
+                    input,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply { if (index > 0) topMargin = spacing },
+                )
+            }
+        }
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.share_show_share_options_2))
             .setView(container)
-            .setPositiveButton("保存") { _, _ ->
+            .setPositiveButton(getString(R.string.action_save)) { _, _ ->
                 handleShare(
                     intent,
                     ShareOptions(
@@ -55,7 +66,7 @@ class ShareReceiverActivity : Activity() {
                 )
                 finish()
             }
-            .setNegativeButton("キャンセル") { _, _ -> finish() }
+            .setNegativeButton(getString(R.string.action_cancel)) { _, _ -> finish() }
             .setOnCancelListener { finish() }
             .show()
     }
@@ -68,21 +79,22 @@ class ShareReceiverActivity : Activity() {
                 val item = repository.registerUrl(
                     url = sharedText,
                     title = intent.getStringExtra(Intent.EXTRA_TITLE)?.ifBlank { null } ?: sharedText,
-                    note = options.memo.ifBlank { "Android共有から保存" },
+                    // note は取り込み経路の記録。入力されたメモは applyOptions が Memo として保存する。
+                    note = "Android共有から保存",
                 )
                 applyOptions(repository, item, options)
             }.onSuccess {
                 PreviewWorker.enqueue(applicationContext)
-                Toast.makeText(this, "Cabinet Inbox に保存しました", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.share_handle_share_2), Toast.LENGTH_SHORT).show()
             }.onFailure {
-                Toast.makeText(this, "Cabinet への保存に失敗しました", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.share_handle_share_3), Toast.LENGTH_SHORT).show()
             }
         } else {
             val imported = importSharedFiles(intent, repository, options)
             val message = if (imported.isNotEmpty()) {
-                "${imported.size}件を Cabinet Inbox に保存しました"
+                getString(R.string.share_handle_share_4, imported.size)
             } else {
-                "共有内容を保存できませんでした"
+                getString(R.string.share_handle_share_5)
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
@@ -94,12 +106,8 @@ class ShareReceiverActivity : Activity() {
         options: ShareOptions,
     ): List<CabinetItemSummary> {
         val uris = when (intent.action) {
-            Intent.ACTION_SEND_MULTIPLE -> {
-                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
-            }
-            else -> {
-                listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
-            }
+            Intent.ACTION_SEND_MULTIPLE -> sharedStreamList(intent)
+            else -> listOfNotNull(sharedStream(intent))
         }
         val imported = mutableListOf<CabinetItemSummary>()
         uris.forEach { uri ->
@@ -117,7 +125,8 @@ class ShareReceiverActivity : Activity() {
                     mimeType = info.mimeType,
                     size = destination.length(),
                     sourceKind = "android-share",
-                    note = options.memo.ifBlank { "Android共有からInboxへ保存" },
+                    // note は取り込み経路の記録。入力されたメモは applyOptions が Memo として保存する。
+                    note = "Android共有からInboxへ保存",
                 )
                 applyOptions(repository, item, options)
                 item
@@ -126,6 +135,28 @@ class ShareReceiverActivity : Activity() {
             }
         }
         return imported
+    }
+
+    /**
+     * `getParcelableExtra(String, Class)` は API 33 以降にしか無い。
+     * minSdk は 26 のため、旧APIへのフォールバックが必要。
+     */
+    @Suppress("DEPRECATION")
+    private fun sharedStream(intent: Intent): Uri? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sharedStreamList(intent: Intent): List<Uri> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+        }
     }
 
     private fun applyOptions(repository: CabinetRepository, item: CabinetItemSummary, options: ShareOptions) {
@@ -140,15 +171,7 @@ class ShareReceiverActivity : Activity() {
         }
     }
 
-    private fun darkInput(hintText: String): EditText {
-        return EditText(this).apply {
-            hint = hintText
-            setTextColor(CabinetColors.TextPrimary)
-            setHintTextColor(CabinetColors.TextSecondary)
-            setBackgroundColor(CabinetColors.SurfaceAlt)
-            setPadding(24, 18, 24, 18)
-        }
-    }
+    private fun darkInput(hintText: String): EditText = cabinetInput(hintText)
 
     private fun queryOpenable(uri: Uri): SharedFileInfo {
         var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "shared-file"
@@ -165,26 +188,11 @@ class ShareReceiverActivity : Activity() {
         return SharedFileInfo(displayName = sanitizeFileName(displayName), mimeType = mimeType, size = size)
     }
 
-    private fun uniqueDestination(directory: File, displayName: String): File {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            val nextName = if (extension.isBlank()) {
-                "$base-$index"
-            } else {
-                "$base-$index.$extension"
-            }
-            candidate = File(directory, nextName)
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueDestination(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDestination(directory, displayName)
 
-    private fun sanitizeFileName(value: String): String {
-        return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "shared-file" }
-    }
+    private fun sanitizeFileName(value: String): String =
+        CabinetFiles.sanitizeFileName(value, fallback = "shared-file")
 
     private data class SharedFileInfo(
         val displayName: String,

@@ -19,6 +19,8 @@ import android.window.OnBackInvokedDispatcher
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinet.backup.BackupWorker
+import jp.viastrasse.cabinet.data.CabinetFiles
+import jp.viastrasse.cabinet.data.CabinetItemDetail
 import jp.viastrasse.cabinet.data.CabinetItemSummary
 import jp.viastrasse.cabinet.data.CabinetRepository
 import jp.viastrasse.cabinet.data.StorageProviderAccountSummary
@@ -26,6 +28,8 @@ import jp.viastrasse.cabinet.preview.OcrTextRecognizer
 import jp.viastrasse.cabinet.preview.PreviewWorker
 import jp.viastrasse.cabinet.preview.ThumbnailGenerator
 import jp.viastrasse.cabinet.ui.CabinetDashboardView
+import jp.viastrasse.cabinet.ui.CabinetMetrics
+import jp.viastrasse.cabinet.ui.cabinetInput
 import jp.viastrasse.cabinet.ui.DeviceFileEntry
 import jp.viastrasse.cabinet.ui.DocumentFileEntry
 import jp.viastrasse.cabinet.ui.FileListDisplayPreference
@@ -165,10 +169,10 @@ class MainActivity : Activity() {
                 note = uri.getQueryParameter("note").orEmpty().ifBlank { "Deep Linkから保存" },
             )
         }.onSuccess { item ->
-            Toast.makeText(this, "URLを保存しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_handle_add_deep_link, item.displayName), Toast.LENGTH_SHORT).show()
             openDetail(item.id)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "URLを保存できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_handle_add_deep_link_2), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
@@ -184,20 +188,20 @@ class MainActivity : Activity() {
             when (fileUri.scheme) {
                 "content" -> {
                     contentResolver.openInputStream(fileUri).use { input ->
-                        requireNotNull(input) { "ファイルを開けませんでした" }
+                        requireNotNull(input) { getString(R.string.msg_file_open_failed) }
                         destination.outputStream().buffered().use { output -> input.copyTo(output) }
                     }
                     destination
                 }
                 "file", null -> {
                     val source = if (fileUri.scheme == "file") File(requireNotNull(fileUri.path)) else File(fileUri.toString())
-                    require(source.exists() && source.isFile) { "ファイルが見つかりません" }
+                    require(source.exists() && source.isFile) { getString(R.string.main_handle_add_file_deep_link) }
                     source.inputStream().buffered().use { input ->
                         destination.outputStream().buffered().use { output -> input.copyTo(output) }
                     }
                     destination
                 }
-                else -> error("対応していないURIです: ${fileUri.scheme}")
+                else -> error(getString(R.string.main_handle_add_file_deep_link_2, fileUri.scheme))
             }
         }.onSuccess { file ->
             runCatching {
@@ -211,14 +215,14 @@ class MainActivity : Activity() {
                 )
             }.onSuccess { item ->
                 PreviewWorker.enqueue(applicationContext)
-                Toast.makeText(this, "ファイルを保存しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_handle_add_file_deep_link_3, item.displayName), Toast.LENGTH_SHORT).show()
                 openDetail(item.id)
             }.onFailure { error ->
-                Toast.makeText(this, error.message ?: "ファイルを登録できませんでした", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, error.message ?: getString(R.string.main_handle_add_file_deep_link_4), Toast.LENGTH_SHORT).show()
                 renderDashboard()
             }
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "ファイルを保存できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_handle_add_file_deep_link_5), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
@@ -231,7 +235,7 @@ class MainActivity : Activity() {
         }
         val itemId = uri.getQueryParameter("itemId").orEmpty()
         if (itemId.isBlank()) {
-            Toast.makeText(this, "参照追加先のitemIdが必要です", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_handle_reference_deep_link), Toast.LENGTH_SHORT).show()
             renderDashboard()
             return
         }
@@ -252,10 +256,10 @@ class MainActivity : Activity() {
                 note = note,
             )
         }.onSuccess {
-            Toast.makeText(this, "参照を追加しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_handle_reference_deep_link_3), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "参照を追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_reference_add_failed), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
@@ -275,7 +279,7 @@ class MainActivity : Activity() {
                 ::moveSummaryToTrash,
             )
         }.onFailure { error ->
-            dashboardView.renderError(error.message ?: "Cabinet core の初期化に失敗しました。")
+            dashboardView.renderError(error.message ?: getString(R.string.main_render_dashboard))
         }
     }
 
@@ -313,42 +317,19 @@ class MainActivity : Activity() {
     }
 
     private fun openMode(mode: String) {
-        if (mode == "Search") {
-            openSearch("")
-            return
+        val handledLocally = when (mode) {
+            "Search" -> { openSearch(""); true }
+            "Settings" -> { openSettings(); true }
+            "Explorer" -> { openLocalExplorer(explorerEntryDirectory()); true }
+            "SDCard" -> { openSdCardExplorer(); true }
+            "Downloads" -> { openPublicDirectory(Environment.DIRECTORY_DOWNLOADS); true }
+            "Documents" -> { openPublicDirectory(Environment.DIRECTORY_DOCUMENTS); true }
+            "Pictures" -> { openPublicDirectory(Environment.DIRECTORY_PICTURES); true }
+            "Movies" -> { openPublicDirectory(Environment.DIRECTORY_MOVIES); true }
+            "Music" -> { openPublicDirectory(Environment.DIRECTORY_MUSIC); true }
+            else -> false
         }
-        if (mode == "Settings") {
-            openSettings()
-            return
-        }
-        if (mode == "Explorer") {
-            openLocalExplorer(explorerRoots().first())
-            return
-        }
-        if (mode == "SDCard") {
-            openSdCardExplorer()
-            return
-        }
-        if (mode == "Downloads") {
-            openPublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            return
-        }
-        if (mode == "Documents") {
-            openPublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            return
-        }
-        if (mode == "Pictures") {
-            openPublicDirectory(Environment.DIRECTORY_PICTURES)
-            return
-        }
-        if (mode == "Movies") {
-            openPublicDirectory(Environment.DIRECTORY_MOVIES)
-            return
-        }
-        if (mode == "Music") {
-            openPublicDirectory(Environment.DIRECTORY_MUSIC)
-            return
-        }
+        if (handledLocally) return
         runCatching {
             repository.mode(mode)
         }.onSuccess {
@@ -372,7 +353,7 @@ class MainActivity : Activity() {
                 onMoveTrash = ::moveSummaryToTrash,
             )
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "画面を開けませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_mode), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -427,6 +408,21 @@ class MainActivity : Activity() {
                         }.getOrNull()
                     }
             }
+    }
+
+    /**
+     * Explorerを開いたときの初期フォルダ。
+     *
+     * `explorerRoots()` の先頭はアプリ専有領域（filesDir）であり、
+     * ファイルマネージャーの入口としては端末の共有ストレージが期待される。
+     * 権限が無く共有ストレージを一覧できない場合のみアプリ領域へ退避する。
+     */
+    private fun explorerEntryDirectory(): File {
+        val shared = Environment.getExternalStorageDirectory()
+        if (canReadPublicDirectories() && shared != null && shared.isDirectory) {
+            return shared
+        }
+        return explorerRoots().first()
     }
 
     private fun explorerRoots(): List<File> {
@@ -503,13 +499,13 @@ class MainActivity : Activity() {
     }
 
     private fun openSdCardPicker() {
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
             .setMessage(
-                "Androidの制約により、ストレージのルートは選択できません。\n" +
-                    "内部ストレージまたはSDカード内のフォルダを選択してください。",
+                getString(R.string.main_open_sd_card_picker) +
+                    getString(R.string.main_open_sd_card_picker_2),
             )
-            .setPositiveButton("フォルダを選択") { _, _ -> launchSdCardPicker() }
-            .setNegativeButton("キャンセル", null)
+            .setPositiveButton(getString(R.string.main_open_sd_card_picker_3)) { _, _ -> launchSdCardPicker() }
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
@@ -534,14 +530,14 @@ class MainActivity : Activity() {
         val entries = roots.sortedBy { it.name.lowercase() }
         isDashboardVisible = false
         dashboardView.renderDocumentTree(
-            title = "SDカード",
-            location = "追加済みフォルダ",
+            title = getString(R.string.label_sd_card),
+            location = getString(R.string.label_added_folders),
             entries = entries,
             displayMode = displayModePreference(),
             fontPreference = fileListDisplayPreference(),
             listOptions = fileListOptions,
-            sectionTitle = "追加済みフォルダ",
-            emptyMessage = "追加済みフォルダはありません。フォルダを追加してください。",
+            sectionTitle = getString(R.string.label_added_folders),
+            emptyMessage = getString(R.string.main_render_sd_card_root_list),
             showListControls = false,
             onListOptionsChanged = { options ->
                 fileListOptions = options
@@ -557,12 +553,12 @@ class MainActivity : Activity() {
     }
 
     private fun openDocumentTreeRoot(treeUri: Uri) {
-        val root = DocumentFile.fromTreeUri(this, treeUri) ?: error("SDカードを開けませんでした")
+        val root = DocumentFile.fromTreeUri(this, treeUri) ?: error(getString(R.string.main_open_document_tree_root))
         openDocumentDirectory(root, emptyList())
     }
 
     private fun openDocumentDirectory(directory: DocumentFile, parents: List<DocumentFile>) {
-        require(directory.isDirectory) { "フォルダを開けませんでした" }
+        require(directory.isDirectory) { getString(R.string.msg_folder_open_failed) }
         currentDocumentParents = parents
         val rawEntries = directory.listFiles()
             .sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenBy { it.name.orEmpty().lowercase() })
@@ -570,7 +566,7 @@ class MainActivity : Activity() {
         val entries = applyDocumentFileListOptions(rawEntries)
         isDashboardVisible = false
         dashboardView.renderDocumentTree(
-            title = "SDカード",
+            title = getString(R.string.label_sd_card),
             location = directory.name ?: directory.uri.toString(),
             entries = entries,
             displayMode = displayModePreference(),
@@ -584,7 +580,7 @@ class MainActivity : Activity() {
             onParent = parents.lastOrNull()?.let { parent ->
                 { openDocumentDirectory(parent, parents.dropLast(1)) }
             } ?: ::openSdCardExplorer,
-            parentLabel = if (parents.isEmpty()) "追加済みフォルダ一覧へ戻る" else "親フォルダへ移動",
+            parentLabel = if (parents.isEmpty()) getString(R.string.main_open_document_directory) else getString(R.string.action_move_to_parent_folder),
             onOpenDirectory = { entry -> openDocumentDirectory(entry.document, parents + directory) },
             onOpenFile = { entry ->
                 openViewer(
@@ -601,11 +597,11 @@ class MainActivity : Activity() {
 
     private fun DocumentFileEntry.asSdRootEntry(): DocumentFileEntry {
         val fallback = document.uri.lastPathSegment.orEmpty().substringAfterLast(':').ifBlank { name }
-        val displayName = name.ifBlank { fallback }.ifBlank { "選択フォルダ" }
+        val displayName = name.ifBlank { fallback }.ifBlank { getString(R.string.main_as_sd_root_entry) }
         return copy(
             name = displayName,
-            sizeLabel = "フォルダ",
-            updatedLabel = if (updatedAtMillis > 0L) updatedLabel else "追加済み",
+            sizeLabel = getString(R.string.main_as_sd_root_entry_2),
+            updatedLabel = if (updatedAtMillis > 0L) updatedLabel else getString(R.string.main_as_sd_root_entry_3),
         )
     }
 
@@ -640,7 +636,7 @@ class MainActivity : Activity() {
                 .atZone(ZoneId.systemDefault())
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         } else {
-            "更新日時なし"
+            getString(R.string.label_no_updated_at)
         }
         val isDirectory = document.isDirectory
         val size = if (isDirectory) document.listFiles().size.toLong() else document.length().coerceAtLeast(0L)
@@ -689,11 +685,11 @@ class MainActivity : Activity() {
 
     private fun registerDocumentFile(entry: DocumentFileEntry, currentDirectory: DocumentFile) {
         runCatching {
-            require(!entry.isDirectory) { "登録対象ファイルが見つかりません" }
+            require(!entry.isDirectory) { getString(R.string.msg_register_target_missing) }
             val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
             val destination = uniqueDestination(inboxDir, sanitizeFileName(entry.name))
             contentResolver.openInputStream(Uri.parse(entry.uri)).use { input ->
-                requireNotNull(input) { "ファイルを開けませんでした" }
+                requireNotNull(input) { getString(R.string.msg_file_open_failed) }
                 destination.outputStream().buffered().use { output -> input.copyTo(output) }
             }
             repository.registerFile(
@@ -706,20 +702,20 @@ class MainActivity : Activity() {
             )
         }.onSuccess {
             PreviewWorker.enqueue(applicationContext)
-            Toast.makeText(this, "登録しました: ${entry.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.msg_registered_named, entry.name), Toast.LENGTH_SHORT).show()
             openDocumentDirectory(currentDirectory, currentDocumentParents)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_register_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun promptAllFilesAccess(directoryType: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         pendingPublicDirectoryType = directoryType
-        AlertDialog.Builder(this)
-            .setTitle("端末フォルダへのアクセス")
-            .setMessage("DownloadsやDocumentsをファイルマネージャーとして表示するには、Cabinet by VIASTRASSEにすべてのファイルへのアクセスを許可してください。")
-            .setPositiveButton("設定を開く") { _, _ ->
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.main_prompt_all_files_access))
+            .setMessage(getString(R.string.main_prompt_all_files_access_2))
+            .setPositiveButton(getString(R.string.main_prompt_all_files_access_3)) { _, _ ->
                 val uri = Uri.parse("package:$packageName")
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, uri)
                 runCatching { startActivity(intent) }
@@ -727,13 +723,13 @@ class MainActivity : Activity() {
                         startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                     }
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
     private fun openLocalExplorer(directory: File) {
         runCatching {
-            require(directory.exists() && directory.isDirectory) { "フォルダを開けませんでした" }
+            require(directory.exists() && directory.isDirectory) { getString(R.string.msg_folder_open_failed) }
             val rawEntries = directory.listFiles()
                 ?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
                 ?.map(::toLocalFileEntry)
@@ -773,7 +769,7 @@ class MainActivity : Activity() {
                 onDeleteEntry = { file -> deleteExplorerEntry(file, directory) },
             )
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "Explorerを開けませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_local_explorer), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
     }
@@ -840,7 +836,7 @@ class MainActivity : Activity() {
             }
             entries
         }.getOrElse { error ->
-            Toast.makeText(this, error.message ?: "端末ファイルを取得できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_query_device_files), Toast.LENGTH_SHORT).show()
             emptyList()
         }
     }
@@ -854,7 +850,7 @@ class MainActivity : Activity() {
                 navigationItems = deviceViewerNavigation(navigationEntries),
             )
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "ファイルを開けませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_file_open_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -863,7 +859,7 @@ class MainActivity : Activity() {
             val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
             val destination = uniqueDestination(inboxDir, sanitizeFileName(entry.name))
             contentResolver.openInputStream(Uri.parse(entry.uri)).use { input ->
-                requireNotNull(input) { "ファイルを開けませんでした" }
+                requireNotNull(input) { getString(R.string.msg_file_open_failed) }
                 destination.outputStream().buffered().use { output -> input.copyTo(output) }
             }
             repository.registerFile(
@@ -876,10 +872,10 @@ class MainActivity : Activity() {
             )
         }.onSuccess { item ->
             PreviewWorker.enqueue(applicationContext)
-            Toast.makeText(this, "登録しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.msg_registered_named, item.displayName), Toast.LENGTH_SHORT).show()
             openDetail(item.id)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_register_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -969,7 +965,7 @@ class MainActivity : Activity() {
 
     private fun registerLocalExplorerFile(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists() && file.isFile) { "登録対象ファイルが見つかりません" }
+            require(file.exists() && file.isFile) { getString(R.string.msg_register_target_missing) }
             repository.registerFile(
                 path = file.absolutePath,
                 displayName = file.name,
@@ -980,15 +976,15 @@ class MainActivity : Activity() {
             )
         }.onSuccess { item ->
             PreviewWorker.enqueue(applicationContext)
-            Toast.makeText(this, "登録しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.msg_registered_named, item.displayName), Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "登録できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_register_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun showCreateExplorerFolderDialog(directory: File) {
-        showTextDialog("新規フォルダ作成", "フォルダ名", "作成") { folderName ->
+        showTextDialog(getString(R.string.main_show_create_explorer_folder_dialog), getString(R.string.main_show_create_explorer_folder_dialog_2), getString(R.string.action_create)) { folderName ->
             createExplorerFolder(directory, folderName)
         }
     }
@@ -996,44 +992,44 @@ class MainActivity : Activity() {
     private fun createExplorerFolder(directory: File, folderName: String) {
         runCatching {
             val folder = uniqueDirectory(directory, sanitizeFileName(folderName))
-            check(folder.mkdirs()) { "フォルダを作成できませんでした" }
+            check(folder.mkdirs()) { getString(R.string.msg_folder_create_failed) }
             folder
         }.onSuccess {
-            Toast.makeText(this, "フォルダを作成しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_create_explorer_folder, it.name), Toast.LENGTH_SHORT).show()
             openLocalExplorer(directory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "フォルダを作成できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_folder_create_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun showRenameExplorerEntryDialog(file: File, currentDirectory: File) {
-        showTextDialog("名前変更", "新しい名前", "変更") { newName ->
+        showTextDialog(getString(R.string.action_rename), getString(R.string.hint_new_name), getString(R.string.action_change)) { newName ->
             renameExplorerEntry(file, currentDirectory, newName)
         }
     }
 
     private fun renameExplorerEntry(file: File, currentDirectory: File, newName: String) {
         runCatching {
-            require(file.exists()) { "名前変更対象が見つかりません" }
+            require(file.exists()) { getString(R.string.main_rename_explorer_entry) }
             val parent = file.parentFile ?: currentDirectory
             val destination = uniqueDestination(parent, sanitizeFileName(newName))
-            check(file.renameTo(destination)) { "名前を変更できませんでした" }
+            check(file.renameTo(destination)) { getString(R.string.msg_rename_failed) }
             destination
         }.onSuccess {
-            Toast.makeText(this, "名前を変更しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_rename_explorer_entry_2, it.name), Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "名前を変更できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_rename_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun copyExplorerEntryToInbox(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists()) { "コピー対象が見つかりません" }
+            require(file.exists()) { getString(R.string.main_copy_explorer_entry_to_inbox) }
             val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
             val destination = uniqueDestination(inboxDir, file.name)
             if (file.isDirectory) {
-                check(file.copyRecursively(destination, overwrite = false)) { "フォルダをコピーできませんでした" }
+                check(file.copyRecursively(destination, overwrite = false)) { getString(R.string.main_copy_explorer_entry_to_inbox_2) }
             } else {
                 file.inputStream().buffered().use { input ->
                     destination.outputStream().buffered().use { output -> input.copyTo(output) }
@@ -1041,45 +1037,45 @@ class MainActivity : Activity() {
             }
             destination
         }.onSuccess {
-            Toast.makeText(this, "Inboxへコピーしました: ${it.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_copy_explorer_entry_to_inbox_3, it.name), Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "コピーできませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_copy_explorer_entry_to_inbox_4), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun moveExplorerEntryToInbox(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists()) { "移動対象が見つかりません" }
+            require(file.exists()) { getString(R.string.main_move_explorer_entry_to_inbox) }
             val inboxDir = File(filesDir, "inbox").apply { mkdirs() }
             val destination = uniqueDestination(inboxDir, file.name)
             if (!file.renameTo(destination)) {
                 if (file.isDirectory) {
-                    check(file.copyRecursively(destination, overwrite = false)) { "フォルダを移動できませんでした" }
-                    check(file.deleteRecursively()) { "移動元フォルダを削除できませんでした" }
+                    check(file.copyRecursively(destination, overwrite = false)) { getString(R.string.main_move_explorer_entry_to_inbox_2) }
+                    check(file.deleteRecursively()) { getString(R.string.main_move_explorer_entry_to_inbox_3) }
                 } else {
                     file.inputStream().buffered().use { input ->
                         destination.outputStream().buffered().use { output -> input.copyTo(output) }
                     }
-                    check(file.delete()) { "移動元ファイルを削除できませんでした" }
+                    check(file.delete()) { getString(R.string.main_move_explorer_entry_to_inbox_4) }
                 }
             }
             destination
         }.onSuccess {
-            Toast.makeText(this, "Inboxへ移動しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_move_explorer_entry_to_inbox_5, it.name), Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "移動できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_move_explorer_entry_to_inbox_6), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun duplicateExplorerEntry(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists()) { "複製対象が見つかりません" }
+            require(file.exists()) { getString(R.string.main_duplicate_explorer_entry) }
             val parent = file.parentFile ?: currentDirectory
             val destination = uniqueDestination(parent, duplicateDisplayName(file.name))
             if (file.isDirectory) {
-                check(file.copyRecursively(destination, overwrite = false)) { "フォルダを複製できませんでした" }
+                check(file.copyRecursively(destination, overwrite = false)) { getString(R.string.main_duplicate_explorer_entry_2) }
             } else {
                 file.inputStream().buffered().use { input ->
                     destination.outputStream().buffered().use { output -> input.copyTo(output) }
@@ -1087,27 +1083,27 @@ class MainActivity : Activity() {
             }
             destination
         }.onSuccess {
-            Toast.makeText(this, "複製しました: ${it.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.msg_duplicated_named, it.name), Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "複製できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_duplicate_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun deleteExplorerEntry(file: File, currentDirectory: File) {
         runCatching {
-            require(file.exists()) { "削除対象が見つかりません" }
+            require(file.exists()) { getString(R.string.main_delete_explorer_entry) }
             val deleted = if (file.isDirectory) {
                 file.deleteRecursively()
             } else {
                 file.delete()
             }
-            check(deleted) { "削除できませんでした" }
+            check(deleted) { getString(R.string.msg_delete_failed) }
         }.onSuccess {
-            Toast.makeText(this, "削除しました: ${file.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_delete_explorer_entry_2, file.name), Toast.LENGTH_SHORT).show()
             openLocalExplorer(currentDirectory)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "削除できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_delete_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1171,17 +1167,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun readableSize(size: Long): String {
-        if (size < 1024L) return "${size}B"
-        val units = listOf("KB", "MB", "GB", "TB")
-        var value = size / 1024.0
-        var unitIndex = 0
-        while (value >= 1024.0 && unitIndex < units.lastIndex) {
-            value /= 1024.0
-            unitIndex += 1
-        }
-        return "%.2f%s".format(value, units[unitIndex])
-    }
+    private fun readableSize(size: Long): String = CabinetFiles.readableSize(size)
 
     private fun openSearch(query: String) {
         runCatching {
@@ -1197,7 +1183,7 @@ class MainActivity : Activity() {
                 ::moveSummaryToTrash,
             )
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "検索できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_search), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1205,220 +1191,134 @@ class MainActivity : Activity() {
         runCatching {
             repository.detail(itemId)
         }.onSuccess { detail ->
-            isDashboardVisible = false
-            dashboardView.renderDetail(
-                detail = detail,
-                onBack = ::renderDashboard,
-                onProcessPreview = {
-                    processPreviewQueue()
-                    openDetail(itemId)
-                },
-                onToggleFavorite = {
-                    updateItemFlags(
-                        itemId = itemId,
-                        isFavorite = !detail.item.isFavorite,
-                        isUnsorted = detail.item.isUnsorted,
-                    )
-                },
-                onMarkSorted = {
-                    updateItemFlags(
-                        itemId = itemId,
-                        isFavorite = detail.item.isFavorite,
-                        isUnsorted = false,
-                    )
-                },
-                onAddTag = {
-                    showTextDialog("タグを追加", "タグ名", "追加") { tagName ->
-                        addTag(itemId, tagName)
-                    }
-                },
-                onRemoveTag = { tagId ->
-                    removeTag(itemId, tagId)
-                },
-                onAddCollection = {
-                    showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
-                        addToCollection(itemId, collectionTitle)
-                    }
-                },
-                onRemoveCollection = { collectionId ->
-                    removeFromCollection(itemId, collectionId)
-                },
-                onMoveTrash = {
-                    moveToTrash(itemId)
-                },
-                onOpen = {
-                    openProtectedAwareItem(itemId, detail)
-                },
-                onShare = {
-                    shareProtectedAwareItem(detail)
-                },
-                onDuplicate = {
-                    duplicateItem(itemId)
-                },
-                onRename = {
-                    renameItem(itemId, renamedName(detail.item.displayName))
-                },
-                onAddVersion = {
-                    openVersionFilePicker(itemId)
-                },
-                onSetCurrentVersion = { versionId ->
-                    setCurrentVersion(itemId, versionId)
-                },
-                onCreateZip = {
-                    createZip(detail)
-                },
-                onExtractZip = {
-                    extractZip(detail)
-                },
-                onAddMailReference = {
-                    showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
-                },
-                onAddTaskReference = {
-                    showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
-                },
-                onAddAtelierReference = {
-                    showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
-                },
-                onOpenReference = ::openReferenceUri,
-                onAddMemo = {
-                    showMemoDialog(itemId)
-                },
-                onAddProtectedMemo = {
-                    showProtectedMemoDialog(itemId)
-                },
-                onUnlockProtectedMemos = {
-                    showUnlockProtectedMemosDialog(itemId)
-                },
-                onAddOcrText = {
-                    showOcrTextDialog(itemId)
-                },
-                onRunImageOcr = {
-                    runImageOcr(itemId, detail.path, detail.item.mimeType)
-                },
-                onCacheRemoteFile = {
-                    cacheRemoteFile(itemId, detail)
-                },
-                onGenerateThumbnail = {
-                    generateThumbnail(itemId, detail.path, detail.item.mimeType)
-                },
-                onProtectItem = {
-                    protectItem(itemId)
-                },
-                onRestoreFromTrash = {
-                    restoreFromTrash(itemId)
-                },
-                onDeletePermanently = {
-                    deletePermanently(itemId)
-                },
-            )
+            showDetail(itemId, detail)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "詳細を開けませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_detail), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * 詳細画面を描画する唯一の入口。
+     *
+     * 以前は openDetail / updateItemFlags / openUnlockedDetail が同じコールバック定義を
+     * それぞれ持っており、片方だけ修正すると画面ごとに挙動がずれる状態だった。
+     */
+    private fun showDetail(itemId: String, detail: CabinetItemDetail) {
+        isDashboardVisible = false
+        dashboardView.renderDetail(
+            detail = detail,
+            onBack = ::renderDashboard,
+            onProcessPreview = {
+                processPreviewQueue()
+                openDetail(itemId)
+            },
+            onToggleFavorite = {
+                updateItemFlags(
+                    itemId = itemId,
+                    isFavorite = !detail.item.isFavorite,
+                    isUnsorted = detail.item.isUnsorted,
+                )
+            },
+            onMarkSorted = {
+                updateItemFlags(
+                    itemId = itemId,
+                    isFavorite = detail.item.isFavorite,
+                    isUnsorted = false,
+                )
+            },
+            onAddTag = {
+                showTextDialog(getString(R.string.main_show_detail), getString(R.string.main_show_detail_2), getString(R.string.action_add)) { tagName ->
+                    addTag(itemId, tagName)
+                }
+            },
+            onRemoveTag = { tagId ->
+                removeTag(itemId, tagId)
+            },
+            onAddCollection = {
+                showTextDialog(getString(R.string.main_show_detail_3), getString(R.string.main_show_detail_4), getString(R.string.action_add)) { collectionTitle ->
+                    addToCollection(itemId, collectionTitle)
+                }
+            },
+            onRemoveCollection = { collectionId ->
+                removeFromCollection(itemId, collectionId)
+            },
+            onMoveTrash = {
+                moveToTrash(itemId)
+            },
+            onOpen = {
+                openProtectedAwareItem(itemId, detail)
+            },
+            onShare = {
+                shareProtectedAwareItem(detail)
+            },
+            onDuplicate = {
+                duplicateItem(itemId)
+            },
+            onRename = {
+                showRenameItemDialog(itemId, detail.item.displayName)
+            },
+            onAddVersion = {
+                openVersionFilePicker(itemId)
+            },
+            onSetCurrentVersion = { versionId ->
+                setCurrentVersion(itemId, versionId)
+            },
+            onCreateZip = {
+                createZip(detail)
+            },
+            onExtractZip = {
+                extractZip(detail)
+            },
+            onAddMailReference = {
+                showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
+            },
+            onAddTaskReference = {
+                showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
+            },
+            onAddAtelierReference = {
+                showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
+            },
+            onOpenReference = ::openReferenceUri,
+            onAddMemo = {
+                showMemoDialog(itemId)
+            },
+            onAddProtectedMemo = {
+                showProtectedMemoDialog(itemId)
+            },
+            onUnlockProtectedMemos = {
+                showUnlockProtectedMemosDialog(itemId)
+            },
+            onAddOcrText = {
+                showOcrTextDialog(itemId)
+            },
+            onRunImageOcr = {
+                runImageOcr(itemId, detail.path, detail.item.mimeType)
+            },
+            onCacheRemoteFile = {
+                cacheRemoteFile(itemId, detail)
+            },
+            onGenerateThumbnail = {
+                generateThumbnail(itemId, detail.path, detail.item.mimeType)
+            },
+            onProtectItem = {
+                protectItem(itemId)
+            },
+            onRestoreFromTrash = {
+                restoreFromTrash(itemId)
+            },
+            onDeletePermanently = {
+                confirmDeletePermanently(itemId, detail.item.displayName)
+            },
+        )
     }
 
     private fun updateItemFlags(itemId: String, isFavorite: Boolean, isUnsorted: Boolean) {
         runCatching {
             repository.updateItemFlags(itemId, isFavorite, isUnsorted)
-        }.onSuccess {
-            dashboardView.renderDetail(
-                detail = it,
-                onBack = ::renderDashboard,
-                onProcessPreview = {
-                    processPreviewQueue()
-                    openDetail(itemId)
-                },
-                onToggleFavorite = {
-                    updateItemFlags(itemId, !it.item.isFavorite, it.item.isUnsorted)
-                },
-                onMarkSorted = {
-                    updateItemFlags(itemId, it.item.isFavorite, false)
-                },
-                onAddTag = {
-                    showTextDialog("タグを追加", "タグ名", "追加") { tagName ->
-                        addTag(itemId, tagName)
-                    }
-                },
-                onRemoveTag = { tagId ->
-                    removeTag(itemId, tagId)
-                },
-                onAddCollection = {
-                    showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
-                        addToCollection(itemId, collectionTitle)
-                    }
-                },
-                onRemoveCollection = { collectionId ->
-                    removeFromCollection(itemId, collectionId)
-                },
-                onMoveTrash = {
-                    moveToTrash(itemId)
-                },
-                onOpen = {
-                    openProtectedAwareItem(itemId, it)
-                },
-                onShare = {
-                    shareProtectedAwareItem(it)
-                },
-                onDuplicate = {
-                    duplicateItem(itemId)
-                },
-                onRename = {
-                    renameItem(itemId, renamedName(it.item.displayName))
-                },
-                onAddVersion = {
-                    openVersionFilePicker(itemId)
-                },
-                onSetCurrentVersion = { versionId ->
-                    setCurrentVersion(itemId, versionId)
-                },
-                onCreateZip = {
-                    createZip(it)
-                },
-                onExtractZip = {
-                    extractZip(it)
-                },
-                onAddMailReference = {
-                    showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
-                },
-                onAddTaskReference = {
-                    showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
-                },
-                onAddAtelierReference = {
-                    showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
-                },
-                onOpenReference = ::openReferenceUri,
-                onAddMemo = {
-                    showMemoDialog(itemId)
-                },
-                onAddProtectedMemo = {
-                    showProtectedMemoDialog(itemId)
-                },
-                onUnlockProtectedMemos = {
-                    showUnlockProtectedMemosDialog(itemId)
-                },
-                onAddOcrText = {
-                    showOcrTextDialog(itemId)
-                },
-                onRunImageOcr = {
-                    runImageOcr(itemId, it.path, it.item.mimeType)
-                },
-                onCacheRemoteFile = {
-                    cacheRemoteFile(itemId, it)
-                },
-                onGenerateThumbnail = {
-                    generateThumbnail(itemId, it.path, it.item.mimeType)
-                },
-                onProtectItem = {
-                    protectItem(itemId)
-                },
-                onRestoreFromTrash = {
-                    restoreFromTrash(itemId)
-                },
-                onDeletePermanently = {
-                    deletePermanently(itemId)
-                },
-            )
+        }.onSuccess { detail ->
+            showDetail(itemId, detail)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "資料を更新できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_update_item_flags), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1426,10 +1326,10 @@ class MainActivity : Activity() {
         runCatching {
             repository.updateItemFlags(item.id, !item.isFavorite, item.isUnsorted)
         }.onSuccess {
-            Toast.makeText(this, if (item.isFavorite) "お気に入りを解除しました" else "お気に入りに追加しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, if (item.isFavorite) getString(R.string.main_toggle_favorite_from_summary) else getString(R.string.main_toggle_favorite_from_summary_2), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "お気に入りを更新できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_toggle_favorite_from_summary_3), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1437,10 +1337,10 @@ class MainActivity : Activity() {
         runCatching {
             repository.moveToTrash(item.id)
         }.onSuccess {
-            Toast.makeText(this, "ゴミ箱へ移動しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_move_summary_to_trash, item.displayName), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_move_to_trash_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1450,7 +1350,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "タグを追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_add_tag), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1460,7 +1360,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "タグを外せませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_remove_tag), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1470,7 +1370,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "Collectionへ追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_add_to_collection), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1480,7 +1380,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "Collectionから外せませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_remove_from_collection), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1488,10 +1388,10 @@ class MainActivity : Activity() {
         runCatching {
             repository.moveToTrash(itemId)
         }.onSuccess {
-            Toast.makeText(this, "ゴミ箱へ移動しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_move_to_trash), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "ゴミ箱へ移動できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_move_to_trash_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1499,10 +1399,10 @@ class MainActivity : Activity() {
         runCatching {
             repository.restoreFromTrash(itemId)
         }.onSuccess {
-            Toast.makeText(this, "復元しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_restore_from_trash), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "復元できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_restore_from_trash_2), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1510,10 +1410,10 @@ class MainActivity : Activity() {
         runCatching {
             repository.deletePermanently(itemId)
         }.onSuccess {
-            Toast.makeText(this, "完全削除しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_delete_permanently), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "完全削除できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_delete_permanently_2), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1521,10 +1421,10 @@ class MainActivity : Activity() {
         runCatching {
             repository.duplicateItem(itemId)
         }.onSuccess { item ->
-            Toast.makeText(this, "複製しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.msg_duplicated_named, item.displayName), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "複製できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_duplicate_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1534,7 +1434,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "名前変更できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_rename_item), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1551,7 +1451,7 @@ class MainActivity : Activity() {
     private fun importVersionFile(uri: Uri) {
         val itemId = pendingVersionItemId.also { pendingVersionItemId = null }
         if (itemId.isNullOrBlank()) {
-            Toast.makeText(this, "バージョン追加先が見つかりません", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_import_version_file), Toast.LENGTH_SHORT).show()
             return
         }
         runCatching {
@@ -1559,7 +1459,7 @@ class MainActivity : Activity() {
             val versionsDir = File(filesDir, "versions").apply { mkdirs() }
             val destination = uniqueDestination(versionsDir, displayName)
             contentResolver.openInputStream(uri).use { input ->
-                requireNotNull(input) { "ファイルを開けませんでした" }
+                requireNotNull(input) { getString(R.string.msg_file_open_failed) }
                 destination.outputStream().use { output -> input.copyTo(output) }
             }
             repository.addVersion(
@@ -1572,10 +1472,10 @@ class MainActivity : Activity() {
             )
         }.onSuccess {
             PreviewWorker.enqueue(applicationContext)
-            Toast.makeText(this, "新しいバージョンを追加しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_import_version_file_3), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "バージョンを追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_import_version_file_4), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }
     }
@@ -1584,22 +1484,42 @@ class MainActivity : Activity() {
         runCatching {
             repository.setCurrentVersion(itemId, versionId)
         }.onSuccess {
-            Toast.makeText(this, "最新版を切り替えました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_set_current_version), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "最新版を切り替えられませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_set_current_version_2), Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun renamedName(displayName: String): String {
-        val dotIndex = displayName.lastIndexOf('.')
-        return if (dotIndex > 0) {
-            val stem = displayName.substring(0, dotIndex)
-            val extension = displayName.substring(dotIndex)
-            "$stem-renamed$extension"
-        } else {
-            "$displayName-renamed"
+    /**
+     * 資料の名前変更。以前は確認なしで `-renamed` を付けるだけだったため、
+     * 現在の名前を初期値としたダイアログで入力させる。
+     */
+    private fun showRenameItemDialog(itemId: String, currentName: String) {
+        val input = darkInput(getString(R.string.hint_new_name)).apply {
+            setText(currentName)
+            setSelection(currentName.substringBeforeLast('.', currentName).length)
         }
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.action_rename))
+            .setView(input)
+            .setPositiveButton(getString(R.string.action_change)) { _, _ ->
+                val value = input.text.toString().trim()
+                if (value.isNotBlank() && value != currentName) {
+                    renameItem(itemId, value)
+                }
+            }
+            .setNegativeButton(getString(R.string.action_cancel), null)
+            .show()
+    }
+
+    private fun confirmDeletePermanently(itemId: String, displayName: String) {
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.action_delete_permanently))
+            .setMessage(getString(R.string.main_confirm_delete_permanently, displayName))
+            .setPositiveButton(getString(R.string.action_delete_permanently)) { _, _ -> deletePermanently(itemId) }
+            .setNegativeButton(getString(R.string.action_cancel), null)
+            .show()
     }
 
     private fun openViewer(
@@ -1673,7 +1593,7 @@ class MainActivity : Activity() {
         runCatching {
             repository.markOpened(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "閲覧日時を更新できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_registered_item), Toast.LENGTH_SHORT).show()
         }
         openViewer(path, mimeType, title)
     }
@@ -1702,8 +1622,8 @@ class MainActivity : Activity() {
             return
         }
         showPinDialog(
-            title = "保護資料のPIN確認",
-            positiveLabel = "確認",
+            title = getString(R.string.main_run_after_protection_check),
+            positiveLabel = getString(R.string.action_verify),
         ) { pin ->
             runCatching {
                 repository.verifySecurityPin(pin)
@@ -1711,10 +1631,10 @@ class MainActivity : Activity() {
                 if (verified) {
                     action()
                 } else {
-                    Toast.makeText(this, "PINが一致しません", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.msg_pin_mismatch), Toast.LENGTH_SHORT).show()
                 }
             }.onFailure { error ->
-                Toast.makeText(this, error.message ?: "PINを確認できませんでした", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, error.message ?: getString(R.string.msg_pin_verify_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1731,7 +1651,7 @@ class MainActivity : Activity() {
                 return
             }
             val file = File(detail.path)
-            require(file.exists()) { "共有対象ファイルが見つかりません" }
+            require(file.exists()) { getString(R.string.main_share_item) }
             val uri = FileProvider.getUriForFile(
                 this,
                 "jp.viastrasse.cabinet.fileprovider",
@@ -1745,17 +1665,17 @@ class MainActivity : Activity() {
             }
             startActivity(Intent.createChooser(intent, detail.item.title))
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "共有できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_share_item_2), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun cacheRemoteFile(itemId: String, detail: jp.viastrasse.cabinet.data.CabinetItemDetail) {
         val remote = detail.remote
         if (remote == null || remote.webUrl.isBlank()) {
-            Toast.makeText(this, "Web URL付きのリモート参照だけキャッシュできます", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_cache_remote_file), Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, "リモートファイルを取得しています", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_cache_remote_file_2), Toast.LENGTH_SHORT).show()
         thread(name = "cabinet-remote-cache") {
             runCatching {
                 val cacheDir = File(filesDir, "remote-cache").apply { mkdirs() }
@@ -1766,12 +1686,12 @@ class MainActivity : Activity() {
                 repository.markRemoteFileCached(itemId, destination.absolutePath, destination.length())
             }.onSuccess {
                 runOnUiThread {
-                    Toast.makeText(this, "リモートファイルをキャッシュしました", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.main_cache_remote_file_3), Toast.LENGTH_SHORT).show()
                     openDetail(itemId)
                 }
             }.onFailure { error ->
                 runOnUiThread {
-                    Toast.makeText(this, error.message ?: "リモートファイルを取得できませんでした", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, error.message ?: getString(R.string.main_cache_remote_file_4), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1782,10 +1702,10 @@ class MainActivity : Activity() {
             repository.createZipFromItem(detail)
         }.onSuccess { item ->
             PreviewWorker.enqueue(applicationContext)
-            Toast.makeText(this, "ZIPを作成しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_create_zip, item.displayName), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "ZIPを作成できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_create_zip_2), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1794,10 +1714,10 @@ class MainActivity : Activity() {
             repository.extractZipItem(detail)
         }.onSuccess { items ->
             PreviewWorker.enqueue(applicationContext)
-            Toast.makeText(this, "${items.size}件を解凍しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_extract_zip, items.size), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "ZIPを解凍できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_extract_zip_2), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1822,7 +1742,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "参照を追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.msg_reference_add_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1830,7 +1750,7 @@ class MainActivity : Activity() {
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "参照を開けませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_reference_uri), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1853,41 +1773,35 @@ class MainActivity : Activity() {
     }
 
     private fun showReferenceDialog(itemId: String, referenceType: String, sourceApp: String, uriPrefix: String) {
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
-        }
-        val sourceIdInput = darkInput("参照ID")
-        val titleInput = darkInput("表示名")
+        val sourceIdInput = darkInput(getString(R.string.main_show_reference_dialog))
+        val titleInput = darkInput(getString(R.string.hint_display_name))
         val uriInput = darkInput("URI").apply {
             setText(uriPrefix)
         }
-        container.addView(sourceIdInput)
-        container.addView(titleInput)
-        container.addView(uriInput)
-        AlertDialog.Builder(this)
-            .setTitle("$sourceApp 参照を追加")
+        val container = dialogContainer(sourceIdInput, titleInput, uriInput)
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.title_add_reference, sourceApp))
             .setView(container)
-            .setPositiveButton("追加") { _, _ ->
+            .setPositiveButton(getString(R.string.action_add)) { _, _ ->
                 val sourceId = sourceIdInput.text.toString().trim().ifBlank { "manual-${System.currentTimeMillis()}" }
                 val title = titleInput.text.toString().trim().ifBlank { "$sourceApp 参照" }
                 val uri = uriInput.text.toString().trim().ifBlank { "$uriPrefix$sourceId" }
                 addReference(itemId, referenceType, sourceApp, sourceId, title, uri)
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
     private fun showProtectedMemoDialog(itemId: String) {
-        showTextDialog("保護メモを追加", "メモ本文", "追加", multiline = true) { body ->
+        showTextDialog(getString(R.string.action_add_protected_memo), getString(R.string.hint_memo_body), getString(R.string.action_add), multiline = true) { body ->
             addProtectedMemo(itemId, body)
         }
     }
 
     private fun showUnlockProtectedMemosDialog(itemId: String) {
         showPinDialog(
-            title = "保護メモを表示",
-            positiveLabel = "表示",
+            title = getString(R.string.action_show_protected_memo),
+            positiveLabel = getString(R.string.action_show),
         ) { pin ->
             openUnlockedDetail(itemId, pin)
         }
@@ -1897,124 +1811,20 @@ class MainActivity : Activity() {
         runCatching {
             repository.detailUnlocked(itemId, pin)
         }.onSuccess { detail ->
-            dashboardView.renderDetail(
-                detail = detail,
-                onBack = ::renderDashboard,
-                onProcessPreview = {
-                    processPreviewQueue()
-                    openDetail(itemId)
-                },
-                onToggleFavorite = {
-                    updateItemFlags(
-                        itemId = itemId,
-                        isFavorite = !detail.item.isFavorite,
-                        isUnsorted = detail.item.isUnsorted,
-                    )
-                },
-                onMarkSorted = {
-                    updateItemFlags(
-                        itemId = itemId,
-                        isFavorite = detail.item.isFavorite,
-                        isUnsorted = false,
-                    )
-                },
-                onAddTag = {
-                    showTextDialog("タグを追加", "タグ名", "追加") { tagName ->
-                        addTag(itemId, tagName)
-                    }
-                },
-                onRemoveTag = { tagId ->
-                    removeTag(itemId, tagId)
-                },
-                onAddCollection = {
-                    showTextDialog("Collectionへ追加", "Collection名", "追加") { collectionTitle ->
-                        addToCollection(itemId, collectionTitle)
-                    }
-                },
-                onRemoveCollection = { collectionId ->
-                    removeFromCollection(itemId, collectionId)
-                },
-                onMoveTrash = {
-                    moveToTrash(itemId)
-                },
-                onOpen = {
-                    openProtectedAwareItem(itemId, detail)
-                },
-                onShare = {
-                    shareProtectedAwareItem(detail)
-                },
-                onDuplicate = {
-                    duplicateItem(itemId)
-                },
-                onRename = {
-                    renameItem(itemId, renamedName(detail.item.displayName))
-                },
-                onAddVersion = {
-                    openVersionFilePicker(itemId)
-                },
-                onSetCurrentVersion = { versionId ->
-                    setCurrentVersion(itemId, versionId)
-                },
-                onCreateZip = {
-                    createZip(detail)
-                },
-                onExtractZip = {
-                    extractZip(detail)
-                },
-                onAddMailReference = {
-                    showReferenceDialog(itemId, "mail", "Mail by VIASTRASSE", "viastrasse-mail://message/")
-                },
-                onAddTaskReference = {
-                    showReferenceDialog(itemId, "task", "Task by VIASTRASSE", "viastrasse-task://open/")
-                },
-                onAddAtelierReference = {
-                    showReferenceDialog(itemId, "atelier", "Atelier by VIASTRASSE", "viastrasse-atelier://open/")
-                },
-                onOpenReference = ::openReferenceUri,
-                onAddMemo = {
-                    showMemoDialog(itemId)
-                },
-                onAddProtectedMemo = {
-                    showProtectedMemoDialog(itemId)
-                },
-                onUnlockProtectedMemos = {
-                    showUnlockProtectedMemosDialog(itemId)
-                },
-                onAddOcrText = {
-                    showOcrTextDialog(itemId)
-                },
-                onRunImageOcr = {
-                    runImageOcr(itemId, detail.path, detail.item.mimeType)
-                },
-                onCacheRemoteFile = {
-                    cacheRemoteFile(itemId, detail)
-                },
-                onGenerateThumbnail = {
-                    generateThumbnail(itemId, detail.path, detail.item.mimeType)
-                },
-                onProtectItem = {
-                    protectItem(itemId)
-                },
-                onRestoreFromTrash = {
-                    restoreFromTrash(itemId)
-                },
-                onDeletePermanently = {
-                    deletePermanently(itemId)
-                },
-            )
+            showDetail(itemId, detail)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "保護メモを表示できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_unlocked_detail), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun showMemoDialog(itemId: String) {
-        showTextDialog("メモを追加", "メモ本文", "追加", multiline = true) { body ->
+        showTextDialog(getString(R.string.action_add_memo), getString(R.string.hint_memo_body), getString(R.string.action_add), multiline = true) { body ->
             addMemo(itemId, body)
         }
     }
 
     private fun showOcrTextDialog(itemId: String) {
-        showTextDialog("OCR本文を追加", "抽出テキスト", "追加", multiline = true) { body ->
+        showTextDialog(getString(R.string.action_add_ocr_text), getString(R.string.main_show_ocr_text_dialog), getString(R.string.action_add), multiline = true) { body ->
             addOcrText(itemId, body)
         }
     }
@@ -2025,7 +1835,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "メモを追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_add_memo), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2035,7 +1845,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "OCR本文を追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_add_ocr_text), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2043,19 +1853,19 @@ class MainActivity : Activity() {
         val file = File(path)
         val isPdf = mimeType == "application/pdf" || file.name.endsWith(".pdf", ignoreCase = true)
         if ((!mimeType.startsWith("image/") && !isPdf) || !file.exists()) {
-            Toast.makeText(this, "画像またはPDFだけOCRを実行できます", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_run_image_ocr), Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, "OCRを実行しています", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_run_image_ocr_2), Toast.LENGTH_SHORT).show()
         val onSuccess: (String) -> Unit = { text ->
             if (text.isBlank()) {
-                Toast.makeText(this, "文字を検出できませんでした", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_run_image_ocr_3), Toast.LENGTH_SHORT).show()
             } else {
                 saveRecognizedText(itemId, text, if (isPdf) "mlkit-pdf-first-page" else "mlkit-japanese")
             }
         }
         val onFailure: (Throwable) -> Unit = { error ->
-            Toast.makeText(this, error.message ?: "OCRを実行できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_run_image_ocr_4), Toast.LENGTH_SHORT).show()
         }
         if (isPdf) {
             OcrTextRecognizer.recognizePdfFirstPage(file, onSuccess, onFailure)
@@ -2068,27 +1878,27 @@ class MainActivity : Activity() {
         runCatching {
             repository.addOcrText(itemId, text, source)
         }.onSuccess {
-            Toast.makeText(this, "OCR本文を保存しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_save_recognized_text), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "OCR本文を保存できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_save_recognized_text_2), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun generateThumbnail(itemId: String, path: String, mimeType: String) {
         val file = File(path)
         if (!file.exists()) {
-            Toast.makeText(this, "サムネイル対象ファイルが見つかりません", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_generate_thumbnail), Toast.LENGTH_SHORT).show()
             return
         }
         runCatching {
             val thumbnail = ThumbnailGenerator.createSupportedThumbnail(file, mimeType, File(filesDir, "thumbnails"))
             repository.setItemThumbnail(itemId, thumbnail.absolutePath)
         }.onSuccess {
-            Toast.makeText(this, "サムネイルを生成しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_generate_thumbnail_2), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "サムネイルを生成できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_generate_thumbnail_3), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2098,7 +1908,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "保護メモを追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_add_protected_memo), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2119,7 +1929,7 @@ class MainActivity : Activity() {
                 minLines = 3
             }
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
             .setTitle(title)
             .setView(input)
             .setPositiveButton(positiveLabel) { _, _ ->
@@ -2128,28 +1938,46 @@ class MainActivity : Activity() {
                     onText(value)
                 }
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
-    private fun darkInput(hintText: String): EditText {
-        return EditText(this).apply {
-            hint = hintText
-            setTextColor(jp.viastrasse.cabinet.theme.CabinetColors.TextPrimary)
-            setHintTextColor(jp.viastrasse.cabinet.theme.CabinetColors.TextSecondary)
-            setBackgroundColor(jp.viastrasse.cabinet.theme.CabinetColors.SurfaceAlt)
-            setPadding(24, 18, 24, 18)
+    /** ダイアログ用の入力欄。見た目は [cabinetInput] に集約している。 */
+    private fun darkInput(hintText: String): EditText = cabinetInput(hintText)
+
+    /**
+     * 複数入力を持つダイアログの器。
+     * 以前は各ダイアログが px 直値の padding を持ち、入力欄も密着していた。
+     */
+    private fun dialogContainer(vararg inputs: android.view.View): android.widget.LinearLayout {
+        return android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val horizontal = dpPx(CabinetMetrics.SPACE_XL)
+            setPadding(horizontal, dpPx(CabinetMetrics.SPACE_SM), horizontal, 0)
+            inputs.forEachIndexed { index, view ->
+                addView(
+                    view,
+                    android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        if (index > 0) topMargin = dpPx(CabinetMetrics.SPACE_SM)
+                    },
+                )
+            }
         }
     }
+
+    private fun dpPx(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun protectItem(itemId: String) {
         runCatching {
             repository.setItemProtected(itemId, true)
         }.onSuccess {
-            Toast.makeText(this, "保護領域へ追加しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_protect_item), Toast.LENGTH_SHORT).show()
             openDetail(itemId)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "保護領域へ追加できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_protect_item_2), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2193,49 +2021,21 @@ class MainActivity : Activity() {
         FolderWatchWorker.rememberFolder(applicationContext, treeUri, root)
         FolderWatchWorker.enqueuePeriodic(applicationContext)
         FolderWatchWorker.enqueueNow(applicationContext)
-        Toast.makeText(this, "${imported}件を取り込みました", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_import_folder_2, imported), Toast.LENGTH_SHORT).show()
         renderDashboard()
     }
 
-    private fun uniqueDestination(directory: File, displayName: String): File {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = if (extension.isBlank()) {
-                File(directory, "$base-$index")
-            } else {
-                File(directory, "$base-$index.$extension")
-            }
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueDestination(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDestination(directory, displayName)
 
-    private fun uniqueDirectory(directory: File, displayName: String): File {
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = File(directory, "$displayName-$index")
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueDirectory(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDirectory(directory, displayName)
 
-    private fun duplicateDisplayName(displayName: String): String {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        return if (extension.isBlank()) {
-            "$base-copy"
-        } else {
-            "$base-copy.$extension"
-        }
-    }
+    private fun duplicateDisplayName(displayName: String): String =
+        CabinetFiles.duplicateDisplayName(displayName)
 
-    private fun sanitizeFileName(value: String): String {
-        return value.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "document" }
-    }
+    private fun sanitizeFileName(value: String): String =
+        CabinetFiles.sanitizeFileName(value)
 
     private fun displayNameForUri(uri: Uri): String {
         contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -2259,7 +2059,7 @@ class MainActivity : Activity() {
                 Toast.LENGTH_SHORT,
             ).show()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "プレビュー処理に失敗しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_process_preview_queue), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2289,7 +2089,7 @@ class MainActivity : Activity() {
                 onFontPreferenceChanged = ::updateFileListDisplayPreference,
             )
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "設定を開けませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2312,76 +2112,58 @@ class MainActivity : Activity() {
             .edit()
             .putString(KEY_DISPLAY_MODE, normalized)
             .apply()
-        Toast.makeText(this, "表示設定を保存しました", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_update_display_mode_preference), Toast.LENGTH_SHORT).show()
         openSettings()
     }
 
     private fun fileListDisplayPreference(): FileListDisplayPreference {
         val prefs = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+        fun fontSize(key: String, legacyKey: String): Int {
+            val legacy = prefs.getInt(legacyKey, FileListDisplayPreference.DEFAULT_FONT_SIZE)
+            return prefs.getInt(key, legacy).coerceIn(
+                FileListDisplayPreference.MIN_FONT_SIZE,
+                FileListDisplayPreference.MAX_FONT_SIZE,
+            )
+        }
         return FileListDisplayPreference(
-            fromFontSize = prefs.getInt(
-                KEY_FILE_LIST_FROM_FONT_SIZE,
-                FileListDisplayPreference.DEFAULT_FONT_SIZE,
-            ).coerceIn(FileListDisplayPreference.MIN_FONT_SIZE, FileListDisplayPreference.MAX_FONT_SIZE),
-            subjectFontSize = prefs.getInt(
-                KEY_FILE_LIST_SUBJECT_FONT_SIZE,
-                FileListDisplayPreference.DEFAULT_FONT_SIZE,
-            ).coerceIn(FileListDisplayPreference.MIN_FONT_SIZE, FileListDisplayPreference.MAX_FONT_SIZE),
-            bodyFontSize = prefs.getInt(
-                KEY_FILE_LIST_BODY_FONT_SIZE,
-                FileListDisplayPreference.DEFAULT_FONT_SIZE,
-            ).coerceIn(FileListDisplayPreference.MIN_FONT_SIZE, FileListDisplayPreference.MAX_FONT_SIZE),
+            kindFontSize = fontSize(KEY_FILE_LIST_KIND_FONT_SIZE, LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE),
+            nameFontSize = fontSize(KEY_FILE_LIST_NAME_FONT_SIZE, LEGACY_KEY_FILE_LIST_SUBJECT_FONT_SIZE),
+            metaFontSize = fontSize(KEY_FILE_LIST_META_FONT_SIZE, LEGACY_KEY_FILE_LIST_BODY_FONT_SIZE),
         )
     }
 
     private fun updateFileListDisplayPreference(preference: FileListDisplayPreference) {
+        fun clamp(value: Int) = value.coerceIn(
+            FileListDisplayPreference.MIN_FONT_SIZE,
+            FileListDisplayPreference.MAX_FONT_SIZE,
+        )
         getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
             .edit()
-            .putInt(
-                KEY_FILE_LIST_FROM_FONT_SIZE,
-                preference.fromFontSize.coerceIn(
-                    FileListDisplayPreference.MIN_FONT_SIZE,
-                    FileListDisplayPreference.MAX_FONT_SIZE,
-                ),
-            )
-            .putInt(
-                KEY_FILE_LIST_SUBJECT_FONT_SIZE,
-                preference.subjectFontSize.coerceIn(
-                    FileListDisplayPreference.MIN_FONT_SIZE,
-                    FileListDisplayPreference.MAX_FONT_SIZE,
-                ),
-            )
-            .putInt(
-                KEY_FILE_LIST_BODY_FONT_SIZE,
-                preference.bodyFontSize.coerceIn(
-                    FileListDisplayPreference.MIN_FONT_SIZE,
-                    FileListDisplayPreference.MAX_FONT_SIZE,
-                ),
-            )
+            .putInt(KEY_FILE_LIST_KIND_FONT_SIZE, clamp(preference.kindFontSize))
+            .putInt(KEY_FILE_LIST_NAME_FONT_SIZE, clamp(preference.nameFontSize))
+            .putInt(KEY_FILE_LIST_META_FONT_SIZE, clamp(preference.metaFontSize))
+            .remove(LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE)
+            .remove(LEGACY_KEY_FILE_LIST_SUBJECT_FONT_SIZE)
+            .remove(LEGACY_KEY_FILE_LIST_BODY_FONT_SIZE)
             .apply()
-        Toast.makeText(this, "文字サイズを保存しました", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_clamp), Toast.LENGTH_SHORT).show()
         openSettings()
     }
 
     private fun appPrefs() = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
 
     private fun showStorageProviderDialog(provider: StorageProviderAccountSummary) {
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
-        }
-        val accountInput = darkInput("アカウント名").apply {
+        val accountInput = darkInput(getString(R.string.main_show_storage_provider_dialog)).apply {
             setText(provider.accountName)
         }
-        val statusInput = darkInput("接続状態: connected / offline / error / not_configured").apply {
+        val statusInput = darkInput(getString(R.string.main_show_storage_provider_dialog_2)).apply {
             setText(provider.connectionStatus.ifBlank { "not_configured" })
         }
-        container.addView(accountInput)
-        container.addView(statusInput)
-        AlertDialog.Builder(this)
-            .setTitle("${provider.displayName} を設定")
+        val container = dialogContainer(accountInput, statusInput)
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
             .setView(container)
-            .setPositiveButton("保存") { _, _ ->
+            .setPositiveButton(getString(R.string.action_save)) { _, _ ->
                 runCatching {
                     repository.updateStorageProvider(
                         providerId = provider.id,
@@ -2389,38 +2171,33 @@ class MainActivity : Activity() {
                         connectionStatus = statusInput.text.toString(),
                     )
                 }.onSuccess {
-                    Toast.makeText(this, "Provider設定を保存しました", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.main_show_storage_provider_dialog_4), Toast.LENGTH_SHORT).show()
                     openSettings()
                 }.onFailure { error ->
-                    Toast.makeText(this, error.message ?: "Provider設定を保存できませんでした", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
                 }
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
     private fun showCreateSmartFolderDialog() {
         val presets = arrayOf("pdf", "image", "url", "remote", "ocr", "protected", "favorites", "unsorted", "trash")
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
-        }
-        val titleInput = darkInput("Smart Folder名")
+        val titleInput = darkInput(getString(R.string.main_show_create_smart_folder_dialog))
         val presetInput = darkInput("preset: ${presets.joinToString(" / ")}").apply {
             setText("pdf")
         }
-        container.addView(titleInput)
-        container.addView(presetInput)
-        AlertDialog.Builder(this)
-            .setTitle("Smart Folderを作成")
+        val container = dialogContainer(titleInput, presetInput)
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.main_show_create_smart_folder_dialog_2))
             .setView(container)
-            .setPositiveButton("作成") { _, _ ->
+            .setPositiveButton(getString(R.string.action_create)) { _, _ ->
                 createSmartFolder(
                     title = titleInput.text.toString().trim().ifBlank { "Smart Folder" },
                     preset = presetInput.text.toString().trim().ifBlank { "pdf" },
                 )
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
@@ -2428,44 +2205,42 @@ class MainActivity : Activity() {
         runCatching {
             repository.createSmartFolder(title, preset)
         }.onSuccess {
-            Toast.makeText(this, "Smart Folderを作成しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_create_smart_folder), Toast.LENGTH_SHORT).show()
             openSettings()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "Smart Folderを作成できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_create_smart_folder_2), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun showRemoteFileDialog(provider: StorageProviderAccountSummary) {
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
-        }
-        val remotePathInput = darkInput("リモートパス")
-        val displayNameInput = darkInput("表示名")
+        val remotePathInput = darkInput(getString(R.string.main_show_remote_file_dialog))
+        val displayNameInput = darkInput(getString(R.string.hint_display_name))
         val mimeTypeInput = darkInput("MIME type").apply {
             setText("application/octet-stream")
         }
-        val sizeInput = darkInput("サイズ byte").apply {
+        val sizeInput = darkInput(getString(R.string.main_show_remote_file_dialog_2)).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText("0")
         }
-        val remoteIdInput = darkInput("リモートID")
+        val remoteIdInput = darkInput(getString(R.string.main_show_remote_file_dialog_3))
         val webUrlInput = darkInput("Web URL")
-        val noteInput = darkInput("メモ").apply {
+        val noteInput = darkInput(getString(R.string.label_memo)).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 2
         }
-        container.addView(remotePathInput)
-        container.addView(displayNameInput)
-        container.addView(mimeTypeInput)
-        container.addView(sizeInput)
-        container.addView(remoteIdInput)
-        container.addView(webUrlInput)
-        container.addView(noteInput)
-        AlertDialog.Builder(this)
-            .setTitle("${provider.displayName} 参照を追加")
+        val container = dialogContainer(
+            remotePathInput,
+            displayNameInput,
+            mimeTypeInput,
+            sizeInput,
+            remoteIdInput,
+            webUrlInput,
+            noteInput,
+        )
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.title_add_reference, provider.displayName))
             .setView(container)
-            .setPositiveButton("追加") { _, _ ->
+            .setPositiveButton(getString(R.string.action_add)) { _, _ ->
                 val remotePath = remotePathInput.text.toString().trim()
                 val displayName = displayNameInput.text.toString().trim()
                     .ifBlank { remotePath.substringAfterLast('/').ifBlank { provider.displayName } }
@@ -2480,7 +2255,7 @@ class MainActivity : Activity() {
                     note = noteInput.text.toString().trim().ifBlank { "Storage Providerから登録" },
                 )
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
@@ -2506,10 +2281,10 @@ class MainActivity : Activity() {
                 note = note,
             )
         }.onSuccess { item ->
-            Toast.makeText(this, "リモート参照を登録しました: ${item.displayName}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_register_remote_file, item.displayName), Toast.LENGTH_SHORT).show()
             openDetail(item.id)
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "リモート参照を登録できませんでした", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_register_remote_file_2), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2520,13 +2295,13 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Backup: ${file.name}", Toast.LENGTH_SHORT).show()
             openSettings()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "バックアップに失敗しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_export_backup), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun runBackupNow() {
         BackupWorker.enqueueNow(applicationContext)
-        Toast.makeText(this, "定期バックアップを実行キューへ追加しました", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_run_backup_now), Toast.LENGTH_SHORT).show()
         openSettings()
     }
 
@@ -2534,40 +2309,47 @@ class MainActivity : Activity() {
         runCatching {
             repository.restoreLatestLocalBackup()
         }.onSuccess {
-            Toast.makeText(this, "最新ローカルバックアップを復元しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_restore_latest_local_backup), Toast.LENGTH_SHORT).show()
             openSettings()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "最新ローカルバックアップを復元できませんでした", Toast.LENGTH_SHORT).show()
+            // バックアップ不在は想定内なので専用の文言を出す。
+            // それ以外（Rust core からのエラーなど）は原因を見せたいので error.message を優先する。
+            val message = if (error is NoSuchElementException) {
+                getString(R.string.main_restore_latest_local_backup_missing)
+            } else {
+                error.message ?: getString(R.string.main_restore_latest_local_backup_2)
+            }
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun showSetPinDialog() {
         showPinDialog(
-            title = "PINを設定",
-            positiveLabel = "設定",
+            title = getString(R.string.action_set_pin),
+            positiveLabel = getString(R.string.label_settings),
         ) { pin ->
             runCatching {
                 repository.setSecurityPin(pin)
             }.onSuccess {
-                Toast.makeText(this, "PINを設定しました", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.main_show_set_pin_dialog), Toast.LENGTH_SHORT).show()
                 openSettings()
             }.onFailure { error ->
-                Toast.makeText(this, error.message ?: "PINを設定できませんでした", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, error.message ?: getString(R.string.main_show_set_pin_dialog_2), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun showVerifyPinDialog() {
         showPinDialog(
-            title = "PINを確認",
-            positiveLabel = "確認",
+            title = getString(R.string.action_verify_pin),
+            positiveLabel = getString(R.string.action_verify),
         ) { pin ->
             runCatching {
                 repository.verifySecurityPin(pin)
             }.onSuccess { verified ->
-                Toast.makeText(this, if (verified) "PINは一致しました" else "PINが一致しません", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, if (verified) getString(R.string.main_show_verify_pin_dialog) else getString(R.string.msg_pin_mismatch), Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
-                Toast.makeText(this, error.message ?: "PINを確認できませんでした", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, error.message ?: getString(R.string.msg_pin_verify_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -2576,11 +2358,11 @@ class MainActivity : Activity() {
         val input = darkInput("PIN").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
             .setTitle(title)
             .setView(input)
             .setPositiveButton(positiveLabel) { _, _ -> onPin(input.text.toString()) }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
 
@@ -2596,14 +2378,14 @@ class MainActivity : Activity() {
     private fun importBackup(uri: Uri) {
         runCatching {
             val json = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8).use { reader ->
-                requireNotNull(reader) { "バックアップファイルを開けませんでした" }.readText()
+                requireNotNull(reader) { getString(R.string.main_import_backup) }.readText()
             }
             repository.importBackup(json)
         }.onSuccess {
-            Toast.makeText(this, "バックアップを復元しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.main_import_backup_2), Toast.LENGTH_SHORT).show()
             openSettings()
         }.onFailure { error ->
-            Toast.makeText(this, error.message ?: "バックアップ復元に失敗しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, error.message ?: getString(R.string.main_import_backup_3), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2616,9 +2398,14 @@ class MainActivity : Activity() {
         private const val KEY_SD_TREE_URI = "sd_tree_uri"
         private const val KEY_SD_TREE_URIS = "sd_tree_uris"
         private const val KEY_DISPLAY_MODE = "display_mode"
-        private const val KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"
-        private const val KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
-        private const val KEY_FILE_LIST_BODY_FONT_SIZE = "file_list_body_font_size"
+        private const val KEY_FILE_LIST_KIND_FONT_SIZE = "file_list_kind_font_size"
+        private const val KEY_FILE_LIST_NAME_FONT_SIZE = "file_list_name_font_size"
+        private const val KEY_FILE_LIST_META_FONT_SIZE = "file_list_meta_font_size"
+
+        // Mail由来の命名だった旧キー。既存インストールの設定を引き継ぐために読むだけ残す。
+        private const val LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"
+        private const val LEGACY_KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
+        private const val LEGACY_KEY_FILE_LIST_BODY_FONT_SIZE = "file_list_body_font_size"
         private const val DISPLAY_MODE_COMPACT = "compact"
         private const val DISPLAY_MODE_ELEGANT = "elegant"
     }

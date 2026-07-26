@@ -1,15 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="CabinetTheme" parent="android:style/Theme.Material.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowIsTranslucent">false</item>
-        <item name="android:windowBackground">#101317</item>
-        <item name="android:colorAccent">#86B6D8</item>
+        <item name="android:windowBackground">@color/cabinet_app_background</item>
+        <item name="android:colorAccent">@color/cabinet_accent</item>
+        <item name="android:colorBackground">@color/cabinet_app_background</item>
+        <item name="android:textColorPrimary">@color/cabinet_text_primary</item>
+        <item name="android:textColorSecondary">@color/cabinet_text_secondary</item>
         <item name="android:forceDarkAllowed">false</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:statusBarColor">#050B14</item>
-        <item name="android:navigationBarColor">#050B14</item>
+        <item name="android:statusBarColor">@color/cabinet_startup_background</item>
+        <item name="android:navigationBarColor">@color/cabinet_startup_background</item>
         <item name="android:windowActionModeOverlay">true</item>
+    </style>
+
+    <!-- AlertDialog を Cabinet の面と揃える。 -->
+    <style name="CabinetDialogTheme" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/cabinet_accent</item>
+        <item name="android:colorBackground">@color/cabinet_surface</item>
+        <item name="android:textColorPrimary">@color/cabinet_text_primary</item>
+        <item name="android:textColorSecondary">@color/cabinet_text_secondary</item>
+        <item name="android:windowTitleStyle">@style/CabinetDialogTitle</item>
+    </style>
+
+    <style name="CabinetDialogTitle" parent="android:style/TextAppearance.Material.DialogWindowTitle">
+        <item name="android:textColor">@color/cabinet_text_primary</item>
+        <item name="android:textSize">18sp</item>
     </style>
 </resources>

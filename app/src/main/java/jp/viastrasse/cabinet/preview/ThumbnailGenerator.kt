@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.os.ParcelFileDescriptor
 import java.io.File
+import jp.viastrasse.cabinet.data.CabinetFiles
 
 object ThumbnailGenerator {
     fun createImageThumbnail(source: File, outputDir: File): File {
@@ -108,19 +109,6 @@ object ThumbnailGenerator {
         return output
     }
 
-    private fun uniqueFile(directory: File, displayName: String): File {
-        val base = displayName.substringBeforeLast('.', displayName)
-        val extension = displayName.substringAfterLast('.', "")
-        var candidate = File(directory, displayName)
-        var index = 1
-        while (candidate.exists()) {
-            candidate = if (extension.isBlank()) {
-                File(directory, "$base-$index")
-            } else {
-                File(directory, "$base-$index.$extension")
-            }
-            index += 1
-        }
-        return candidate
-    }
+    private fun uniqueFile(directory: File, displayName: String): File =
+        CabinetFiles.uniqueDestination(directory, displayName)
 }

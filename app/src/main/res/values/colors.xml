@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    jp.viastrasse.cabinet.theme.CabinetColors と同じ値を保持する。
+    片方だけを変更しないこと。
+-->
+<resources>
+    <color name="cabinet_startup_background">#050B14</color>
+    <color name="cabinet_app_background">#101317</color>
+    <color name="cabinet_surface">#151A20</color>
+    <color name="cabinet_surface_alt">#1C2229</color>
+    <color name="cabinet_brand">#004273</color>
+    <color name="cabinet_accent">#86B6D8</color>
+    <color name="cabinet_text_primary">#EFF4F8</color>
+    <color name="cabinet_text_secondary">#B0BECB</color>
+</resources>

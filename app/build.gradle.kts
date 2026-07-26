@@ -50,6 +50,15 @@ kotlin {
     }
 }
 
+// CabinetColorsSyncTest は colors.xml をファイルとして読む。
+// 入力として宣言しないと colors.xml だけを変えたときに UP-TO-DATE でスキップされ、
+// 同期ずれを検知できなくなる。
+tasks.withType<Test>().configureEach {
+    inputs.file(File(projectDir, "src/main/res/values/colors.xml"))
+        .withPropertyName("cabinetColorsXml")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 tasks.register<Exec>("buildRustAndroidDebug") {
     workingDir = repoRoot
     commandLine(
@@ -95,6 +104,8 @@ afterEvaluate {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.10.5")
