@@ -3,7 +3,10 @@ package jp.viastrasse.cabinet
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.net.Uri
@@ -59,9 +62,8 @@ class ViewerActivity : Activity() {
     private var navigationTitles: List<String> = emptyList()
     private var navigationIndex: Int = -1
 
-    /** 手動回転の角度。ファイルを切り替えても保つ。 */
+    /** 画像の手動回転の角度。ファイルを切り替えても保つ。 */
     private var contentRotationDegrees: Int = 0
-    private var rotatableStage: RotatableFrame? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,8 +107,6 @@ class ViewerActivity : Activity() {
             return
         }
         val uri = viewerUri(path)
-        // 前のファイルの回転コンテナを掴んだままにすると、回転ボタンが効かない画面が出る。
-        rotatableStage = null
         val displayTitle = title.ifBlank { File(path).name.ifBlank { path.substringAfterLast('/') } }
         val typeHint = "$path\n$displayTitle"
         runCatching {
@@ -252,14 +252,17 @@ class ViewerActivity : Activity() {
                 LinearLayout(this@ViewerActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
+                    // 画面最上部に文字が張り付かないよう、行全体に上下の余裕を持たせる。
+                    setPadding(0, dp(CabinetMetrics.SPACE_SM), 0, dp(CabinetMetrics.SPACE_SM))
                     addView(
                         TextView(this@ViewerActivity).apply {
                             text = title
                             setTextColor(CabinetColors.TextPrimary)
                             textSize = CabinetType.SECTION.toFloat()
                             typeface = Typeface.DEFAULT_BOLD
-                            setPadding(dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD))
+                            setPadding(dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_SM))
                             maxLines = 2
+                            setLineSpacing(0f, 1.2f)
                             ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
                             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         },
@@ -299,61 +302,6 @@ class ViewerActivity : Activity() {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 ),
             )
-        }
-    }
-
-    /**
-     * 子を 90 度単位で回転させるコンテナ。
-     *
-     * View.rotation を掛けるだけでは幅と高さが入れ替わらず、縦横比の違う向きで
-     * はみ出す／余白が出る。90/270 度のときは子に「入れ替えた寸法」を与えてから回す。
-     */
-    private class RotatableFrame(context: Context) : FrameLayout(context) {
-        var rotationDegrees: Int = 0
-            set(value) {
-                field = ((value % 360) + 360) % 360
-                requestLayout()
-            }
-
-        private val isQuarterTurned: Boolean
-            get() = rotationDegrees == 90 || rotationDegrees == 270
-
-        /**
-         * 子には「幅と高さを入れ替えた制約」をそのまま渡す。
-         * MeasureSpec の mode を作り直さないのは、ズームコンテナが UNSPECIFIED で
-         * 内容の自然なサイズを測りに来るため。EXACTLY に固定すると高さ 0 に潰れる。
-         */
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val child = getChildAt(0)
-            if (child == null) {
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-                return
-            }
-            val childWidthSpec = if (isQuarterTurned) heightMeasureSpec else widthMeasureSpec
-            val childHeightSpec = if (isQuarterTurned) widthMeasureSpec else heightMeasureSpec
-            child.measure(childWidthSpec, childHeightSpec)
-            val outerWidth = if (isQuarterTurned) child.measuredHeight else child.measuredWidth
-            val outerHeight = if (isQuarterTurned) child.measuredWidth else child.measuredHeight
-            setMeasuredDimension(
-                resolveSize(outerWidth, widthMeasureSpec),
-                resolveSize(outerHeight, heightMeasureSpec),
-            )
-        }
-
-        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            val width = right - left
-            val height = bottom - top
-            for (index in 0 until childCount) {
-                val child = getChildAt(index)
-                val childWidth = child.measuredWidth
-                val childHeight = child.measuredHeight
-                val offsetX = (width - childWidth) / 2
-                val offsetY = (height - childHeight) / 2
-                child.layout(offsetX, offsetY, offsetX + childWidth, offsetY + childHeight)
-                child.pivotX = childWidth / 2f
-                child.pivotY = childHeight / 2f
-                child.rotation = rotationDegrees.toFloat()
-            }
         }
     }
 
@@ -591,29 +539,56 @@ class ViewerActivity : Activity() {
         }
     }
 
+    /**
+     * 画像は Bitmap そのものを回す。
+     *
+     * View の rotation で回すと ImageView の測定が元寸で解決されてしまい、
+     * 回転後に極端に小さく表示される。Bitmap を回してしまえば
+     * adjustViewBounds + FIT_CENTER がそのまま効き、縦横どちらでも画面にフィットする。
+     */
     private fun renderImage(title: String, uri: Uri) {
+        val bitmap = rotateBitmap(decodeBitmapForDisplay(uri), contentRotationDegrees)
         val image = ImageView(this).apply {
-            setImageURI(uri)
+            setImageBitmap(bitmap)
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(CabinetColors.AppBackground)
         }
-        // 画像はズーム対象なので、回転は画像そのものに掛ける。
-        // ズームコンテナ側を回すとスクロール方向まで入れ替わって操作が破綻する。
-        val stage = RotatableFrame(this).apply {
-            rotationDegrees = contentRotationDegrees
-            addView(
+        setContentView(
+            zoomablePreview(
+                title,
                 image,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    Gravity.CENTER,
-                ),
-            )
+                titleAction = rotateButton {
+                    contentRotationDegrees = (contentRotationDegrees + 90) % 360
+                    renderImage(title, uri)
+                },
+            ),
+        )
+    }
+
+    /** 画面の 2 倍を上限に縮小デコードする。等倍で読むと大きな写真でメモリを圧迫する。 */
+    private fun decodeBitmapForDisplay(uri: Uri): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val maxWidth = (resources.displayMetrics.widthPixels * 2).coerceAtLeast(1)
+        val maxHeight = (resources.displayMetrics.heightPixels * 2).coerceAtLeast(1)
+        var sampleSize = 1
+        while (bounds.outWidth / sampleSize > maxWidth || bounds.outHeight / sampleSize > maxHeight) {
+            sampleSize *= 2
         }
-        rotatableStage = stage
-        // ズーム・パン・前後スワイプは従来どおり zoomablePreview 側が担う。
-        setContentView(zoomablePreview(title, stage, titleAction = rotateButton()))
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return contentResolver.openInputStream(uri)
+            ?.use { BitmapFactory.decodeStream(it, null, options) }
+            ?: error(getString(R.string.msg_file_open_failed))
+    }
+
+    private fun rotateBitmap(source: Bitmap, degrees: Int): Bitmap {
+        if (degrees % 360 == 0) return source
+        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+        val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        if (rotated !== source) {
+            source.recycle()
+        }
+        return rotated
     }
 
     private fun renderPdf(title: String, uri: Uri) {
@@ -731,30 +706,19 @@ class ViewerActivity : Activity() {
                 control.text = getString(R.string.action_pause)
             }
         }
-        val stage = RotatableFrame(this).apply {
-            rotationDegrees = contentRotationDegrees
-            addView(
-                videoView,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    Gravity.CENTER,
-                ),
-            )
-        }
-        rotatableStage = stage
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
             // 回転ボタンはタイトル行へ。下部は MediaController が重なるため隠れてしまう。
-            addView(fixedTitle(title, rotateButton()))
+            // 映像は SurfaceView 合成なので View の回転が効かない。画面の向き自体を切り替える。
+            addView(fixedTitle(title, rotateButton(::toggleScreenOrientation)))
             addView(
-                stage,
+                videoView,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
                     1f,
-                ),
+                ).apply { gravity = Gravity.CENTER },
             )
             addView(
                 control,
@@ -771,8 +735,8 @@ class ViewerActivity : Activity() {
         setContentView(swipeNavigationHost(layout))
     }
 
-    /** 表示を 90 度ずつ回す。端末の自動回転をオフにしていても横向きで見られる。 */
-    private fun rotateButton(): TextView {
+    /** タイトル行の右端に置く回転ボタン。押したときの挙動は呼び出し側が決める。 */
+    private fun rotateButton(onRotate: () -> Unit): TextView {
         return TextView(this).apply {
             text = getString(R.string.action_rotate)
             setTextColor(CabinetColors.Accent)
@@ -783,10 +747,7 @@ class ViewerActivity : Activity() {
             minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
             setPadding(dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM))
             asTappable(pressableShape(CabinetColors.Surface, CabinetMetrics.RADIUS_PILL))
-            setOnClickListener {
-                contentRotationDegrees = (contentRotationDegrees + 90) % 360
-                rotatableStage?.rotationDegrees = contentRotationDegrees
-            }
+            setOnClickListener { onRotate() }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -797,12 +758,26 @@ class ViewerActivity : Activity() {
     }
 
     /**
-     * 回転で Activity を作り直さない設定にしたので、再測定は自前で促す。
+     * 動画の向きを切り替える。
+     *
+     * VideoView は SurfaceView 派生で、映像が View 階層とは別レイヤーで合成されるため、
+     * View の rotation を掛けても映像は回らず、くり抜きの形だけが変わってしまう。
+     * そこで画面の向きそのものを固定して回す。横固定 → 縦固定 → 端末まかせ、の順に巡回する。
+     */
+    private fun toggleScreenOrientation() {
+        requestedOrientation = when (requestedOrientation) {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            else -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+    }
+
+    /**
+     * 回転で Activity を作り直さない設定にしたので、再描画は自前で促す。
      * PDF はページを画面幅に合わせて描き直す必要がある。
      */
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        rotatableStage?.requestLayout()
         if (pdfRenderer != null) {
             window.decorView.post { showPdfPage(pdfPageIndex) }
         }
