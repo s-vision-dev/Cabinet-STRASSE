@@ -376,4 +376,5 @@ MIME: %2$s</string>
 端末がこの形式に対応していない可能性があります。
 
 code: %1$s / %2$s</string>
+    <string name="action_rotate">回転</string>
 </resources>

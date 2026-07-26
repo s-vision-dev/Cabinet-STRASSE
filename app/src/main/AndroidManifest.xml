@@ -102,9 +102,15 @@
             </intent-filter>
         </activity>
 
+        <!--
+            configChanges を指定しないと端末を回すたびに Activity が作り直され、
+            動画は先頭から再生し直し、画像のズーム状態も失われる。
+            回転はレイアウトの再測定だけで足りるため自前で受ける。
+        -->
         <activity
             android:name=".ViewerActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard"
             android:theme="@style/CabinetTheme" />
 
         <provider
