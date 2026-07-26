@@ -3,10 +3,10 @@ package jp.viastrasse.cabinet
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.net.Uri
@@ -16,6 +16,8 @@ import android.graphics.pdf.PdfRenderer
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -25,7 +27,6 @@ import android.widget.LinearLayout
 import android.widget.MediaController
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.VideoView
 import androidx.annotation.StringRes
 import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.theme.CabinetColors
@@ -52,6 +53,7 @@ import java.util.zip.ZipInputStream
 
 class ViewerActivity : Activity() {
     private var audioPlayer: MediaPlayer? = null
+    private var videoPlayer: MediaPlayer? = null
     private var pdfRenderer: PdfRenderer? = null
     private var pdfDescriptor: ParcelFileDescriptor? = null
     private var pdfPageIndex: Int = 0
@@ -139,6 +141,8 @@ class ViewerActivity : Activity() {
     override fun onDestroy() {
         audioPlayer?.release()
         audioPlayer = null
+        videoPlayer?.release()
+        videoPlayer = null
         pdfRenderer?.close()
         pdfRenderer = null
         pdfDescriptor?.close()
@@ -305,12 +309,92 @@ class ViewerActivity : Activity() {
         }
     }
 
+    /**
+     * 映像を 90 度単位で回して表示するコンテナ。
+     *
+     * VideoView（SurfaceView 派生）は映像が View 階層と別レイヤーで合成されるため
+     * View の回転が効かない。TextureView は通常の View として描画されるので回せる。
+     *
+     * 回転後に画面へ収まるよう、子のサイズは「回した状態で親に収まる倍率」から逆算する。
+     */
+    private class VideoStage(context: Context) : FrameLayout(context) {
+        val textureView = TextureView(context)
+
+        private var videoWidth = 0
+        private var videoHeight = 0
+
+        var rotationDegrees: Int = 0
+            set(value) {
+                field = ((value % 360) + 360) % 360
+                requestLayout()
+            }
+
+        init {
+            addView(textureView)
+        }
+
+        fun setVideoSize(width: Int, height: Int) {
+            if (width <= 0 || height <= 0) return
+            if (width == videoWidth && height == videoHeight) return
+            videoWidth = width
+            videoHeight = height
+            requestLayout()
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            setMeasuredDimension(
+                MeasureSpec.getSize(widthMeasureSpec),
+                MeasureSpec.getSize(heightMeasureSpec),
+            )
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            val frameWidth = right - left
+            val frameHeight = bottom - top
+            if (frameWidth <= 0 || frameHeight <= 0) return
+            if (videoWidth <= 0 || videoHeight <= 0) {
+                layoutTexture(0, 0, frameWidth, frameHeight)
+                return
+            }
+            val quarterTurned = rotationDegrees == 90 || rotationDegrees == 270
+            // 90/270 度では回転後に幅と高さが入れ替わるので、比較する辺も入れ替える。
+            val scale = if (quarterTurned) {
+                minOf(frameWidth.toFloat() / videoHeight, frameHeight.toFloat() / videoWidth)
+            } else {
+                minOf(frameWidth.toFloat() / videoWidth, frameHeight.toFloat() / videoHeight)
+            }
+            val childWidth = (videoWidth * scale).roundToInt().coerceAtLeast(1)
+            val childHeight = (videoHeight * scale).roundToInt().coerceAtLeast(1)
+            layoutTexture(
+                (frameWidth - childWidth) / 2,
+                (frameHeight - childHeight) / 2,
+                childWidth,
+                childHeight,
+            )
+        }
+
+        private fun layoutTexture(left: Int, top: Int, width: Int, height: Int) {
+            textureView.measure(
+                MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
+            )
+            textureView.layout(left, top, left + width, top + height)
+            textureView.pivotX = width / 2f
+            textureView.pivotY = height / 2f
+            textureView.rotation = rotationDegrees.toFloat()
+        }
+    }
+
     private class SwipeNavigationFrame(context: Context) : FrameLayout(context) {
         private var touchStartX = 0f
         private var touchStartY = 0f
         private val navigationSwipeDistance = context.resources.displayMetrics.density * 80f
+        private val tapSlop = context.resources.displayMetrics.density * 16f
         var onPrevious: (() -> Unit)? = null
         var onNext: (() -> Unit)? = null
+
+        /** スワイプに至らなかった短いタッチ。動画ではシークバーの表示切り替えに使う。 */
+        var onTap: (() -> Unit)? = null
 
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             when (event.actionMasked) {
@@ -337,6 +421,10 @@ class ViewerActivity : Activity() {
         private fun handleNavigationSwipe(event: MotionEvent) {
             val deltaX = event.x - touchStartX
             val deltaY = event.y - touchStartY
+            if (kotlin.math.abs(deltaX) < tapSlop && kotlin.math.abs(deltaY) < tapSlop) {
+                onTap?.invoke()
+                return
+            }
             if (kotlin.math.abs(deltaX) < navigationSwipeDistance) return
             if (kotlin.math.abs(deltaX) < kotlin.math.abs(deltaY) * 1.2f) return
             if (deltaX < 0) {
@@ -715,55 +803,79 @@ class ViewerActivity : Activity() {
 
     private fun renderVideo(title: String, uri: Uri) {
         lateinit var control: TextView
-        val videoView = VideoView(this).apply {
-            // VideoView は SurfaceView 派生で、自身の領域をくり抜いて背後の Surface を見せる。
-            // ここに背景色を設定するとくり抜きが効かず、映像が背景色で塗り潰されて黒画面になる。
-            // 背景は親の LinearLayout 側で持つこと。
-            setVideoURI(uri)
-            setMediaController(MediaController(this@ViewerActivity).also { it.setAnchorView(this) })
-            setOnPreparedListener {
-                start()
-                control.text = getString(R.string.action_pause)
-            }
-            setOnCompletionListener {
-                control.text = getString(R.string.action_play)
-            }
-            // エラーを握り潰すと「何も起きない」状態になり、原因も分からなくなる。
-            // 端末の MediaPlayer が対応しないコーデックは珍しくないため、外部アプリへ逃がす。
-            setOnErrorListener { _, what, extra ->
-                renderVideoError(title, uri, what, extra)
-                true
-            }
-            requestFocus()
-        }
-        control = commandButton(getString(R.string.action_play)) {
-            if (videoView.isPlaying) {
-                videoView.pause()
-                control.text = getString(R.string.action_play)
+        val stage = VideoStage(this).apply { rotationDegrees = savedRotation(uri) }
+        val player = MediaPlayer()
+        videoPlayer?.release()
+        videoPlayer = player
+        val controller = MediaController(this)
+
+        fun refreshControlLabel() {
+            control.text = if (runCatching { player.isPlaying }.getOrDefault(false)) {
+                getString(R.string.action_pause)
             } else {
-                videoView.start()
-                control.text = getString(R.string.action_pause)
+                getString(R.string.action_play)
             }
         }
+
+        stage.textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                runCatching {
+                    player.setSurface(Surface(surface))
+                    player.setDataSource(this@ViewerActivity, uri)
+                    player.setOnVideoSizeChangedListener { _, videoWidth, videoHeight ->
+                        stage.setVideoSize(videoWidth, videoHeight)
+                    }
+                    player.setOnPreparedListener { prepared ->
+                        stage.setVideoSize(prepared.videoWidth, prepared.videoHeight)
+                        prepared.start()
+                        refreshControlLabel()
+                    }
+                    player.setOnCompletionListener { refreshControlLabel() }
+                    // エラーを握り潰すと「何も起きない」状態になり原因も分からない。
+                    // 端末が対応しないコーデックは珍しくないため、外部アプリへ逃がす。
+                    player.setOnErrorListener { _, what, extra ->
+                        renderVideoError(title, uri, what, extra)
+                        true
+                    }
+                    player.prepareAsync()
+                }.onFailure {
+                    renderVideoError(title, uri, MediaPlayer.MEDIA_ERROR_UNKNOWN, 0)
+                }
+            }
+
+            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) = Unit
+
+            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
+
+            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
+        }
+
+        controller.setMediaPlayer(videoPlayerControl(player))
+        controller.setAnchorView(stage)
+
+        control = commandButton(getString(R.string.action_play)) {
+            runCatching {
+                if (player.isPlaying) player.pause() else player.start()
+            }
+            refreshControlLabel()
+        }
+
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
             // 回転ボタンはタイトル行へ。下部は MediaController が重なるため隠れてしまう。
-            // 映像は SurfaceView 合成なので View の回転が効かない。画面の向き自体を切り替える。
-            addView(fixedTitle(title, rotateButton(::toggleScreenOrientation)))
-            // VideoView は映像比率に合わせて縮むため、そのまま置くと割り当て領域の上端に寄る。
-            // FrameLayout で包み、余った分を上下に均等配分して中央に見せる。
             addView(
-                FrameLayout(this@ViewerActivity).apply {
-                    addView(
-                        videoView,
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            Gravity.CENTER,
-                        ),
-                    )
-                },
+                fixedTitle(
+                    title,
+                    rotateButton {
+                        val next = (savedRotation(uri) + 90) % 360
+                        saveRotation(uri, next)
+                        stage.rotationDegrees = next
+                    },
+                ),
+            )
+            addView(
+                stage,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
@@ -778,11 +890,61 @@ class ViewerActivity : Activity() {
                 ).apply { gravity = Gravity.CENTER_HORIZONTAL },
             )
         }
-        // シーク操作は MediaController に任せる。
-        // MediaController は独自 Window で前面に出るため、シークバー上のタッチはここへ届かず、
-        // 映像部分のスワイプだけが前後のファイル移動になる。
-        // タップで表示 / 数秒後に自動で消える挙動も MediaController の標準どおり。
-        setContentView(swipeNavigationHost(layout))
+
+        // 映像部分のスワイプは前後のファイル移動、タップでシークバーの表示切り替え。
+        // シーク自体は MediaController が担う（独自 Window で前面に出るのでここへは届かない）。
+        setContentView(
+            SwipeNavigationFrame(this).apply {
+                setBackgroundColor(CabinetColors.AppBackground)
+                onPrevious = ::showPreviousPreview
+                onNext = ::showNextPreview
+                onTap = {
+                    if (controller.isShowing) controller.hide() else controller.show()
+                }
+                addView(
+                    layout,
+                    ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            },
+        )
+    }
+
+    /** MediaController から MediaPlayer を操作させるためのアダプタ。 */
+    private fun videoPlayerControl(player: MediaPlayer): MediaController.MediaPlayerControl {
+        return object : MediaController.MediaPlayerControl {
+            override fun start() {
+                runCatching { player.start() }
+            }
+
+            override fun pause() {
+                runCatching { player.pause() }
+            }
+
+            override fun getDuration(): Int = runCatching { player.duration }.getOrDefault(0)
+
+            override fun getCurrentPosition(): Int =
+                runCatching { player.currentPosition }.getOrDefault(0)
+
+            override fun seekTo(pos: Int) {
+                runCatching { player.seekTo(pos) }
+            }
+
+            override fun isPlaying(): Boolean = runCatching { player.isPlaying }.getOrDefault(false)
+
+            override fun getBufferPercentage(): Int = 0
+
+            override fun canPause(): Boolean = true
+
+            override fun canSeekBackward(): Boolean = true
+
+            override fun canSeekForward(): Boolean = true
+
+            override fun getAudioSessionId(): Int =
+                runCatching { player.audioSessionId }.getOrDefault(0)
+        }
     }
 
     /** タイトル行の右端に置く回転ボタン。押したときの挙動は呼び出し側が決める。 */
@@ -804,21 +966,6 @@ class ViewerActivity : Activity() {
             ).apply {
                 setMargins(0, dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_SM))
             }
-        }
-    }
-
-    /**
-     * 動画の向きを切り替える。
-     *
-     * VideoView は SurfaceView 派生で、映像が View 階層とは別レイヤーで合成されるため、
-     * View の rotation を掛けても映像は回らず、くり抜きの形だけが変わってしまう。
-     * そこで画面の向きそのものを固定して回す。横固定 → 縦固定 → 端末まかせ、の順に巡回する。
-     */
-    private fun toggleScreenOrientation() {
-        requestedOrientation = when (requestedOrientation) {
-            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            else -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
     }
 
