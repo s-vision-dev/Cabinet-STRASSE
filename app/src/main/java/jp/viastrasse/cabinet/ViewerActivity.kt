@@ -616,7 +616,9 @@ class ViewerActivity : Activity() {
     private fun renderVideo(title: String, uri: Uri) {
         lateinit var control: TextView
         val videoView = VideoView(this).apply {
-            setBackgroundColor(CabinetColors.AppBackground)
+            // VideoView は SurfaceView 派生で、自身の領域をくり抜いて背後の Surface を見せる。
+            // ここに背景色を設定するとくり抜きが効かず、映像が背景色で塗り潰されて黒画面になる。
+            // 背景は親の LinearLayout 側で持つこと。
             setVideoURI(uri)
             setMediaController(MediaController(this@ViewerActivity).also { it.setAnchorView(this) })
             setOnPreparedListener {
@@ -653,9 +655,15 @@ class ViewerActivity : Activity() {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
                     1f,
-                ),
+                ).apply {
+                    // VideoView は映像のアスペクト比に合わせて縮むため、余白側で中央に寄せる。
+                    gravity = Gravity.CENTER
+                },
             )
-            addView(control)
+            addView(control, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.CENTER_HORIZONTAL })
         }
         setContentView(swipeNavigationHost(layout))
     }
