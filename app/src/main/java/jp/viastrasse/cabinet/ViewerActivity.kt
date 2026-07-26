@@ -327,6 +327,13 @@ class ViewerActivity : Activity() {
             return super.dispatchTouchEvent(event)
         }
 
+        /**
+         * ACTION_DOWN を誰も消費しないと、後続の MOVE / UP がこの View 階層へ配送されない。
+         * VideoView の onTouchEvent は false を返すため、ここで受け取らないと
+         * ACTION_UP が来ずスワイプ判定が一度も走らなくなる。
+         */
+        override fun onTouchEvent(event: MotionEvent): Boolean = true
+
         private fun handleNavigationSwipe(event: MotionEvent) {
             val deltaX = event.x - touchStartX
             val deltaY = event.y - touchStartY
@@ -348,6 +355,10 @@ class ViewerActivity : Activity() {
         private var useNaturalWidth = false
         private var panInsetX = 0
         private var panInsetY = 0
+
+        /** 余白のうち「端を画面中央まで送るための分」。初期スクロール位置に使う。 */
+        private var panMarginX = 0
+        private var panMarginY = 0
         private var touchStartX = 0f
         private var touchStartY = 0f
         private var startedAtLeftEdge = false
@@ -483,11 +494,16 @@ class ViewerActivity : Activity() {
             if (baseContentWidth <= 0 || baseContentHeight <= 0) return
             val scaledWidth = (baseContentWidth * scaleFactor).roundToInt().coerceAtLeast(1)
             val scaledHeight = (baseContentHeight * scaleFactor).roundToInt().coerceAtLeast(1)
-            // 余白は「拡大後がビューポートより小さいとき、中央へ寄せる分」だけにする。
-            // 以前は倍率に関係なく常にビューポートの半分を余白として入れていたため、
-            // スクロール位置を戻し損ねた場合にコンテンツが画面の下半分へずれて見えていた。
-            panInsetX = ((width - scaledWidth) / 2).coerceAtLeast(0)
-            panInsetY = ((height - scaledHeight) / 2).coerceAtLeast(0)
+            // 余白は 2 種類を足し合わせる。
+            //  - 中央寄せ分: 拡大後がビューポートより小さいとき、中央に置くための余白
+            //  - パン余白  : はみ出しているとき、端を画面中央まで送れるようにする余白
+            // 常にビューポート半分を入れると初期位置がずれるため、はみ出す軸だけに付ける。
+            val centerInsetX = ((width - scaledWidth) / 2).coerceAtLeast(0)
+            val centerInsetY = ((height - scaledHeight) / 2).coerceAtLeast(0)
+            panMarginX = if (scaledWidth > width) width / 2 else 0
+            panMarginY = if (scaledHeight > height) height / 2 else 0
+            panInsetX = centerInsetX + panMarginX
+            panInsetY = centerInsetY + panMarginY
             zoomBounds.layoutParams = zoomBounds.layoutParams.apply {
                 width = scaledWidth + panInsetX * 2
                 height = scaledHeight + panInsetY * 2
@@ -507,11 +523,15 @@ class ViewerActivity : Activity() {
             zoomBounds.requestLayout()
         }
 
-        /** 余白が中央寄せ分だけになったので、先頭（左上）を見せれば中央に見える。 */
+        /**
+         * 初期表示位置。
+         * 中央寄せ分の余白は見せたままにし、パン余白の分だけスクロールして
+         * コンテンツの左上が画面の左上に来るようにする。
+         */
         private fun centerPreviewViewport() {
             post {
-                scrollTo(0, 0)
-                verticalScroll.scrollTo(0, 0)
+                scrollTo(panMarginX, 0)
+                verticalScroll.scrollTo(0, panMarginY)
             }
         }
 
@@ -547,7 +567,8 @@ class ViewerActivity : Activity() {
      * adjustViewBounds + FIT_CENTER がそのまま効き、縦横どちらでも画面にフィットする。
      */
     private fun renderImage(title: String, uri: Uri) {
-        val bitmap = rotateBitmap(decodeBitmapForDisplay(uri), contentRotationDegrees)
+        val degrees = savedRotation(uri)
+        val bitmap = rotateBitmap(decodeBitmapForDisplay(uri), degrees)
         val image = ImageView(this).apply {
             setImageBitmap(bitmap)
             adjustViewBounds = true
@@ -558,11 +579,29 @@ class ViewerActivity : Activity() {
                 title,
                 image,
                 titleAction = rotateButton {
-                    contentRotationDegrees = (contentRotationDegrees + 90) % 360
+                    saveRotation(uri, (savedRotation(uri) + 90) % 360)
                     renderImage(title, uri)
                 },
             ),
         )
+    }
+
+    /**
+     * 画像ごとの回転角。次に同じ画像を開いたときも同じ向きで見せるため永続化する。
+     */
+    private fun savedRotation(uri: Uri): Int {
+        return getSharedPreferences(ROTATION_PREFS_NAME, MODE_PRIVATE)
+            .getInt(uri.toString(), 0)
+            .let { ((it % 360) + 360) % 360 }
+    }
+
+    private fun saveRotation(uri: Uri, degrees: Int) {
+        val prefs = getSharedPreferences(ROTATION_PREFS_NAME, MODE_PRIVATE)
+        if (degrees == 0) {
+            prefs.edit().remove(uri.toString()).apply()
+        } else {
+            prefs.edit().putInt(uri.toString(), degrees).apply()
+        }
     }
 
     /** 画面の 2 倍を上限に縮小デコードする。等倍で読むと大きな写真でメモリを圧迫する。 */
@@ -712,13 +751,24 @@ class ViewerActivity : Activity() {
             // 回転ボタンはタイトル行へ。下部は MediaController が重なるため隠れてしまう。
             // 映像は SurfaceView 合成なので View の回転が効かない。画面の向き自体を切り替える。
             addView(fixedTitle(title, rotateButton(::toggleScreenOrientation)))
+            // VideoView は映像比率に合わせて縮むため、そのまま置くと割り当て領域の上端に寄る。
+            // FrameLayout で包み、余った分を上下に均等配分して中央に見せる。
             addView(
-                videoView,
+                FrameLayout(this@ViewerActivity).apply {
+                    addView(
+                        videoView,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            Gravity.CENTER,
+                        ),
+                    )
+                },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
                     1f,
-                ).apply { gravity = Gravity.CENTER },
+                ),
             )
             addView(
                 control,
@@ -778,6 +828,8 @@ class ViewerActivity : Activity() {
      */
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
+        // Activity を作り直さないぶん、新しい画面サイズでの再測定を明示的に促す。
+        window.decorView.requestLayout()
         if (pdfRenderer != null) {
             window.decorView.post { showPdfPage(pdfPageIndex) }
         }
@@ -1549,6 +1601,9 @@ class ViewerActivity : Activity() {
     }
 
     companion object {
+        /** 画像ごとの回転角の保存先。 */
+        private const val ROTATION_PREFS_NAME = "cabinet-viewer-rotation"
+
         const val EXTRA_PATH = "path"
         const val EXTRA_MIME_TYPE = "mime_type"
         const val EXTRA_TITLE = "title"
