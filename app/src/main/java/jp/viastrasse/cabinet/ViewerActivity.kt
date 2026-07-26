@@ -399,6 +399,19 @@ class ViewerActivity : Activity() {
             }
         }
 
+        /**
+         * ピンチ中は横スクロールとしてイベントを奪わない。
+         *
+         * 奪ってしまうと内側の縦 ScrollView にイベントが渡らなくなり、
+         * ピンチしたあと指を縦に動かしてもスクロールできなくなる。
+         */
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            if (event.pointerCount > 1 || scaleDetector.isInProgress) {
+                return false
+            }
+            return super.onInterceptTouchEvent(event)
+        }
+
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -438,10 +451,13 @@ class ViewerActivity : Activity() {
         private fun applyZoom() {
             val content = contentView ?: return
             if (baseContentWidth <= 0 || baseContentHeight <= 0) return
-            panInsetX = (width / 2).coerceAtLeast(0)
-            panInsetY = (height / 2).coerceAtLeast(0)
             val scaledWidth = (baseContentWidth * scaleFactor).roundToInt().coerceAtLeast(1)
             val scaledHeight = (baseContentHeight * scaleFactor).roundToInt().coerceAtLeast(1)
+            // 余白は「拡大後がビューポートより小さいとき、中央へ寄せる分」だけにする。
+            // 以前は倍率に関係なく常にビューポートの半分を余白として入れていたため、
+            // スクロール位置を戻し損ねた場合にコンテンツが画面の下半分へずれて見えていた。
+            panInsetX = ((width - scaledWidth) / 2).coerceAtLeast(0)
+            panInsetY = ((height - scaledHeight) / 2).coerceAtLeast(0)
             zoomBounds.layoutParams = zoomBounds.layoutParams.apply {
                 width = scaledWidth + panInsetX * 2
                 height = scaledHeight + panInsetY * 2
@@ -461,10 +477,11 @@ class ViewerActivity : Activity() {
             zoomBounds.requestLayout()
         }
 
+        /** 余白が中央寄せ分だけになったので、先頭（左上）を見せれば中央に見える。 */
         private fun centerPreviewViewport() {
             post {
-                scrollTo(panInsetX, scrollY)
-                verticalScroll.scrollTo(verticalScroll.scrollX, panInsetY)
+                scrollTo(0, 0)
+                verticalScroll.scrollTo(0, 0)
             }
         }
 
@@ -609,6 +626,13 @@ class ViewerActivity : Activity() {
             setOnCompletionListener {
                 control.text = getString(R.string.action_play)
             }
+            // エラーを握り潰すと「何も起きない」状態になり、原因も分からなくなる。
+            // 端末の MediaPlayer が対応しないコーデックは珍しくないため、外部アプリへ逃がす。
+            setOnErrorListener { _, what, extra ->
+                renderVideoError(title, uri, what, extra)
+                true
+            }
+            requestFocus()
         }
         control = commandButton(getString(R.string.action_play)) {
             if (videoView.isPlaying) {
@@ -634,6 +658,38 @@ class ViewerActivity : Activity() {
             addView(control)
         }
         setContentView(swipeNavigationHost(layout))
+    }
+
+    /** 内蔵プレイヤーで再生できなかったとき、原因コードと外部アプリへの導線を出す。 */
+    private fun renderVideoError(title: String, uri: Uri, what: Int, extra: Int) {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(CabinetColors.AppBackground)
+            setPadding(dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_XL), dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_XL))
+            addView(
+                TextView(this@ViewerActivity).apply {
+                    text = getString(R.string.viewer_video_error, videoErrorLabel(what), extra.toString())
+                    setTextColor(CabinetColors.TextPrimary)
+                    textSize = CabinetType.BODY.toFloat()
+                    setLineSpacing(0f, 1.3f)
+                },
+            )
+            addView(
+                commandButton(getString(R.string.action_open_external_app)) {
+                    openExternal(uri, "video/*")
+                },
+            )
+        }
+        setContentView(zoomablePreview(title, layout))
+    }
+
+    private fun videoErrorLabel(what: Int): String = when (what) {
+        android.media.MediaPlayer.MEDIA_ERROR_UNSUPPORTED -> "unsupported"
+        android.media.MediaPlayer.MEDIA_ERROR_MALFORMED -> "malformed"
+        android.media.MediaPlayer.MEDIA_ERROR_IO -> "io"
+        android.media.MediaPlayer.MEDIA_ERROR_TIMED_OUT -> "timeout"
+        android.media.MediaPlayer.MEDIA_ERROR_SERVER_DIED -> "server-died"
+        else -> what.toString()
     }
 
     private fun renderAudio(title: String, uri: Uri) {
