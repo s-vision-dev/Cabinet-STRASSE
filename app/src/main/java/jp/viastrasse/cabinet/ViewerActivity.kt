@@ -221,12 +221,12 @@ class ViewerActivity : Activity() {
         title: String,
         content: View,
         useNaturalWidth: Boolean = false,
-        footer: View? = null,
+        titleAction: View? = null,
     ): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
-            addView(fixedTitle(title))
+            addView(fixedTitle(title, titleAction))
             addView(
                 zoomableScrollView(content, useNaturalWidth),
                 LinearLayout.LayoutParams(
@@ -235,31 +235,38 @@ class ViewerActivity : Activity() {
                     1f,
                 ),
             )
-            if (footer != null) {
-                addView(
-                    footer,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ),
-                )
-            }
         }
     }
 
-    private fun fixedTitle(title: String): View {
+    /**
+     * 画面上部のタイトル行。
+     *
+     * [action] を渡すと右端にボタンを並べる。動画では MediaController（シークバー）が
+     * 画面下端に重なって出るため、操作ボタンを下部に置くと隠れてしまう。上部に逃がす。
+     */
+    private fun fixedTitle(title: String, action: View? = null): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
             addView(
-                TextView(this@ViewerActivity).apply {
-                    text = title
-                    setTextColor(CabinetColors.TextPrimary)
-                    textSize = CabinetType.SECTION.toFloat()
-                    typeface = Typeface.DEFAULT_BOLD
-                    setPadding(dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_MD))
-                    maxLines = 2
-                    ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                LinearLayout(this@ViewerActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        TextView(this@ViewerActivity).apply {
+                            text = title
+                            setTextColor(CabinetColors.TextPrimary)
+                            textSize = CabinetType.SECTION.toFloat()
+                            typeface = Typeface.DEFAULT_BOLD
+                            setPadding(dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD))
+                            maxLines = 2
+                            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        },
+                    )
+                    if (action != null) {
+                        addView(action)
+                    }
                 },
             )
             addView(
@@ -606,15 +613,7 @@ class ViewerActivity : Activity() {
         }
         rotatableStage = stage
         // ズーム・パン・前後スワイプは従来どおり zoomablePreview 側が担う。
-        setContentView(zoomablePreview(title, stage, footer = centeredRow(rotateButton())))
-    }
-
-    private fun centeredRow(vararg views: View): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            views.forEach { addView(it) }
-        }
+        setContentView(zoomablePreview(title, stage, titleAction = rotateButton()))
     }
 
     private fun renderPdf(title: String, uri: Uri) {
@@ -747,7 +746,8 @@ class ViewerActivity : Activity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(CabinetColors.AppBackground)
-            addView(fixedTitle(title))
+            // 回転ボタンはタイトル行へ。下部は MediaController が重なるため隠れてしまう。
+            addView(fixedTitle(title, rotateButton()))
             addView(
                 stage,
                 LinearLayout.LayoutParams(
@@ -757,16 +757,11 @@ class ViewerActivity : Activity() {
                 ),
             )
             addView(
-                LinearLayout(this@ViewerActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    addView(control)
-                    addView(rotateButton())
-                },
+                control,
                 LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                ),
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { gravity = Gravity.CENTER_HORIZONTAL },
             )
         }
         // シーク操作は MediaController に任せる。
@@ -778,9 +773,26 @@ class ViewerActivity : Activity() {
 
     /** 表示を 90 度ずつ回す。端末の自動回転をオフにしていても横向きで見られる。 */
     private fun rotateButton(): TextView {
-        return commandButton(getString(R.string.action_rotate)) {
-            contentRotationDegrees = (contentRotationDegrees + 90) % 360
-            rotatableStage?.rotationDegrees = contentRotationDegrees
+        return TextView(this).apply {
+            text = getString(R.string.action_rotate)
+            setTextColor(CabinetColors.Accent)
+            textSize = CabinetType.CAPTION.toFloat()
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            minWidth = dp(64)
+            minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            setPadding(dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM))
+            asTappable(pressableShape(CabinetColors.Surface, CabinetMetrics.RADIUS_PILL))
+            setOnClickListener {
+                contentRotationDegrees = (contentRotationDegrees + 90) % 360
+                rotatableStage?.rotationDegrees = contentRotationDegrees
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(0, dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SCREEN_PADDING), dp(CabinetMetrics.SPACE_SM))
+            }
         }
     }
 
