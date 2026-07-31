@@ -37,6 +37,7 @@ import jp.viastrasse.cabinet.ui.FileListOptions
 import jp.viastrasse.cabinet.ui.FileListSort
 import jp.viastrasse.cabinet.ui.LocalFileEntry
 import jp.viastrasse.cabinet.watch.FolderWatchWorker
+import jp.viastrasse.family.ui.ViastrasseFamilyLauncher
 import java.io.File
 import java.net.URL
 import java.net.URLConnection
@@ -2087,10 +2088,37 @@ class MainActivity : Activity() {
                 fontPreference = fileListDisplayPreference(),
                 onDisplayModeSelected = ::updateDisplayModePreference,
                 onFontPreferenceChanged = ::updateFileListDisplayPreference,
+                onAbout = ::openAbout,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun openAbout() {
+        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+        isDashboardVisible = false
+        dashboardView.renderAbout(
+            versionName = packageInfo.versionName.orEmpty(),
+            versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode.toInt()
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode
+            },
+            onBack = ::openSettings,
+            onOpenViastrasseFamily = {
+                ViastrasseFamilyLauncher.open(
+                    context = this,
+                    currentApp = "cabinet",
+                )
+            },
+        )
     }
 
     private fun displayModePreference(): String {

@@ -9,6 +9,7 @@
     <string name="action_add_memo">メモを追加</string>
     <string name="action_add_ocr_text">OCR本文を追加</string>
     <string name="action_add_protected_memo">保護メモを追加</string>
+    <string name="action_about_app">このアプリについて</string>
     <string name="action_cancel">キャンセル</string>
     <string name="action_change">変更</string>
     <string name="action_clear">クリア</string>
@@ -52,6 +53,8 @@
     <string name="label_protected_memo">保護メモ</string>
     <string name="label_sd_card">SDカード</string>
     <string name="label_settings">設定</string>
+    <string name="label_viastrasse_family">VIASTRASSE Family</string>
+    <string name="about_version_format">Version %1$s build %2$d</string>
     <string name="label_trash">ゴミ箱</string>
     <string name="label_unsorted">未整理</string>
     <string name="layout_list">リスト</string>

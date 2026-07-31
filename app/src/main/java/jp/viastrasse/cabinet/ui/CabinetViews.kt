@@ -600,6 +600,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         fontPreference: FileListDisplayPreference,
         onDisplayModeSelected: (String) -> Unit,
         onFontPreferenceChanged: (FileListDisplayPreference) -> Unit,
+        onAbout: () -> Unit,
     ) {
         resetContent()
         content.addView(screenHeader("Settings", context.getString(R.string.view_render_settings), onBack))
@@ -610,6 +611,13 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(displayModeSelector(displayMode, onDisplayModeSelected))
                 addView(spacer(CabinetMetrics.SPACE_LG))
                 addView(fontPreferenceSelector(fontPreference, onFontPreferenceChanged))
+            },
+        )
+
+        content.addView(section(context.getString(R.string.action_about_app)))
+        content.addView(
+            card {
+                addView(ghostButton(context.getString(R.string.action_about_app), onAbout))
             },
         )
 
@@ -711,6 +719,53 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 },
             )
         }
+    }
+
+    fun renderAbout(
+        versionName: String,
+        versionCode: Int,
+        onBack: () -> Unit,
+        onOpenViastrasseFamily: () -> Unit,
+    ) {
+        resetContent()
+        content.addView(
+            screenHeader(
+                context.getString(R.string.action_about_app),
+                null,
+                onBack,
+                context.getString(R.string.label_settings),
+            ),
+        )
+        content.addView(
+            ImageView(context).apply {
+                setImageResource(R.drawable.cabinet_strasse_startup)
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = context.getString(R.string.app_name)
+            },
+        )
+        content.addView(
+            label(
+                context.getString(R.string.about_version_format, versionName, versionCode),
+                CabinetType.BODY,
+                true,
+                CabinetColors.TextSecondary,
+            ).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(CabinetMetrics.SPACE_LG), 0, dp(CabinetMetrics.SPACE_XL))
+            },
+        )
+        content.addView(
+            ImageView(context).apply {
+                setImageResource(R.drawable.viastrasse_branding_dark)
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = context.getString(R.string.label_viastrasse_family)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onOpenViastrasseFamily() }
+            },
+        )
     }
 
     private fun resetContent() {
