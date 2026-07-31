@@ -62,6 +62,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         repository = CabinetRepository(applicationContext)
         dashboardView = CabinetDashboardView(this)
+        dashboardView.onOpenSettings = ::openSettings
         setContentView(dashboardView)
         registerSystemBackCallback()
         FolderWatchWorker.enqueuePeriodic(applicationContext)

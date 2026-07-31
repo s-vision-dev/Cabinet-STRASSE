@@ -10,6 +10,7 @@
     <string name="action_add_ocr_text">OCR本文を追加</string>
     <string name="action_add_protected_memo">保護メモを追加</string>
     <string name="action_about_app">このアプリについて</string>
+    <string name="action_app_menu">アプリメニュー</string>
     <string name="action_cancel">キャンセル</string>
     <string name="action_change">変更</string>
     <string name="action_clear">クリア</string>

@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -36,6 +37,8 @@ import jp.viastrasse.cabinet.theme.CabinetColors
 import java.io.File
 
 class CabinetDashboardView(context: Context) : ScrollView(context) {
+    var onOpenSettings: (() -> Unit)? = null
+
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(
@@ -80,7 +83,6 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     CabinetMode("Collection", dashboard.collectionCount, "Collection"),
                     CabinetMode("Smart Folder", dashboard.smartFolders.size.toLong(), "Smart Folder"),
                     CabinetMode("Trash", dashboard.trashCount, context.getString(R.string.label_trash)),
-                    CabinetMode("Settings", 0L, context.getString(R.string.label_settings)),
                 ),
                 onModeSelected,
             ),
@@ -806,8 +808,16 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 )
             }
             addView(
-                label(titleText, CabinetType.DISPLAY, true).apply {
-                    letterSpacing = 0.005f
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        label(titleText, CabinetType.DISPLAY, true).apply {
+                            letterSpacing = 0.005f
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        },
+                    )
+                    addView(appMenuButton())
                 },
             )
             if (!subtitleText.isNullOrBlank()) {
@@ -1406,21 +1416,49 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     private fun homeHeader(): View {
         return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
             setPadding(0, 0, 0, dp(CabinetMetrics.SPACE_MD))
-            addView(label("THE CABINET", CabinetType.MICRO, true, CabinetColors.Accent).apply {
-                letterSpacing = 0.18f
-            })
             addView(
-                label("Cabinet by VIASTRASSE", CabinetType.DISPLAY, true).apply {
-                    setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(label("THE CABINET", CabinetType.MICRO, true, CabinetColors.Accent).apply {
+                        letterSpacing = 0.18f
+                    })
+                    addView(
+                        label("Cabinet by VIASTRASSE", CabinetType.DISPLAY, true).apply {
+                            setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
+                        },
+                    )
+                    addView(
+                        label(context.getString(R.string.view_home_header), CabinetType.CAPTION, false, CabinetColors.TextMuted).apply {
+                            setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
+                        },
+                    )
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 },
             )
-            addView(
-                label(context.getString(R.string.view_home_header), CabinetType.CAPTION, false, CabinetColors.TextMuted).apply {
-                    setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
-                },
-            )
+            addView(appMenuButton())
+        }
+    }
+
+    private fun appMenuButton(): View {
+        return label("⋮", CabinetType.TITLE, true, CabinetColors.TextSecondary).asTappable(
+            context.borderlessRipple(CabinetMetrics.RADIUS_PILL),
+        ).apply {
+            gravity = Gravity.CENTER
+            contentDescription = context.getString(R.string.action_app_menu)
+            setPadding(dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM))
+            setOnClickListener { anchor ->
+                PopupMenu(context, anchor).apply {
+                    menu.add(context.getString(R.string.label_settings))
+                    setOnMenuItemClickListener {
+                        onOpenSettings?.invoke()
+                        true
+                    }
+                    show()
+                }
+            }
         }
     }
 
