@@ -18,6 +18,7 @@ import android.widget.PopupWindow
 import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.documentfile.provider.DocumentFile
@@ -602,6 +603,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         fontPreference: FileListDisplayPreference,
         onDisplayModeSelected: (String) -> Unit,
         onFontPreferenceChanged: (FileListDisplayPreference) -> Unit,
+        viewInstalled: Boolean,
+        useViastrasseView: Boolean,
+        onUseViastrasseViewChanged: (Boolean) -> Unit,
         onAbout: () -> Unit,
     ) {
         resetContent()
@@ -613,6 +617,23 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(displayModeSelector(displayMode, onDisplayModeSelected))
                 addView(spacer(CabinetMetrics.SPACE_LG))
                 addView(fontPreferenceSelector(fontPreference, onFontPreferenceChanged))
+                addView(spacer(CabinetMetrics.SPACE_LG))
+                addView(Switch(context).apply {
+                    text = context.getString(R.string.setting_use_viastrasse_view)
+                    isChecked = useViastrasseView && viewInstalled
+                    isEnabled = viewInstalled
+                    setTextColor(CabinetColors.TextPrimary)
+                    setOnCheckedChangeListener { _, checked -> onUseViastrasseViewChanged(checked) }
+                })
+                addView(label(
+                    context.getString(
+                        if (viewInstalled) R.string.setting_viastrasse_view_available
+                        else R.string.setting_viastrasse_view_not_installed,
+                    ),
+                    CabinetType.CAPTION,
+                    false,
+                    CabinetColors.TextSecondary,
+                ))
             },
         )
 

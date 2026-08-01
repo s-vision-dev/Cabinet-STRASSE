@@ -185,7 +185,7 @@ try {
 
     Write-Step "Commit release changes"
     git add -u
-    git add -- build-number.txt version.properties AGENTS.md scripts/release_build.ps1
+    git add -- build-number.txt version.properties AGENTS.md scripts/release_build.ps1 app/libs/viastrasse-view-contract-release.aar
 
     $status = git status --porcelain
     if ([string]::IsNullOrWhiteSpace($status)) {

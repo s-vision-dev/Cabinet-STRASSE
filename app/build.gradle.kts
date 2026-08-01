@@ -105,6 +105,7 @@ afterEvaluate {
 
 dependencies {
     implementation(files("libs/viastrasse-family-ui-release.aar"))
+    implementation(files("libs/viastrasse-view-contract-release.aar"))
     testImplementation("junit:junit:4.13.2")
 
     implementation("androidx.core:core-ktx:1.17.0")

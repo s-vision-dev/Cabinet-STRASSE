@@ -38,6 +38,8 @@ import jp.viastrasse.cabinet.ui.FileListSort
 import jp.viastrasse.cabinet.ui.LocalFileEntry
 import jp.viastrasse.cabinet.watch.FolderWatchWorker
 import jp.viastrasse.family.ui.ViastrasseFamilyLauncher
+import jp.viastrasse.view.contract.ViastrasseViewContract
+import jp.viastrasse.view.contract.ViastrasseViewLauncher
 import java.io.File
 import java.net.URL
 import java.net.URLConnection
@@ -1530,6 +1532,28 @@ class MainActivity : Activity() {
         title: String,
         navigationItems: List<ViewerNavigationItem> = emptyList(),
     ) {
+        if (useViastrasseView() && ViastrasseViewContract.supports(mimeType, title)) {
+            val sourceUri = if (path.startsWith("content://") || path.startsWith("file://")) {
+                Uri.parse(path)
+            } else {
+                runCatching {
+                    FileProvider.getUriForFile(
+                        this,
+                        "jp.viastrasse.cabinet.fileprovider",
+                        java.io.File(path),
+                    )
+                }.getOrNull()
+            }
+            if (sourceUri != null && ViastrasseViewLauncher.openDocument(
+                    context = this,
+                    uri = sourceUri,
+                    mimeType = mimeType,
+                    displayName = title,
+                )
+            ) {
+                return
+            }
+        }
         startActivity(
             Intent(this, ViewerActivity::class.java).apply {
                 putExtra(ViewerActivity.EXTRA_PATH, path)
@@ -2089,6 +2113,9 @@ class MainActivity : Activity() {
                 fontPreference = fileListDisplayPreference(),
                 onDisplayModeSelected = ::updateDisplayModePreference,
                 onFontPreferenceChanged = ::updateFileListDisplayPreference,
+                viewInstalled = ViastrasseViewLauncher.isInstalled(this),
+                useViastrasseView = useViastrasseView(),
+                onUseViastrasseViewChanged = ::updateUseViastrasseView,
                 onAbout = ::openAbout,
             )
         }.onFailure { error ->
@@ -2180,6 +2207,13 @@ class MainActivity : Activity() {
     }
 
     private fun appPrefs() = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+
+    private fun useViastrasseView(): Boolean = appPrefs().getBoolean(KEY_USE_VIASTRASSE_VIEW, false)
+
+    private fun updateUseViastrasseView(enabled: Boolean) {
+        appPrefs().edit().putBoolean(KEY_USE_VIASTRASSE_VIEW, enabled).apply()
+        openSettings()
+    }
 
     private fun showStorageProviderDialog(provider: StorageProviderAccountSummary) {
         val accountInput = darkInput(getString(R.string.main_show_storage_provider_dialog)).apply {
@@ -2430,6 +2464,7 @@ class MainActivity : Activity() {
         private const val KEY_FILE_LIST_KIND_FONT_SIZE = "file_list_kind_font_size"
         private const val KEY_FILE_LIST_NAME_FONT_SIZE = "file_list_name_font_size"
         private const val KEY_FILE_LIST_META_FONT_SIZE = "file_list_meta_font_size"
+        private const val KEY_USE_VIASTRASSE_VIEW = "use_viastrasse_view"
 
         // Mail由来の命名だった旧キー。既存インストールの設定を引き継ぐために読むだけ残す。
         private const val LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"

@@ -381,4 +381,7 @@ MIME: %2$s</string>
 
 code: %1$s / %2$s</string>
     <string name="action_rotate">回転</string>
+    <string name="setting_use_viastrasse_view">対応する文書をView by VIASTRASSEで表示する</string>
+    <string name="setting_viastrasse_view_available">View by VIASTRASSEが利用できます。無効の場合は内蔵ビューアーを使用します。</string>
+    <string name="setting_viastrasse_view_not_installed">View by VIASTRASSEがインストールされていません。</string>
 </resources>
