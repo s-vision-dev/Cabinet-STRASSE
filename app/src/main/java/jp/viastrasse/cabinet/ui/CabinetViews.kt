@@ -70,17 +70,32 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     fun render(
         dashboard: CabinetDashboard,
+        connectedProviders: List<StorageProviderAccountSummary>,
         onModeSelected: (CabinetMode) -> Unit,
         onItemSelected: (String) -> Unit,
         onImportFolder: () -> Unit,
         onOpenSearch: () -> Unit,
+        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
+        onManageStorageProviders: () -> Unit,
         onToggleFavorite: (CabinetItemSummary) -> Unit,
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         resetContent()
         content.addView(homeHeader())
         content.addView(searchLauncher(onOpenSearch))
-        content.addView(fileManagerHome(dashboard, onModeSelected, onItemSelected, onImportFolder, onToggleFavorite, onMoveTrash))
+        content.addView(
+            fileManagerHome(
+                dashboard,
+                connectedProviders,
+                onModeSelected,
+                onItemSelected,
+                onImportFolder,
+                onOpenProvider,
+                onManageStorageProviders,
+                onToggleFavorite,
+                onMoveTrash,
+            ),
+        )
         content.addView(organizePanel(dashboard, onModeSelected))
         content.addView(section(context.getString(R.string.view_render)))
         content.addView(
@@ -1632,9 +1647,12 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     private fun fileManagerHome(
         dashboard: CabinetDashboard,
+        connectedProviders: List<StorageProviderAccountSummary>,
         onModeSelected: (CabinetMode) -> Unit,
         onItemSelected: (String) -> Unit,
         onImportFolder: () -> Unit,
+        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
+        onManageStorageProviders: () -> Unit,
         onToggleFavorite: (CabinetItemSummary) -> Unit,
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ): View {
@@ -1646,7 +1664,14 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 },
             )
             addView(finderLocations(dashboard, onModeSelected))
+            if (connectedProviders.isNotEmpty()) {
+                addView(spacer(CabinetMetrics.SPACE_MD))
+                addView(pathBar(context.getString(R.string.top_connected_storage), "${connectedProviders.size}"))
+                addView(connectedStorageLocations(connectedProviders, onOpenProvider))
+            }
             addView(spacer(CabinetMetrics.SPACE_MD))
+            addView(ghostButton(context.getString(R.string.top_manage_storage), onManageStorageProviders))
+            addView(spacer(CabinetMetrics.SPACE_SM))
             addView(ghostButton(context.getString(R.string.view_file_manager_home_2), onImportFolder))
             addView(spacer(CabinetMetrics.SPACE_LG))
             addView(pathBar(context.getString(R.string.view_file_manager_home_3), "${dashboard.libraryCount} files"))
@@ -1736,6 +1761,93 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 },
             )
         }
+    }
+
+    private fun connectedStorageLocations(
+        providers: List<StorageProviderAccountSummary>,
+        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            providers.chunked(2).forEach { rowProviders ->
+                addView(
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        rowProviders.forEachIndexed { index, provider ->
+                            addView(
+                                storageProviderShortcut(provider) { onOpenProvider(provider) }.apply {
+                                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                        if (index > 0) leftMargin = dp(CabinetMetrics.SPACE_SM)
+                                        bottomMargin = dp(CabinetMetrics.SPACE_SM)
+                                    }
+                                },
+                            )
+                        }
+                        if (rowProviders.size == 1) {
+                            addView(
+                                View(context).apply {
+                                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f).apply {
+                                        leftMargin = dp(CabinetMetrics.SPACE_SM)
+                                    }
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    private fun storageProviderShortcut(provider: StorageProviderAccountSummary, onClick: () -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            setPadding(dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD))
+            asTappable(context.pressableShape(CabinetColors.SurfaceAlt, CabinetMetrics.RADIUS_TILE, strokeColor = null))
+            setOnClickListener { onClick() }
+            addView(
+                label(storageProviderIcon(provider.providerType), CabinetType.MICRO, true, CabinetColors.Accent).apply {
+                    gravity = Gravity.CENTER
+                    background = context.surfaceShape(CabinetColors.AccentSoft, CabinetMetrics.RADIUS_TILE, strokeColor = null)
+                    layoutParams = LinearLayout.LayoutParams(dp(34), dp(26)).apply {
+                        rightMargin = dp(CabinetMetrics.SPACE_SM)
+                    }
+                },
+            )
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(label(provider.displayName, CabinetType.CAPTION, true).apply {
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                    })
+                    addView(
+                        label(
+                            provider.accountName.ifBlank { context.getString(R.string.storage_provider_status_connected) },
+                            CabinetType.MICRO,
+                            false,
+                            CabinetColors.TextMuted,
+                        ).apply {
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                        },
+                    )
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                },
+            )
+        }
+    }
+
+    private fun storageProviderIcon(providerType: String): String = when (providerType) {
+        "dropbox" -> "DBX"
+        "google_drive" -> "GDR"
+        "onedrive" -> "ONE"
+        "box" -> "BOX"
+        "webdav" -> "WEB"
+        "nextcloud" -> "NXT"
+        "smb" -> "SMB"
+        else -> "NET"
     }
 
     private fun pathBar(location: String, detail: String): View {

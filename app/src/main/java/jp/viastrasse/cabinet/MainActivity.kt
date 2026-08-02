@@ -292,14 +292,20 @@ class MainActivity : Activity() {
     private fun renderDashboard() {
         isDashboardVisible = true
         runCatching {
-            repository.dashboard()
-        }.onSuccess { dashboard ->
+            repository.dashboard() to repository.settings().providers.filter { provider ->
+                provider.providerType != "local" &&
+                    (provider.connectionStatus == "connected" || provider.remoteRoot.startsWith("content://"))
+            }
+        }.onSuccess { (dashboard, connectedProviders) ->
             dashboardView.render(
                 dashboard,
+                connectedProviders,
                 { mode -> openMode(mode.name) },
                 ::openItemFromList,
                 ::openFolderPicker,
                 { openSearch("") },
+                { provider -> openStorageProvider(provider, ::renderDashboard) },
+                ::openSettings,
                 ::toggleFavoriteFromSummary,
                 ::moveSummaryToTrash,
             )
@@ -2592,7 +2598,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun openStorageProvider(provider: StorageProviderAccountSummary) {
+    private fun openStorageProvider(
+        provider: StorageProviderAccountSummary,
+        onRootBack: () -> Unit = ::openSettings,
+    ) {
         if (provider.providerType == "local") {
             openMode("explorer")
             return
@@ -2605,7 +2614,7 @@ class MainActivity : Activity() {
                 openDocumentTreeRoot(
                     treeUri = treeUri,
                     title = provider.displayName,
-                    onRootBack = ::openSettings,
+                    onRootBack = onRootBack,
                     onChooseRoot = { showStorageProviderDialog(provider) },
                 )
             }.onFailure { error ->
@@ -2618,17 +2627,18 @@ class MainActivity : Activity() {
             showStorageProviderDialog(provider)
             return
         }
-        syncAndOpenStorageProvider(provider)
+        syncAndOpenStorageProvider(provider, onRootBack)
     }
 
-    private fun syncAndOpenStorageProvider(provider: StorageProviderAccountSummary) {
-        openRemoteStorageDirectory(provider, "", emptyList())
+    private fun syncAndOpenStorageProvider(provider: StorageProviderAccountSummary, onRootBack: () -> Unit) {
+        openRemoteStorageDirectory(provider, "", emptyList(), onRootBack)
     }
 
     private fun openRemoteStorageDirectory(
         provider: StorageProviderAccountSummary,
         path: String,
         parents: List<String>,
+        onRootBack: () -> Unit,
     ) {
         Toast.makeText(this, getString(R.string.storage_provider_loading, provider.displayName), Toast.LENGTH_SHORT).show()
         thread(name = "cabinet-provider-list") {
@@ -2647,14 +2657,14 @@ class MainActivity : Activity() {
                         listOptions = fileListOptions,
                         onListOptionsChanged = { options ->
                             fileListOptions = options
-                            openRemoteStorageDirectory(provider, path, parents)
+                            openRemoteStorageDirectory(provider, path, parents, onRootBack)
                         },
-                        onBack = ::openSettings,
+                        onBack = onRootBack,
                         onParent = parents.lastOrNull()?.let { parent ->
-                            { openRemoteStorageDirectory(provider, parent, parents.dropLast(1)) }
+                            { openRemoteStorageDirectory(provider, parent, parents.dropLast(1), onRootBack) }
                         },
                         onOpenDirectory = { entry ->
-                            openRemoteStorageDirectory(provider, entry.path, parents + path)
+                            openRemoteStorageDirectory(provider, entry.path, parents + path, onRootBack)
                         },
                         onOpenFile = { entry -> registerAndOpenRemoteFile(provider, entry) },
                         onRegisterFile = { entry -> registerRemoteStorageEntry(provider, entry, openAfterRegistration = false) },

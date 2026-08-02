@@ -189,6 +189,8 @@
     <string name="main_show_storage_provider_dialog_4">ストレージプロバイダ設定を保存しました</string>
     <string name="main_show_storage_provider_dialog_5">ストレージプロバイダ設定を保存できませんでした</string>
     <string name="storage_provider_section">ストレージプロバイダ</string>
+    <string name="top_connected_storage">クラウド・ネットワーク</string>
+    <string name="top_manage_storage">ストレージを追加・設定</string>
     <string name="storage_provider_account_name">アカウント名またはアカウントID</string>
     <string name="storage_provider_endpoint">接続先URL</string>
     <string name="storage_provider_server">サーバー名またはIPアドレス</string>
