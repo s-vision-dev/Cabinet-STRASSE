@@ -393,6 +393,26 @@
     <string name="settings_provider_summary">%1$s / %2$s</string>
     <string name="settings_provider_summary_empty">接続済みのプロバイダはありません</string>
     <string name="settings_about_summary">バージョンと VIASTRASSE ファミリー</string>
+    <!-- クイックアクセス -->
+    <string name="quick_access_title">クイックアクセス</string>
+    <string name="quick_access_description">よく使うフォルダ・ファイル・資料をここに並べます。</string>
+    <string name="quick_access_empty">まだ登録がありません。一覧で項目を長押しして追加できます。</string>
+    <string name="quick_access_add">クイックアクセスに追加</string>
+    <string name="quick_access_remove">クイックアクセスから外す</string>
+    <string name="quick_access_added">クイックアクセスに追加しました。</string>
+    <string name="quick_access_exists">すでに追加されています。</string>
+    <string name="quick_access_full">クイックアクセスは%1$d件までです。</string>
+    <string name="quick_access_removed">クイックアクセスから外しました。</string>
+    <string name="quick_access_move_up">前へ移動</string>
+    <string name="quick_access_move_down">後ろへ移動</string>
+    <string name="quick_access_edit">編集</string>
+    <string name="quick_access_edit_done">完了</string>
+    <string name="quick_access_edit_started">タイル編集モードを開始しました。タイルを長押しして動かせます。</string>
+    <string name="quick_access_edit_hint">タイルを長押ししてドラッグすると並べ替えられます。矢印ボタンでも移動できます。</string>
+    <string name="quick_access_missing">対象が見つかりません。移動または削除された可能性があります。</string>
+    <!-- 画面名(ヘッダーの「← 画面名」に出る) -->
+    <string name="screen_explorer">エクスプローラー</string>
+    <string name="screen_search">検索</string>
     <!-- 設定タブ -->
     <string name="settings_tab_appearance">表示</string>
     <string name="settings_tab_integration">連携</string>

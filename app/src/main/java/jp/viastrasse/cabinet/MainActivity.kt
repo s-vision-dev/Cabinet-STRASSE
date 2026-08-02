@@ -31,6 +31,9 @@ import jp.viastrasse.cabinet.data.StorageProviderConfiguration
 import jp.viastrasse.cabinet.preview.OcrTextRecognizer
 import jp.viastrasse.cabinet.preview.PreviewWorker
 import jp.viastrasse.cabinet.preview.ThumbnailGenerator
+import jp.viastrasse.cabinet.data.QuickAccessEntry
+import jp.viastrasse.cabinet.data.QuickAccessStore
+import jp.viastrasse.cabinet.data.QuickAccessType
 import jp.viastrasse.cabinet.ui.CabinetDashboardView
 import jp.viastrasse.cabinet.ui.CabinetMetrics
 import jp.viastrasse.cabinet.ui.DISPLAY_MODE_COMPACT
@@ -82,12 +85,30 @@ class MainActivity : Activity() {
     /** 設定画面で選択中のタブ。操作後の再描画で同じタブに留まるために保持する。 */
     private var settingsTab: SettingsTab = SettingsTab.APPEARANCE
 
+    /**
+     * いまの画面で「1つ上の階層へ」戻る処理。
+     *
+     * フォルダを掘り下げている間は親フォルダを開く処理が入る。システムの
+     * 戻る操作はこれを優先して使い、階層を1段ずつ上がる。階層を持たない画面
+     * では null にしておき、従来どおりホームへ戻す。
+     */
+    private var navigateUpTarget: (() -> Unit)? = null
+
+    /** クイックアクセスの登録内容。表示設定と同じくアプリ設定に保存する。 */
+    private val quickAccessStore: QuickAccessStore by lazy {
+        QuickAccessStore(appPrefs())
+    }
+
+    /** クイックアクセスのタイル編集モード中か。 */
+    private var quickAccessEditing: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = CabinetRepository(applicationContext)
         dashboardView = CabinetDashboardView(this)
         dashboardView.onOpenSettings = ::openSettings
         dashboardView.onShowItemDetail = ::openDetail
+        dashboardView.onAddQuickAccess = ::addQuickAccessEntry
         setContentView(dashboardView)
         registerSystemBackCallback()
         FolderWatchWorker.enqueuePeriodic(applicationContext)
@@ -151,10 +172,20 @@ class MainActivity : Activity() {
     }
 
     private fun handleSystemBack(): Boolean {
+        // タイル編集中は、まず編集モードを抜ける。
+        if (quickAccessEditing) {
+            finishQuickAccessEditing()
+            return true
+        }
         // 設定のサブ画面からはホームへ直帰せず、設定へ1段だけ戻る。
         settingsBackTarget?.let { back ->
             settingsBackTarget = null
             back()
+            return true
+        }
+        // フォルダを掘り下げている間は、まず親フォルダへ1段戻る。
+        navigateUpTarget?.let { up ->
+            up()
             return true
         }
         if (!isDashboardVisible) {
@@ -308,6 +339,7 @@ class MainActivity : Activity() {
         showDashboardView()
         isDashboardVisible = true
         settingsBackTarget = null
+        navigateUpTarget = null
         runCatching {
             repository.dashboard() to repository.settings().providers.filter { provider ->
                 provider.providerType != "local" &&
@@ -315,16 +347,25 @@ class MainActivity : Activity() {
             }
         }.onSuccess { (dashboard, connectedProviders) ->
             dashboardView.render(
-                dashboard,
-                connectedProviders,
-                { mode -> openMode(mode.name) },
-                ::openItemFromList,
-                ::openFolderPicker,
-                { openSearch("") },
-                { provider -> openStorageProvider(provider, ::renderDashboard) },
-                ::openSettings,
-                ::toggleFavoriteFromSummary,
-                ::moveSummaryToTrash,
+                dashboard = dashboard,
+                connectedProviders = connectedProviders,
+                quickAccessEntries = quickAccessStore.load(),
+                quickAccessEditing = quickAccessEditing,
+                onModeSelected = { mode -> openMode(mode.name) },
+                onItemSelected = ::openItemFromList,
+                onImportFolder = ::openFolderPicker,
+                onOpenSearch = { openSearch("") },
+                onOpenProvider = { provider -> openStorageProvider(provider, ::renderDashboard) },
+                onManageStorageProviders = ::openSettings,
+                onToggleFavorite = ::toggleFavoriteFromSummary,
+                onMoveTrash = ::moveSummaryToTrash,
+                onOpenQuickAccess = ::openQuickAccessEntry,
+                onQuickAccessTileAction = ::showQuickAccessMenu,
+                onStartQuickAccessEditing = ::startQuickAccessEditing,
+                onFinishQuickAccessEditing = ::finishQuickAccessEditing,
+                onMoveQuickAccess = ::moveQuickAccessEntry,
+                onRemoveQuickAccess = ::removeQuickAccessEntry,
+                onReorderQuickAccess = ::reorderQuickAccessEntry,
             )
         }.onFailure { error ->
             dashboardView.renderError(error.message ?: getString(R.string.main_render_dashboard))
@@ -411,6 +452,8 @@ class MainActivity : Activity() {
             repository.mode(mode)
         }.onSuccess {
             isDashboardVisible = false
+            navigateUpTarget = null
+            quickAccessEditing = false
             val displayedMode = it.copy(items = applyCabinetItemListOptions(it.items))
             dashboardView.renderMode(
                 mode = displayedMode,
@@ -542,6 +585,7 @@ class MainActivity : Activity() {
             promptAllFilesAccess(directoryType)
         }
         isDashboardVisible = false
+        navigateUpTarget = null
         dashboardView.renderDeviceFiles(
             title = title,
             location = directoryType,
@@ -606,6 +650,7 @@ class MainActivity : Activity() {
     private fun renderSdCardRootList(roots: List<DocumentFileEntry>) {
         val entries = roots.sortedBy { it.name.lowercase() }
         isDashboardVisible = false
+        navigateUpTarget = null
         dashboardView.renderDocumentTree(
             title = getString(R.string.label_sd_card),
             location = getString(R.string.label_added_folders),
@@ -650,6 +695,9 @@ class MainActivity : Activity() {
             .map(::toDocumentFileEntry)
         val entries = applyDocumentFileListOptions(rawEntries)
         isDashboardVisible = false
+        navigateUpTarget = parents.lastOrNull()?.let { parent ->
+            { openDocumentDirectory(parent, parents.dropLast(1)) }
+        }
         dashboardView.renderDocumentTree(
             title = currentDocumentProviderTitle.ifBlank { getString(R.string.label_sd_card) },
             location = directory.name ?: directory.uri.toString(),
@@ -824,6 +872,7 @@ class MainActivity : Activity() {
             isDashboardVisible = false
             val rootPaths = explorerRoots().map { it.absolutePath }.toSet()
             val parent = directory.parentFile?.takeIf { directory.absolutePath !in rootPaths }
+            navigateUpTarget = parent?.let { { openLocalExplorer(it) } }
             dashboardView.renderLocalExplorer(
                 currentDirectory = directory,
                 entries = entries,
@@ -1259,6 +1308,8 @@ class MainActivity : Activity() {
             repository.search(query)
         }.onSuccess {
             isDashboardVisible = false
+            navigateUpTarget = null
+            quickAccessEditing = false
             dashboardView.renderSearch(
                 it,
                 ::renderDashboard,
@@ -1300,6 +1351,7 @@ class MainActivity : Activity() {
      */
     private fun showDetail(itemId: String, detail: CabinetItemDetail) {
         isDashboardVisible = false
+        navigateUpTarget = null
         dashboardView.renderDetail(
             detail = detail,
             onBack = ::renderDashboard,
@@ -2286,6 +2338,8 @@ class MainActivity : Activity() {
             showDashboardView()
             isDashboardVisible = false
             settingsBackTarget = null
+            navigateUpTarget = null
+            quickAccessEditing = false
             dashboardView.renderSettings(
                 settings = settings,
                 duplicateReport = duplicateReport,
@@ -2347,6 +2401,7 @@ class MainActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0)
         }
         isDashboardVisible = false
+        navigateUpTarget = null
         // ファミリー共通の全画面レイアウトなので、スクロール面ではなく
         // Activity のコンテンツごと差し替える。
         settingsBackTarget = ::openSettings
@@ -2439,6 +2494,127 @@ class MainActivity : Activity() {
     private fun selectedStorageProviderId(providers: List<StorageProviderAccountSummary>): String {
         val saved = appPrefs().getString(KEY_SELECTED_STORAGE_PROVIDER, null)
         return providers.firstOrNull { it.id == saved }?.id ?: providers.firstOrNull()?.id.orEmpty()
+    }
+
+    // ---------------------------------------------------------------------
+    // クイックアクセス
+    // ---------------------------------------------------------------------
+
+    private fun addQuickAccessEntry(entry: QuickAccessEntry) {
+        val current = quickAccessStore.load()
+        if (current.any { it.isSameTarget(entry) }) {
+            Toast.makeText(this, getString(R.string.quick_access_exists), Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (current.size >= QuickAccessStore.MAX_ENTRIES) {
+            Toast.makeText(
+                this,
+                getString(R.string.quick_access_full, QuickAccessStore.MAX_ENTRIES),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        quickAccessStore.add(entry)
+        Toast.makeText(this, getString(R.string.quick_access_added), Toast.LENGTH_SHORT).show()
+        // TOP を表示中なら、その場でタイルを反映する。
+        if (isDashboardVisible) renderDashboard()
+    }
+
+    private fun openQuickAccessEntry(entry: QuickAccessEntry) {
+        // 別画面へ移るので、編集モードは持ち越さない。
+        quickAccessEditing = false
+        when (entry.type) {
+            QuickAccessType.FOLDER -> {
+                val directory = File(entry.target)
+                if (!directory.isDirectory) {
+                    notifyQuickAccessMissing(entry)
+                    return
+                }
+                openLocalExplorer(directory)
+            }
+            QuickAccessType.FILE -> {
+                val file = File(entry.target)
+                if (!file.isFile) {
+                    notifyQuickAccessMissing(entry)
+                    return
+                }
+                openViewer(
+                    path = file.absolutePath,
+                    mimeType = mimeTypeFor(file),
+                    title = file.name,
+                    navigationItems = emptyList(),
+                )
+            }
+            QuickAccessType.ITEM -> openItemFromList(entry.target)
+        }
+    }
+
+    /** 対象が消えている場合は、登録から外すところまで案内する。 */
+    private fun notifyQuickAccessMissing(entry: QuickAccessEntry) {
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(entry.label)
+            .setMessage(getString(R.string.quick_access_missing))
+            .setPositiveButton(getString(R.string.quick_access_remove)) { _, _ ->
+                removeQuickAccessEntry(entry)
+            }
+            .setNegativeButton(getString(R.string.action_close), null)
+            .show()
+    }
+
+    private fun startQuickAccessEditing() {
+        if (quickAccessEditing) return
+        quickAccessEditing = true
+        Toast.makeText(this, getString(R.string.quick_access_edit_started), Toast.LENGTH_SHORT).show()
+        renderDashboard()
+    }
+
+    private fun finishQuickAccessEditing() {
+        if (!quickAccessEditing) return
+        quickAccessEditing = false
+        renderDashboard()
+    }
+
+    /** 編集モード中にタイルをタップしたときの操作一覧。 */
+    private fun showQuickAccessMenu(entry: QuickAccessEntry) {
+        val actions = listOf(
+            getString(R.string.quick_access_edit_done),
+            getString(R.string.action_open),
+            getString(R.string.quick_access_move_up),
+            getString(R.string.quick_access_move_down),
+            getString(R.string.quick_access_remove),
+        )
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(entry.label)
+            .setItems(actions.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> finishQuickAccessEditing()
+                    1 -> {
+                        finishQuickAccessEditing()
+                        openQuickAccessEntry(entry)
+                    }
+                    2 -> moveQuickAccessEntry(entry, -1)
+                    3 -> moveQuickAccessEntry(entry, 1)
+                    else -> removeQuickAccessEntry(entry)
+                }
+            }
+            .show()
+    }
+
+    private fun moveQuickAccessEntry(entry: QuickAccessEntry, offset: Int) {
+        quickAccessStore.move(entry, offset)
+        renderDashboard()
+    }
+
+    /** ドラッグしたタイルを、離した先のタイルの位置へ差し込む。 */
+    private fun reorderQuickAccessEntry(entry: QuickAccessEntry, target: QuickAccessEntry) {
+        quickAccessStore.reorder(entry, target)
+        renderDashboard()
+    }
+
+    private fun removeQuickAccessEntry(entry: QuickAccessEntry) {
+        quickAccessStore.remove(entry)
+        Toast.makeText(this, getString(R.string.quick_access_removed), Toast.LENGTH_SHORT).show()
+        renderDashboard()
     }
 
     private fun updateSelectedStorageProvider(provider: StorageProviderAccountSummary) {
@@ -2683,6 +2859,9 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     val entries = applyRemoteStorageListOptions(rawEntries)
                     isDashboardVisible = false
+                    navigateUpTarget = parents.lastOrNull()?.let { parent ->
+                        { openRemoteStorageDirectory(provider, parent, parents.dropLast(1), onRootBack) }
+                    }
                     dashboardView.renderRemoteStorage(
                         title = provider.displayName,
                         location = path.ifBlank { "/" },

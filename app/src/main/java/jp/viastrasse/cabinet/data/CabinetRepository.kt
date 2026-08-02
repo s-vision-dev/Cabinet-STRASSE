@@ -4,6 +4,7 @@ import android.content.Context
 import jp.viastrasse.cabinet.core.CabinetNative
 import org.json.JSONObject
 import java.io.File
+import java.net.URLConnection
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
@@ -256,7 +257,10 @@ class CabinetRepository(context: Context) {
                     results += registerFile(
                         path = outputFile.absolutePath,
                         displayName = outputFile.name,
-                        mimeType = "application/octet-stream",
+                        // 決め打ちにすると解凍後の資料が種別不明のまま残るため、
+                        // ファイル名から推定する。
+                        mimeType = URLConnection.guessContentTypeFromName(outputFile.name)
+                            ?: "application/octet-stream",
                         size = outputFile.length(),
                         sourceKind = "zip-extract",
                         note = "CabinetでZIP解凍",

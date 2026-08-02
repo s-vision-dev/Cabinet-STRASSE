@@ -13,6 +13,7 @@ import android.text.Spanned
 import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.style.RelativeSizeSpan
+import android.view.DragEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -39,6 +40,8 @@ import jp.viastrasse.cabinet.data.CabinetFiles
 import jp.viastrasse.cabinet.data.CabinetItemDetail
 import jp.viastrasse.cabinet.data.CabinetItemSummary
 import jp.viastrasse.cabinet.data.DuplicateReport
+import jp.viastrasse.cabinet.data.QuickAccessEntry
+import jp.viastrasse.cabinet.data.QuickAccessType
 import jp.viastrasse.cabinet.data.ModeResponse
 import jp.viastrasse.cabinet.data.SearchResponse
 import jp.viastrasse.cabinet.data.SettingsSnapshot
@@ -58,6 +61,9 @@ import java.io.File
 class CabinetDashboardView(context: Context) : LinearLayout(context) {
     var onOpenSettings: (() -> Unit)? = null
     var onShowItemDetail: ((String) -> Unit)? = null
+
+    /** 長押しメニューからクイックアクセスへ登録するときの処理。 */
+    var onAddQuickAccess: ((QuickAccessEntry) -> Unit)? = null
 
     /** スクロールしても上端に残る領域。 */
     private val pinnedHeader = LinearLayout(context).apply {
@@ -137,6 +143,8 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
     fun render(
         dashboard: CabinetDashboard,
         connectedProviders: List<StorageProviderAccountSummary>,
+        quickAccessEntries: List<QuickAccessEntry>,
+        quickAccessEditing: Boolean,
         onModeSelected: (CabinetMode) -> Unit,
         onItemSelected: (String) -> Unit,
         onImportFolder: () -> Unit,
@@ -145,12 +153,32 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onManageStorageProviders: () -> Unit,
         onToggleFavorite: (CabinetItemSummary) -> Unit,
         onMoveTrash: (CabinetItemSummary) -> Unit,
+        onOpenQuickAccess: (QuickAccessEntry) -> Unit,
+        onQuickAccessTileAction: (QuickAccessEntry) -> Unit,
+        onStartQuickAccessEditing: () -> Unit,
+        onFinishQuickAccessEditing: () -> Unit,
+        onMoveQuickAccess: (QuickAccessEntry, Int) -> Unit,
+        onRemoveQuickAccess: (QuickAccessEntry) -> Unit,
+        onReorderQuickAccess: (QuickAccessEntry, QuickAccessEntry) -> Unit,
     ) {
         resetContent()
         // アプリ名の行はスクロールしても上端に残す。説明文は本文側に置く。
         setPinnedHeader(homeTitleRow())
         content.addView(homeSubtitle())
         content.addView(searchLauncher(onOpenSearch))
+        content.addView(
+            quickAccessPanel(
+                entries = quickAccessEntries,
+                editing = quickAccessEditing,
+                onOpen = onOpenQuickAccess,
+                onTileAction = onQuickAccessTileAction,
+                onStartEditing = onStartQuickAccessEditing,
+                onFinishEditing = onFinishQuickAccessEditing,
+                onMove = onMoveQuickAccess,
+                onRemove = onRemoveQuickAccess,
+                onReorder = onReorderQuickAccess,
+            ),
+        )
         content.addView(
             fileManagerHome(
                 dashboard,
@@ -180,7 +208,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
 
     fun renderError(message: String) {
         resetContent()
-        content.addView(screenHeader("Cabinet by VIASTRASSE", null, null))
+        content.addView(screenHeader(context.getString(R.string.app_name), null, null))
         content.addView(
             noticeCard(
                 title = context.getString(R.string.view_render_error),
@@ -252,7 +280,13 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onDeleteEntry: (File) -> Unit,
     ) {
         resetContent()
-        content.addView(screenHeader("Explorer", currentDirectory.absolutePath, onBack))
+        content.addView(
+            screenHeader(
+                context.getString(R.string.screen_explorer),
+                currentDirectory.absolutePath,
+                onBack,
+            ),
+        )
         content.addView(
             actionBar(
                 buildList {
@@ -439,7 +473,13 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         resetContent()
-        content.addView(screenHeader("Search", context.getString(R.string.view_render_search), onBack))
+        content.addView(
+            screenHeader(
+                context.getString(R.string.screen_search),
+                context.getString(R.string.view_render_search),
+                onBack,
+            ),
+        )
         val input = context.cabinetInput(context.getString(R.string.hint_search_cabinet)).apply {
             setText(response.query)
             setSingleLine(true)
@@ -495,7 +535,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onDeletePermanently: () -> Unit,
     ) {
         resetContent()
-        content.addView(screenHeader(context.getString(R.string.view_render_detail), null, onBack, backLabel = context.getString(R.string.view_render_detail_2)))
+        content.addView(screenHeader(context.getString(R.string.view_render_detail), null, onBack))
         content.addView(detailHero(detail, onToggleFavorite))
         content.addView(
             buttonRow(
@@ -1239,42 +1279,67 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
     // 画面ヘッダー・セクション
     // ---------------------------------------------------------------------
 
+    /**
+     * TOP から遷移した画面のヘッダー。
+     *
+     * 1行目は「← 画面名」。戻る矢印と画面名をひと組にして、そこをタップすると
+     * 前の画面へ戻る。右端はアプリメニュー、必要なら下に補足を添える。
+     */
     private fun screenHeader(
         titleText: String,
         subtitleText: String?,
         onBack: (() -> Unit)?,
-        backLabel: String = "Cabinet",
     ): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(CabinetMetrics.SPACE_MD))
-            if (onBack != null) {
-                addView(
-                    label("‹  $backLabel", CabinetType.BODY, true, CabinetColors.Accent).asTappable(
-                        context.pressableShape(
-                            CabinetColors.Surface,
-                            CabinetMetrics.RADIUS_PILL,
-                            strokeColor = CabinetColors.Outline,
-                        ),
-                    ).apply {
-                        gravity = Gravity.CENTER
-                        setPadding(dp(CabinetMetrics.SPACE_LG), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_LG), dp(CabinetMetrics.SPACE_SM))
-                        setOnClickListener { onBack() }
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                        ).apply { setMargins(0, 0, 0, dp(CabinetMetrics.SPACE_MD)) }
-                    },
-                )
-            }
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     addView(
-                        label(titleText, CabinetType.DISPLAY, true).apply {
-                            letterSpacing = 0.005f
-                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            minimumHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+                            if (onBack != null) {
+                                addView(
+                                    label("←", CabinetType.TITLE, false, CabinetColors.TextPrimary)
+                                        .apply {
+                                            gravity = Gravity.CENTER
+                                            layoutParams = LinearLayout.LayoutParams(
+                                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                            ).apply { rightMargin = dp(CabinetMetrics.SPACE_MD) }
+                                        },
+                                )
+                            }
+                            addView(
+                                label(titleText, CabinetType.TITLE, true).apply {
+                                    maxLines = 1
+                                    ellipsize = TextUtils.TruncateAt.END
+                                    layoutParams = LinearLayout.LayoutParams(
+                                        0,
+                                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                                        1f,
+                                    )
+                                },
+                            )
+                            layoutParams = LinearLayout.LayoutParams(
+                                0,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                1f,
+                            )
+                            if (onBack != null) {
+                                contentDescription = titleText
+                                asTappable(
+                                    context.borderlessRipple(
+                                        CabinetMetrics.RADIUS_TILE,
+                                        CabinetColors.Ripple,
+                                    ),
+                                )
+                                setOnClickListener { onBack() }
+                            }
                         },
                     )
                     addView(appMenuButton())
@@ -1770,7 +1835,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun detailHero(detail: CabinetItemDetail, onToggleFavorite: () -> Unit): View {
-        val kind = fileKindLabel(detail.item.mimeType)
+        val kind = fileKindLabel(detail.item.mimeType, detail.item.displayName)
         return card {
             addView(
                 LinearLayout(context).apply {
@@ -2442,7 +2507,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onToggleFavorite: (CabinetItemSummary) -> Unit,
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ): View {
-        val kind = fileKindLabel(item.mimeType)
+        val kind = fileKindLabel(item.mimeType, item.displayName)
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2517,6 +2582,353 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             dashboard.smartFolders.take(4).forEach {
                 addView(smartFolderRow(it) { folder -> onModeSelected(CabinetMode("smart:${folder.id}", folder.itemCount, folder.condition)) })
             }
+        }
+    }
+
+    /**
+     * クイックアクセス。
+     *
+     * よく使うフォルダ・ファイル・資料を、Crossroad の TOP タイルと同じ作りで並べる。
+     * 左端 4px のアクセントバーで種別を示し、2列のグリッドに収める。
+     */
+    private fun quickAccessPanel(
+        entries: List<QuickAccessEntry>,
+        editing: Boolean,
+        onOpen: (QuickAccessEntry) -> Unit,
+        onTileAction: (QuickAccessEntry) -> Unit,
+        onStartEditing: () -> Unit,
+        onFinishEditing: () -> Unit,
+        onMove: (QuickAccessEntry, Int) -> Unit,
+        onRemove: (QuickAccessEntry) -> Unit,
+        onReorder: (QuickAccessEntry, QuickAccessEntry) -> Unit,
+    ): View {
+        return card {
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        label(context.getString(R.string.quick_access_title), CabinetType.TITLE, true)
+                            .apply {
+                                layoutParams = LinearLayout.LayoutParams(
+                                    0,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                                    1f,
+                                )
+                            },
+                    )
+                    if (entries.isNotEmpty()) {
+                        addView(
+                            label(
+                                context.getString(
+                                    if (editing) R.string.quick_access_edit_done
+                                    else R.string.quick_access_edit,
+                                ),
+                                CabinetType.BODY,
+                                true,
+                                CabinetColors.Accent,
+                            ).asTappable(
+                                context.pressableShape(
+                                    if (editing) CabinetColors.AccentSoft else CabinetColors.Surface,
+                                    CabinetMetrics.RADIUS_PILL,
+                                    strokeColor = CabinetColors.Outline,
+                                ),
+                            ).apply {
+                                gravity = Gravity.CENTER
+                                minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+                                setPadding(
+                                    dp(CabinetMetrics.SPACE_LG),
+                                    dp(CabinetMetrics.SPACE_SM),
+                                    dp(CabinetMetrics.SPACE_LG),
+                                    dp(CabinetMetrics.SPACE_SM),
+                                )
+                                setOnClickListener {
+                                    if (editing) onFinishEditing() else onStartEditing()
+                                }
+                            },
+                        )
+                    }
+                },
+            )
+            addView(
+                label(
+                    context.getString(
+                        if (editing) R.string.quick_access_edit_hint
+                        else R.string.quick_access_description,
+                    ),
+                    CabinetType.CAPTION,
+                    false,
+                    CabinetColors.TextMuted,
+                ).apply {
+                    setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, dp(CabinetMetrics.SPACE_MD))
+                },
+            )
+            if (entries.isEmpty()) {
+                addView(emptyState(context.getString(R.string.quick_access_empty)))
+                return@card
+            }
+            entries.chunked(2).forEachIndexed { rowIndex, rowEntries ->
+                addView(
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        rowEntries.forEachIndexed { columnIndex, entry ->
+                            val position = rowIndex * 2 + columnIndex
+                            addView(
+                                quickAccessTile(
+                                    entry = entry,
+                                    editing = editing,
+                                    isFirst = position == 0,
+                                    isLast = position == entries.lastIndex,
+                                    onOpen = onOpen,
+                                    onTileAction = onTileAction,
+                                    onStartEditing = onStartEditing,
+                                    onMove = onMove,
+                                    onRemove = onRemove,
+                                    onReorder = onReorder,
+                                ).apply {
+                                    layoutParams = LinearLayout.LayoutParams(
+                                        0,
+                                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                                        1f,
+                                    ).apply {
+                                        if (columnIndex > 0) leftMargin = dp(CabinetMetrics.SPACE_SM)
+                                        bottomMargin = dp(CabinetMetrics.SPACE_SM)
+                                    }
+                                },
+                            )
+                        }
+                        // 奇数個のときは右側を空けて、タイルの幅を揃える。
+                        if (rowEntries.size == 1) {
+                            addView(
+                                View(context).apply {
+                                    layoutParams = LinearLayout.LayoutParams(
+                                        0,
+                                        LinearLayout.LayoutParams.MATCH_PARENT,
+                                        1f,
+                                    ).apply { leftMargin = dp(CabinetMetrics.SPACE_SM) }
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    private fun quickAccessTile(
+        entry: QuickAccessEntry,
+        editing: Boolean,
+        isFirst: Boolean,
+        isLast: Boolean,
+        onOpen: (QuickAccessEntry) -> Unit,
+        onTileAction: (QuickAccessEntry) -> Unit,
+        onStartEditing: () -> Unit,
+        onMove: (QuickAccessEntry, Int) -> Unit,
+        onRemove: (QuickAccessEntry) -> Unit,
+        onReorder: (QuickAccessEntry, QuickAccessEntry) -> Unit,
+    ): View {
+        val accent = kindAccent(entry.kind)
+        // 編集中は枠線を強調して、通常表示と区別できるようにする。
+        val idleBackground = {
+            context.surfaceShape(
+                CabinetColors.SurfaceAlt,
+                CabinetMetrics.RADIUS_CARD,
+                if (editing) CabinetColors.Accent else CabinetColors.HairlineStrong,
+            )
+        }
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            minimumHeight = dp(72)
+            background = idleBackground()
+            clipToOutline = true
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                if (editing) onTileAction(entry) else onOpen(entry)
+            }
+            setOnLongClickListener { view ->
+                if (editing) {
+                    // 編集中の長押しはドラッグ開始。掴んだタイルは薄く表示する。
+                    view.startDragAndDrop(null, View.DragShadowBuilder(view), entry, 0)
+                    view.alpha = DRAGGED_TILE_ALPHA
+                } else {
+                    // Crossroad と同じく、長押しで編集モードに入る。
+                    onStartEditing()
+                }
+                true
+            }
+            if (editing) {
+                setOnDragListener { view, event ->
+                    when (event.action) {
+                        DragEvent.ACTION_DRAG_STARTED -> true
+                        DragEvent.ACTION_DRAG_ENTERED -> {
+                            // 落とし先を塗りで示す。掴んでいる本人は変えない。
+                            if ((event.localState as? QuickAccessEntry)?.isSameTarget(entry) != true) {
+                                view.background = context.surfaceShape(
+                                    CabinetColors.AccentSoft,
+                                    CabinetMetrics.RADIUS_CARD,
+                                    CabinetColors.Accent,
+                                )
+                            }
+                            true
+                        }
+                        DragEvent.ACTION_DRAG_EXITED -> {
+                            view.background = idleBackground()
+                            true
+                        }
+                        DragEvent.ACTION_DROP -> {
+                            val dragged = event.localState as? QuickAccessEntry
+                            view.background = idleBackground()
+                            if (dragged != null && !dragged.isSameTarget(entry)) {
+                                onReorder(dragged, entry)
+                            }
+                            true
+                        }
+                        DragEvent.ACTION_DRAG_ENDED -> {
+                            view.alpha = 1f
+                            view.background = idleBackground()
+                            true
+                        }
+                        else -> true
+                    }
+                }
+            }
+            // 左端のアクセントバーで種別を示す。
+            addView(
+                View(context).apply {
+                    setBackgroundColor(accent)
+                    layoutParams = LinearLayout.LayoutParams(dp(4), LinearLayout.LayoutParams.MATCH_PARENT)
+                },
+            )
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(
+                        dp(CabinetMetrics.SPACE_MD),
+                        dp(CabinetMetrics.SPACE_MD),
+                        dp(CabinetMetrics.SPACE_SM),
+                        dp(CabinetMetrics.SPACE_MD),
+                    )
+                    addView(
+                        label(entry.kind, CabinetType.MICRO, true, accent).apply {
+                            gravity = Gravity.CENTER
+                            background = context.surfaceShape(
+                                CabinetColors.Surface,
+                                CabinetMetrics.RADIUS_TILE,
+                                strokeColor = null,
+                            )
+                            setPadding(
+                                dp(CabinetMetrics.SPACE_SM),
+                                dp(CabinetMetrics.SPACE_XS),
+                                dp(CabinetMetrics.SPACE_SM),
+                                dp(CabinetMetrics.SPACE_XS),
+                            )
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                            )
+                        },
+                    )
+                    addView(
+                        label(entry.label, CabinetType.BODY, true).apply {
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.MIDDLE
+                            setPadding(0, dp(CabinetMetrics.SPACE_SM), 0, 0)
+                            setLineSpacing(0f, 1.2f)
+                        },
+                    )
+                    if (editing) {
+                        addView(
+                            quickAccessTileControls(
+                                entry = entry,
+                                isFirst = isFirst,
+                                isLast = isLast,
+                                onMove = onMove,
+                                onRemove = onRemove,
+                            ),
+                        )
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    )
+                },
+            )
+        }
+    }
+
+    /** 編集モード中にタイル内へ出す並べ替え・削除の操作列。 */
+    private fun quickAccessTileControls(
+        entry: QuickAccessEntry,
+        isFirst: Boolean,
+        isLast: Boolean,
+        onMove: (QuickAccessEntry, Int) -> Unit,
+        onRemove: (QuickAccessEntry) -> Unit,
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(CabinetMetrics.SPACE_SM), 0, 0)
+            addView(
+                quickAccessControlButton(
+                    glyph = "←",
+                    description = context.getString(R.string.quick_access_move_up),
+                    enabled = !isFirst,
+                ) { onMove(entry, -1) },
+            )
+            addView(
+                quickAccessControlButton(
+                    glyph = "→",
+                    description = context.getString(R.string.quick_access_move_down),
+                    enabled = !isLast,
+                ) { onMove(entry, 1) },
+            )
+            addView(
+                View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                },
+            )
+            addView(
+                quickAccessControlButton(
+                    glyph = "×",
+                    description = context.getString(R.string.quick_access_remove),
+                    enabled = true,
+                    tint = CabinetColors.Danger,
+                ) { onRemove(entry) },
+            )
+        }
+    }
+
+    private fun quickAccessControlButton(
+        glyph: String,
+        description: String,
+        enabled: Boolean,
+        tint: Int = CabinetColors.TextSecondary,
+        onClick: () -> Unit,
+    ): View {
+        val color = if (enabled) tint else CabinetColors.TextMuted
+        return label(glyph, CabinetType.BODY, true, color).apply {
+            gravity = Gravity.CENTER
+            contentDescription = description
+            minWidth = dp(36)
+            minHeight = dp(36)
+            background = context.surfaceShape(
+                CabinetColors.Surface,
+                CabinetMetrics.RADIUS_TILE,
+                strokeColor = CabinetColors.Outline,
+            )
+            isEnabled = enabled
+            alpha = if (enabled) 1f else 0.4f
+            if (enabled) {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onClick() }
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { rightMargin = dp(CabinetMetrics.SPACE_SM) }
         }
     }
 
@@ -2605,7 +3017,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onToggleFavorite: (CabinetItemSummary) -> Unit,
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ): View {
-        val kind = fileKindLabel(item.mimeType)
+        val kind = fileKindLabel(item.mimeType, item.displayName.ifBlank { item.title })
         return card {
             asTappable(context.pressableShape(CabinetColors.Surface, CabinetMetrics.RADIUS_CARD))
             setOnClickListener { onItemSelected(item.id) }
@@ -2747,7 +3159,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             addView(
                 fileRowBody(
-                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.kind),
+                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.kind, entry.name),
                     name = entry.name,
                     updatedLabel = entry.updatedLabel,
                     sizeLabel = entry.sizeLabel,
@@ -2775,7 +3187,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             addView(
                 fileRowBody(
-                    kind = fileKindLabel(entry.mimeType),
+                    kind = fileKindLabel(entry.mimeType, entry.name),
                     name = entry.name,
                     updatedLabel = entry.updatedLabel,
                     sizeLabel = entry.sizeLabel,
@@ -2806,7 +3218,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             addView(
                 fileRowBody(
-                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType, entry.name),
                     name = entry.name,
                     updatedLabel = entry.updatedLabel,
                     sizeLabel = entry.sizeLabel,
@@ -2835,7 +3247,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             addView(
                 fileRowBody(
-                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType, entry.name),
                     name = entry.name,
                     updatedLabel = entry.modifiedAt.ifBlank { context.getString(R.string.label_no_updated_at) },
                     sizeLabel = if (entry.isDirectory) "" else readableSize(entry.size),
@@ -2863,7 +3275,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             addView(
                 fileRowBody(
-                    kind = fileKindLabel(item.mimeType),
+                    kind = fileKindLabel(item.mimeType, item.displayName.ifBlank { item.title }),
                     name = item.displayName.ifBlank { item.title },
                     updatedLabel = item.updatedAt.ifBlank { context.getString(R.string.label_no_updated_at) },
                     sizeLabel = readableSize(item.size),
@@ -3020,6 +3432,26 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             onPathLongClick = pathTarget?.let { { onOpenPath(it) } },
             actions = buildList {
                 add(ActionItem(context.getString(R.string.action_open), onOpen))
+                add(
+                    ActionItem(context.getString(R.string.quick_access_add)) {
+                        onAddQuickAccess?.invoke(
+                            QuickAccessEntry(
+                                type = if (entry.isDirectory) {
+                                    QuickAccessType.FOLDER
+                                } else {
+                                    QuickAccessType.FILE
+                                },
+                                target = entry.file.absolutePath,
+                                label = entry.name,
+                                kind = if (entry.isDirectory) {
+                                    "DIR"
+                                } else {
+                                    fileKindLabel(entry.kind, entry.name)
+                                },
+                            ),
+                        )
+                    },
+                )
                 add(ActionItem(context.getString(R.string.action_rename)) { onRenameEntry(entry.file) })
                 if (!entry.isDirectory) {
                     add(ActionItem(context.getString(R.string.action_register_to_cabinet)) { onRegisterFile(entry.file) })
@@ -3098,6 +3530,19 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             actions = listOf(
                 ActionItem(context.getString(R.string.action_open)) { onItemSelected(item.id) },
                 ActionItem(context.getString(R.string.action_show_details)) { onShowItemDetail?.invoke(item.id) },
+                ActionItem(context.getString(R.string.quick_access_add)) {
+                    onAddQuickAccess?.invoke(
+                        QuickAccessEntry(
+                            type = QuickAccessType.ITEM,
+                            target = item.id,
+                            label = item.displayName.ifBlank { item.title },
+                            kind = fileKindLabel(
+                                item.mimeType,
+                                item.displayName.ifBlank { item.title },
+                            ),
+                        ),
+                    )
+                },
                 ActionItem(if (item.isFavorite) context.getString(R.string.view_show_cabinet_item_menu_2) else context.getString(R.string.action_favorite)) { onToggleFavorite(item) },
             ),
             // ゴミ箱の中の資料に「ゴミ箱へ移動」を出しても意味がない。
@@ -3429,7 +3874,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             previewCard(
                 title = entry.name,
-                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.kind),
+                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.kind, entry.name),
                 meta = "${entry.updatedLabel}  ${entry.sizeLabel}",
                 imageUri = if (!entry.isDirectory && entry.kind.startsWith("image/")) Uri.fromFile(entry.file) else null,
                 fontPreference = fontPreference,
@@ -3452,7 +3897,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         addPreviewGrid(container, entries) { entry ->
             previewCard(
                 title = entry.name,
-                kind = fileKindLabel(entry.mimeType),
+                kind = fileKindLabel(entry.mimeType, entry.name),
                 meta = "${entry.updatedLabel}  ${entry.sizeLabel}",
                 imageUri = if (entry.mimeType.startsWith("image/")) Uri.parse(entry.uri) else null,
                 fontPreference = fontPreference,
@@ -3476,7 +3921,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             previewCard(
                 title = entry.name,
-                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType, entry.name),
                 meta = "${entry.updatedLabel}  ${entry.sizeLabel}",
                 imageUri = if (!entry.isDirectory && entry.mimeType.startsWith("image/")) Uri.parse(entry.uri) else null,
                 fontPreference = fontPreference,
@@ -3498,7 +3943,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             val openAction = { if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry) }
             previewCard(
                 title = entry.name,
-                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType, entry.name),
                 meta = if (entry.isDirectory) entry.modifiedAt else "${entry.modifiedAt}  ${readableSize(entry.size)}",
                 imageUri = null,
                 fontPreference = fontPreference,
@@ -3520,7 +3965,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             // CabinetItemSummary はサムネイルのパスを持たないため、種別バッジで表示する。
             previewCard(
                 title = item.displayName.ifBlank { item.title },
-                kind = fileKindLabel(item.mimeType),
+                kind = fileKindLabel(item.mimeType, item.displayName.ifBlank { item.title }),
                 meta = "${item.updatedAt.ifBlank { "更新日時なし" }}  ${readableSize(item.size)}",
                 imageUri = null,
                 fontPreference = fontPreference,
@@ -3625,7 +4070,21 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
     // 基本部品
     // ---------------------------------------------------------------------
 
-    private fun fileKindLabel(kind: String): String {
+    /**
+     * 種別バッジの文字。
+     *
+     * MIME 種別を優先し、`application/octet-stream` のように中身を表さない値
+     * だった場合は [fileName] の拡張子で補う。取り込み経路によっては汎用の
+     * MIME のまま登録されるため、MIME だけを見ると登録済みの資料が
+     * ほぼ FILE になってしまう。
+     */
+    private fun fileKindLabel(kind: String, fileName: String = ""): String {
+        return mimeKindLabel(kind)
+            ?: extensionKindLabel(fileName.substringAfterLast('.', ""))
+            ?: "FILE"
+    }
+
+    private fun mimeKindLabel(kind: String): String? {
         return when {
             kind == "folder" -> "DIR"
             kind.startsWith("image/") -> "IMG"
@@ -3641,7 +4100,27 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             kind.contains("wordprocessing") || kind.contains("msword") -> "DOC"
             kind.contains("presentation") || kind.contains("powerpoint") -> "PPT"
             kind.contains("zip") -> "ZIP"
-            else -> "FILE"
+            else -> null
+        }
+    }
+
+    private fun extensionKindLabel(extension: String): String? {
+        return when (extension.lowercase()) {
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "svg" -> "IMG"
+            "mp4", "mkv", "mov", "avi", "webm", "3gp", "m4v" -> "VID"
+            "mp3", "wav", "flac", "aac", "ogg", "m4a" -> "AUD"
+            "pdf" -> "PDF"
+            "md", "markdown" -> "MD"
+            "csv", "tsv" -> "CSV"
+            "txt", "text", "log", "ini", "conf", "cfg", "properties", "env",
+            "json", "jsonl", "xml", "yml", "yaml", "html", "htm", "css", "js", "toml" -> "TXT"
+            "apk" -> "APK"
+            "xlsm" -> "XLSM"
+            "xls", "xlsx" -> "XLS"
+            "doc", "docx" -> "DOC"
+            "ppt", "pptx" -> "PPT"
+            "zip", "jar", "7z", "rar" -> "ZIP"
+            else -> null
         }
     }
 
@@ -3841,6 +4320,9 @@ enum class SettingsTab(@param:StringRes val labelRes: Int) {
 /** このアプリについて画面の寸法(ファミリー共通: 15sp bold / 戻るは 30sp)。 */
 private const val ABOUT_VERSION_TEXT_SIZE = 15
 private const val ABOUT_BACK_TEXT_SIZE = 30
+
+/** ドラッグ中に掴んでいるタイルの不透明度(Crossroad と同じ)。 */
+private const val DRAGGED_TILE_ALPHA = 0.28f
 
 /** 見出しで「by VIASTRASSE」を小さく添えるための区切りと倍率。 */
 private const val APP_NAME_SUFFIX_MARKER = " by "

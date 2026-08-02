@@ -54,6 +54,14 @@ object CabinetColors {
     /** カード枠線。Dividerより控えめ。 */
     const val Outline: Int = 0xFF2A313A.toInt()
 
+    /**
+     * タイルなど、面の上に置いて輪郭を見せたい要素の枠線。
+     *
+     * [Outline] は [Surface] とのコントラストが約1.3:1しかなく、面に重ねると
+     * ほぼ見えない。VIASTRASSE ファミリー共通のタイル枠にはこちらを使う。
+     */
+    const val HairlineStrong: Int = 0xFF3A4650.toInt()
+
     const val Warning: Int = 0xFFDFB150.toInt()
 
     /** 破壊的操作。 */
