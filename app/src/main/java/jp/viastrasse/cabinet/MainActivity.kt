@@ -42,6 +42,7 @@ import jp.viastrasse.cabinet.ui.FileListDisplayPreference
 import jp.viastrasse.cabinet.ui.FileListOptions
 import jp.viastrasse.cabinet.ui.FileListSort
 import jp.viastrasse.cabinet.ui.LocalFileEntry
+import jp.viastrasse.cabinet.ui.SettingsTab
 import jp.viastrasse.cabinet.watch.FolderWatchWorker
 import jp.viastrasse.cabinet.storage.OAuthController
 import jp.viastrasse.cabinet.storage.OAuthProviderConfig
@@ -75,11 +76,11 @@ class MainActivity : Activity() {
     private var pendingStorageProviderId: String? = null
     private var pendingApkInstallUri: Uri? = null
 
-    /**
-     * 設定配下のサブ画面(バックアップ/セキュリティ/重複/プロバイダ/About)を
-     * 表示している間の戻り先。設定へ1段戻すために持つ。
-     */
+    /** このアプリについてを表示している間の戻り先。設定へ1段戻すために持つ。 */
     private var settingsBackTarget: (() -> Unit)? = null
+
+    /** 設定画面で選択中のタブ。操作後の再描画で同じタブに留まるために保持する。 */
+    private var settingsTab: SettingsTab = SettingsTab.APPEARANCE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -373,7 +374,8 @@ class MainActivity : Activity() {
             }.onSuccess {
                 pendingStorageProviderId = null
                 Toast.makeText(this, getString(R.string.main_show_storage_provider_dialog_4), Toast.LENGTH_SHORT).show()
-                openSettings()
+                // SAF から戻る経路なので、由来のタブを明示して復帰する。
+                openSettings(SettingsTab.INTEGRATION)
             }.onFailure { error ->
                 pendingStorageProviderId = null
                 Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
@@ -2268,7 +2270,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun openSettings() {
+    /**
+     * 設定画面を表示する。
+     *
+     * 設定変更後の再描画でも同じタブに留まるよう、選択中タブは [settingsTab] で
+     * 保持する。引数で明示したときだけタブを切り替える。
+     */
+    private fun openSettings(tab: SettingsTab? = null) {
+        if (tab != null) {
+            settingsTab = tab
+        }
         runCatching {
             validatedStorageProviderSettings() to repository.duplicateReport()
         }.onSuccess { (settings, duplicateReport) ->
@@ -2278,6 +2289,8 @@ class MainActivity : Activity() {
             dashboardView.renderSettings(
                 settings = settings,
                 duplicateReport = duplicateReport,
+                selectedTab = settingsTab,
+                onTabSelected = { selected -> openSettings(selected) },
                 onBack = ::renderDashboard,
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 selectedProviderId = selectedStorageProviderId(settings.providers),
@@ -2289,74 +2302,13 @@ class MainActivity : Activity() {
                 useViastrasseView = useViastrasseView(),
                 onUseViastrasseViewChanged = ::updateUseViastrasseView,
                 onAbout = ::openAbout,
-                onOpenBackupDetail = ::openBackupSettings,
-                onOpenSecurityDetail = ::openSecuritySettings,
-                onOpenDuplicates = ::openDuplicateSettings,
-                onOpenProviderDetail = ::openProviderSettings,
-            )
-        }.onFailure { error ->
-            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun openBackupSettings() {
-        runCatching { repository.settings() }.onSuccess { settings ->
-            showDashboardView()
-            isDashboardVisible = false
-            settingsBackTarget = ::openSettings
-            dashboardView.renderBackupSettings(
-                settings = settings,
-                onBack = ::openSettings,
                 onExportBackup = ::exportBackup,
                 onRunBackupNow = ::runBackupNow,
                 onImportBackup = ::openBackupPicker,
                 onRestoreLatestBackup = ::restoreLatestLocalBackup,
-            )
-        }.onFailure { error ->
-            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun openSecuritySettings() {
-        runCatching { repository.settings() }.onSuccess { settings ->
-            showDashboardView()
-            isDashboardVisible = false
-            settingsBackTarget = ::openSettings
-            dashboardView.renderSecuritySettings(
-                settings = settings,
-                onBack = ::openSettings,
                 onSetPin = ::showSetPinDialog,
                 onVerifyPin = ::showVerifyPinDialog,
-            )
-        }.onFailure { error ->
-            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun openDuplicateSettings() {
-        runCatching { repository.duplicateReport() }.onSuccess { duplicateReport ->
-            showDashboardView()
-            isDashboardVisible = false
-            settingsBackTarget = ::openSettings
-            dashboardView.renderDuplicates(
-                duplicateReport = duplicateReport,
-                onBack = ::openSettings,
                 onDuplicateItemSelected = ::openItemFromList,
-            )
-        }.onFailure { error ->
-            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun openProviderSettings() {
-        runCatching { validatedStorageProviderSettings() }.onSuccess { settings ->
-            showDashboardView()
-            isDashboardVisible = false
-            settingsBackTarget = ::openSettings
-            dashboardView.renderProviderSettings(
-                settings = settings,
-                selectedProviderId = selectedStorageProviderId(settings.providers),
-                onBack = ::openSettings,
                 onProviderSelected = ::updateSelectedStorageProvider,
                 onOpenProvider = ::openStorageProvider,
                 onConfigureProvider = ::showStorageProviderDialog,
@@ -2642,7 +2594,7 @@ class MainActivity : Activity() {
             }.onSuccess {
                 runOnUiThread {
                     Toast.makeText(this, getString(R.string.storage_provider_connected, provider.displayName), Toast.LENGTH_SHORT).show()
-                    openSettings()
+                    openSettings(SettingsTab.INTEGRATION)
                 }
             }.onFailure { error ->
                 SecureCredentialStore.clear(applicationContext, provider.id)
@@ -2670,12 +2622,12 @@ class MainActivity : Activity() {
             }.onSuccess {
                 runOnUiThread {
                     Toast.makeText(this, getString(R.string.storage_provider_auth_complete), Toast.LENGTH_SHORT).show()
-                    openSettings()
+                    openSettings(SettingsTab.INTEGRATION)
                 }
             }.onFailure { error ->
                 runOnUiThread {
                     showStorageProviderError(error, R.string.storage_provider_auth_failed)
-                    openSettings()
+                    openSettings(SettingsTab.INTEGRATION)
                 }
             }
         }
@@ -2912,7 +2864,7 @@ class MainActivity : Activity() {
             )
         }.onSuccess {
             Toast.makeText(this, getString(R.string.storage_provider_disconnected, provider.displayName), Toast.LENGTH_SHORT).show()
-            openSettings()
+            openSettings(SettingsTab.INTEGRATION)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
         }
@@ -2926,7 +2878,7 @@ class MainActivity : Activity() {
             repository.updateStorageProvider(provider.id, configuration)
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_show_storage_provider_dialog_4), Toast.LENGTH_SHORT).show()
-            openSettings()
+            openSettings(SettingsTab.INTEGRATION)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
         }
@@ -2966,7 +2918,7 @@ class MainActivity : Activity() {
             repository.createSmartFolder(title, preset)
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_create_smart_folder), Toast.LENGTH_SHORT).show()
-            openSettings()
+            openSettings(SettingsTab.ORGANIZE)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_create_smart_folder_2), Toast.LENGTH_SHORT).show()
         }
@@ -3053,7 +3005,7 @@ class MainActivity : Activity() {
             repository.exportBackup()
         }.onSuccess { file ->
             Toast.makeText(this, "Backup: ${file.name}", Toast.LENGTH_SHORT).show()
-            openSettings()
+            openSettings(SettingsTab.BACKUP)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_export_backup), Toast.LENGTH_SHORT).show()
         }
@@ -3062,7 +3014,7 @@ class MainActivity : Activity() {
     private fun runBackupNow() {
         BackupWorker.enqueueNow(applicationContext)
         Toast.makeText(this, getString(R.string.main_run_backup_now), Toast.LENGTH_SHORT).show()
-        openSettings()
+        openSettings(SettingsTab.BACKUP)
     }
 
     private fun restoreLatestLocalBackup() {
@@ -3070,7 +3022,7 @@ class MainActivity : Activity() {
             repository.restoreLatestLocalBackup()
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_restore_latest_local_backup), Toast.LENGTH_SHORT).show()
-            openSettings()
+            openSettings(SettingsTab.BACKUP)
         }.onFailure { error ->
             // バックアップ不在は想定内なので専用の文言を出す。
             // それ以外（Rust core からのエラーなど）は原因を見せたいので error.message を優先する。
@@ -3092,7 +3044,7 @@ class MainActivity : Activity() {
                 repository.setSecurityPin(pin)
             }.onSuccess {
                 Toast.makeText(this, getString(R.string.main_show_set_pin_dialog), Toast.LENGTH_SHORT).show()
-                openSettings()
+                openSettings(SettingsTab.SECURITY)
             }.onFailure { error ->
                 Toast.makeText(this, error.message ?: getString(R.string.main_show_set_pin_dialog_2), Toast.LENGTH_SHORT).show()
             }
@@ -3143,7 +3095,8 @@ class MainActivity : Activity() {
             repository.importBackup(json)
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_import_backup_2), Toast.LENGTH_SHORT).show()
-            openSettings()
+            // ファイル選択から戻る経路なので、由来のタブを明示して復帰する。
+            openSettings(SettingsTab.BACKUP)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_import_backup_3), Toast.LENGTH_SHORT).show()
         }

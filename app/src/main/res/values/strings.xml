@@ -393,6 +393,13 @@
     <string name="settings_provider_summary">%1$s / %2$s</string>
     <string name="settings_provider_summary_empty">接続済みのプロバイダはありません</string>
     <string name="settings_about_summary">バージョンと VIASTRASSE ファミリー</string>
+    <!-- 設定タブ -->
+    <string name="settings_tab_appearance">表示</string>
+    <string name="settings_tab_integration">連携</string>
+    <string name="settings_tab_organize">整理</string>
+    <string name="settings_tab_backup">バックアップ</string>
+    <string name="settings_tab_security">セキュリティ</string>
+    <string name="settings_tab_info">情報</string>
     <!-- サブ画面 -->
     <string name="settings_backup_detail_title">バックアップ</string>
     <string name="settings_security_detail_title">セキュリティ</string>

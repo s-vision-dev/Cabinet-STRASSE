@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -648,9 +649,17 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         )
     }
 
+    /**
+     * 設定画面。
+     *
+     * 項目をタブで分け、選択中タブの内容だけを描く。設定変更後の再描画でも
+     * 同じタブに留まるよう、選択中タブは呼び出し側が保持する。
+     */
     fun renderSettings(
         settings: SettingsSnapshot,
         duplicateReport: DuplicateReport,
+        selectedTab: SettingsTab,
+        onTabSelected: (SettingsTab) -> Unit,
         onBack: () -> Unit,
         onCreateSmartFolder: () -> Unit,
         selectedProviderId: String,
@@ -662,22 +671,124 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         useViastrasseView: Boolean,
         onUseViastrasseViewChanged: (Boolean) -> Unit,
         onAbout: () -> Unit,
-        onOpenBackupDetail: () -> Unit,
-        onOpenSecurityDetail: () -> Unit,
-        onOpenDuplicates: () -> Unit,
-        onOpenProviderDetail: () -> Unit,
+        onExportBackup: () -> Unit,
+        onRunBackupNow: () -> Unit,
+        onImportBackup: () -> Unit,
+        onRestoreLatestBackup: () -> Unit,
+        onSetPin: () -> Unit,
+        onVerifyPin: () -> Unit,
+        onDuplicateItemSelected: (String) -> Unit,
+        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
+        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
+        onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
     ) {
         resetContent()
         content.addView(
-            screenHeader(
-                context.getString(R.string.settings_title),
-                context.getString(R.string.view_render_settings),
-                onBack,
-            ),
+            screenHeader(context.getString(R.string.settings_title), null, onBack),
         )
+        content.addView(settingsTabBar(selectedTab, onTabSelected))
+        content.addView(spacer(CabinetMetrics.SPACE_MD))
 
-        // 表示 ── ここだけは操作対象そのものを置く(切り替えた結果がすぐ見える方が良い)
-        content.addView(section(context.getString(R.string.settings_section_appearance)))
+        when (selectedTab) {
+            SettingsTab.APPEARANCE -> addAppearanceTab(
+                displayMode,
+                fontPreference,
+                onDisplayModeSelected,
+                onFontPreferenceChanged,
+            )
+            SettingsTab.INTEGRATION -> addIntegrationTab(
+                settings,
+                selectedProviderId,
+                viewInstalled,
+                useViastrasseView,
+                onUseViastrasseViewChanged,
+                onProviderSelected,
+                onOpenProvider,
+                onConfigureProvider,
+            )
+            SettingsTab.ORGANIZE -> addOrganizeTab(
+                duplicateReport,
+                onCreateSmartFolder,
+                onDuplicateItemSelected,
+            )
+            SettingsTab.BACKUP -> addBackupTab(
+                settings,
+                onExportBackup,
+                onRunBackupNow,
+                onImportBackup,
+                onRestoreLatestBackup,
+            )
+            SettingsTab.SECURITY -> addSecurityTab(settings, onSetPin, onVerifyPin)
+            SettingsTab.INFO -> addInfoTab(onAbout)
+        }
+    }
+
+    /** 設定のタブバー。横スクロールし、選択中は下線と明色で示す。 */
+    private fun settingsTabBar(
+        selectedTab: SettingsTab,
+        onTabSelected: (SettingsTab) -> Unit,
+    ): View {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            SettingsTab.entries.forEach { tab ->
+                addView(settingsTabItem(tab, tab == selectedTab, onTabSelected))
+            }
+        }
+        return HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+    }
+
+    private fun settingsTabItem(
+        tab: SettingsTab,
+        selected: Boolean,
+        onTabSelected: (SettingsTab) -> Unit,
+    ): View {
+        val contentColor = if (selected) CabinetColors.Accent else CabinetColors.TextSecondary
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            minimumHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            addView(
+                label(context.getString(tab.labelRes), CabinetType.BODY, selected, contentColor)
+                    .apply {
+                        gravity = Gravity.CENTER
+                        setPadding(
+                            dp(CabinetMetrics.SPACE_LG),
+                            dp(CabinetMetrics.SPACE_MD),
+                            dp(CabinetMetrics.SPACE_LG),
+                            dp(CabinetMetrics.SPACE_SM),
+                        )
+                    },
+            )
+            // 選択中タブの下線。非選択時も同じ高さの透明ビューを置いて位置をずらさない。
+            addView(
+                View(context).apply {
+                    setBackgroundColor(
+                        if (selected) CabinetColors.Accent else CabinetColors.AppBackground,
+                    )
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(2),
+                    )
+                },
+            )
+            asTappable(context.borderlessRipple(CabinetMetrics.RADIUS_TILE, CabinetColors.Ripple))
+            setOnClickListener { onTabSelected(tab) }
+        }
+    }
+
+    private fun addAppearanceTab(
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        onDisplayModeSelected: (String) -> Unit,
+        onFontPreferenceChanged: (FileListDisplayPreference) -> Unit,
+    ) {
         content.addView(
             card {
                 addView(displayModeSelector(displayMode, onDisplayModeSelected))
@@ -685,9 +796,18 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 addView(fontPreferenceSelector(fontPreference, onFontPreferenceChanged))
             },
         )
+    }
 
-        // 連携
-        content.addView(section(context.getString(R.string.settings_section_integration)))
+    private fun addIntegrationTab(
+        settings: SettingsSnapshot,
+        selectedProviderId: String,
+        viewInstalled: Boolean,
+        useViastrasseView: Boolean,
+        onUseViastrasseViewChanged: (Boolean) -> Unit,
+        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
+        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
+        onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
+    ) {
         content.addView(
             settingsGroup {
                 addView(
@@ -702,292 +822,10 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                         onCheckedChange = onUseViastrasseViewChanged,
                     ),
                 )
-                addView(rowDivider())
-                val provider = settings.providers.firstOrNull { it.id == selectedProviderId }
-                    ?: settings.providers.firstOrNull()
-                addView(
-                    settingsRow(
-                        context.getString(R.string.storage_provider_section),
-                        if (provider == null) {
-                            context.getString(R.string.settings_provider_summary_empty)
-                        } else {
-                            context.getString(
-                                R.string.settings_provider_summary,
-                                provider.displayName,
-                                providerStatusLabel(provider.connectionStatus),
-                            )
-                        },
-                        onClick = onOpenProviderDetail,
-                    ),
-                )
             },
         )
 
-        // 整理
-        content.addView(section(context.getString(R.string.settings_section_organize)))
-        content.addView(
-            settingsGroup {
-                addView(
-                    settingsRow(
-                        context.getString(R.string.view_render_settings_13),
-                        context.getString(R.string.settings_smart_folder_summary),
-                        onClick = onCreateSmartFolder,
-                    ),
-                )
-                addView(rowDivider())
-                addView(
-                    settingsRow(
-                        context.getString(R.string.settings_duplicates_title),
-                        if (duplicateReport.groups.isEmpty()) {
-                            context.getString(R.string.settings_duplicates_summary_empty)
-                        } else {
-                            context.getString(
-                                R.string.settings_duplicates_summary,
-                                duplicateReport.groups.size,
-                            )
-                        },
-                        onClick = onOpenDuplicates,
-                    ),
-                )
-            },
-        )
-
-        // バックアップ / セキュリティ
-        content.addView(section(context.getString(R.string.settings_section_backup)))
-        content.addView(
-            settingsGroup {
-                addView(
-                    settingsRow(
-                        context.getString(R.string.settings_backup_detail_title),
-                        context.getString(
-                            R.string.settings_backup_summary,
-                            settings.backup.itemCount,
-                            settings.backup.exportedAt.ifBlank {
-                                context.getString(R.string.label_not_fetched)
-                            },
-                        ),
-                        onClick = onOpenBackupDetail,
-                    ),
-                )
-                addView(rowDivider())
-                addView(
-                    settingsRow(
-                        context.getString(R.string.settings_security_detail_title),
-                        if (settings.security.pinEnabled) {
-                            context.getString(
-                                R.string.settings_pin_summary_enabled,
-                                settings.security.protectedItemCount,
-                            )
-                        } else {
-                            context.getString(R.string.settings_pin_summary_disabled)
-                        },
-                        onClick = onOpenSecurityDetail,
-                    ),
-                )
-            },
-        )
-
-        // アプリ情報(ファミリー共通で最下段に置く)
-        content.addView(section(context.getString(R.string.settings_section_info)))
-        content.addView(
-            settingsGroup {
-                addView(
-                    settingsRow(
-                        context.getString(R.string.action_about_app),
-                        context.getString(R.string.settings_about_summary),
-                        onClick = onAbout,
-                    ),
-                )
-            },
-        )
-    }
-
-    /** 設定 → バックアップ。統計と4つの操作をまとめる。 */
-    fun renderBackupSettings(
-        settings: SettingsSnapshot,
-        onBack: () -> Unit,
-        onExportBackup: () -> Unit,
-        onRunBackupNow: () -> Unit,
-        onImportBackup: () -> Unit,
-        onRestoreLatestBackup: () -> Unit,
-    ) {
-        resetContent()
-        content.addView(
-            screenHeader(
-                context.getString(R.string.settings_backup_detail_title),
-                null,
-                onBack,
-                context.getString(R.string.settings_title),
-            ),
-        )
-        content.addView(
-            card {
-                addView(
-                    statTileRow(
-                        listOf(
-                            context.getString(R.string.settings_backup_stat_items) to
-                                settings.backup.itemCount.toString(),
-                            context.getString(R.string.settings_backup_stat_collections) to
-                                settings.backup.collectionCount.toString(),
-                            context.getString(R.string.settings_backup_stat_tags) to
-                                settings.backup.tagCount.toString(),
-                        ),
-                    ),
-                )
-                addView(spacer(CabinetMetrics.SPACE_SM))
-                addView(
-                    definitionRow(
-                        context.getString(R.string.settings_backup_previews),
-                        settings.backup.previewCount.toString(),
-                    ),
-                )
-                addView(
-                    definitionRow(
-                        context.getString(R.string.view_render_settings_2),
-                        settings.backup.exportedAt.ifBlank {
-                            context.getString(R.string.label_not_fetched)
-                        },
-                    ),
-                )
-                addView(
-                    definitionRow(
-                        context.getString(R.string.view_render_settings_3),
-                        context.getString(R.string.view_render_settings_4),
-                    ),
-                )
-                addView(spacer(CabinetMetrics.SPACE_MD))
-                addView(
-                    actionGrid(
-                        listOf(
-                            ActionItem(context.getString(R.string.view_render_settings_5), onExportBackup),
-                            ActionItem(context.getString(R.string.view_render_settings_6), onRunBackupNow),
-                            ActionItem(context.getString(R.string.view_render_settings_7), onImportBackup),
-                            ActionItem(context.getString(R.string.view_render_settings_8), onRestoreLatestBackup),
-                        ),
-                    ),
-                )
-            },
-        )
-    }
-
-    /** 設定 → セキュリティ。 */
-    fun renderSecuritySettings(
-        settings: SettingsSnapshot,
-        onBack: () -> Unit,
-        onSetPin: () -> Unit,
-        onVerifyPin: () -> Unit,
-    ) {
-        resetContent()
-        content.addView(
-            screenHeader(
-                context.getString(R.string.settings_security_detail_title),
-                null,
-                onBack,
-                context.getString(R.string.settings_title),
-            ),
-        )
-        content.addView(
-            card {
-                addView(
-                    cardTitleRow(
-                        context.getString(R.string.settings_pin_label),
-                        statusBadge(
-                            if (settings.security.pinEnabled) {
-                                context.getString(R.string.view_render_settings_9)
-                            } else {
-                                context.getString(R.string.label_not_configured)
-                            },
-                            if (settings.security.pinEnabled) CabinetColors.Success else CabinetColors.TextMuted,
-                        ),
-                    ),
-                )
-                addView(
-                    definitionRow(
-                        context.getString(R.string.view_render_settings_10),
-                        context.getString(R.string.format_item_count, settings.security.protectedItemCount),
-                    ),
-                )
-                addView(
-                    definitionRow(
-                        context.getString(R.string.label_protected_memo),
-                        context.getString(R.string.format_item_count, settings.security.protectedMemoCount),
-                    ),
-                )
-                addView(spacer(CabinetMetrics.SPACE_MD))
-                addView(
-                    actionGrid(
-                        listOf(
-                            ActionItem(context.getString(R.string.action_set_pin), onSetPin),
-                            ActionItem(context.getString(R.string.action_verify_pin), onVerifyPin),
-                        ),
-                    ),
-                )
-            },
-        )
-    }
-
-    /** 設定 → 重複候補。設定本体から切り出した独立画面。 */
-    fun renderDuplicates(
-        duplicateReport: DuplicateReport,
-        onBack: () -> Unit,
-        onDuplicateItemSelected: (String) -> Unit,
-    ) {
-        resetContent()
-        content.addView(
-            screenHeader(
-                context.getString(R.string.settings_duplicates_title),
-                null,
-                onBack,
-                context.getString(R.string.settings_title),
-            ),
-        )
-        if (duplicateReport.groups.isEmpty()) {
-            content.addView(emptyState(context.getString(R.string.view_render_settings_15)))
-            return
-        }
-        duplicateReport.groups.forEach { group ->
-            content.addView(
-                card {
-                    addView(
-                        cardTitleRow(
-                            context.getString(R.string.view_render_settings_16, group.items.size),
-                            statusBadge(readableSize(group.size)),
-                        ),
-                    )
-                    addView(
-                        label(group.hash, CabinetType.MICRO, false, CabinetColors.TextMuted).apply {
-                            maxLines = 1
-                            ellipsize = TextUtils.TruncateAt.MIDDLE
-                        },
-                    )
-                    addView(spacer(CabinetMetrics.SPACE_SM))
-                    group.items.forEach { item ->
-                        addView(ghostButton(item.displayName) { onDuplicateItemSelected(item.id) })
-                        addView(spacer(CabinetMetrics.SPACE_XS))
-                    }
-                },
-            )
-        }
-    }
-
-    /** 設定 → ストレージプロバイダ。 */
-    fun renderProviderSettings(
-        settings: SettingsSnapshot,
-        selectedProviderId: String,
-        onBack: () -> Unit,
-        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
-        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
-        onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
-    ) {
-        resetContent()
-        content.addView(
-            screenHeader(
-                context.getString(R.string.settings_provider_detail_title),
-                null,
-                onBack,
-                context.getString(R.string.settings_title),
-            ),
-        )
+        content.addView(section(context.getString(R.string.settings_provider_detail_title)))
         val selectedProvider = settings.providers.firstOrNull { it.id == selectedProviderId }
             ?: settings.providers.firstOrNull()
         if (selectedProvider == null) {
@@ -1050,6 +888,174 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             },
         )
     }
+
+    private fun addOrganizeTab(
+        duplicateReport: DuplicateReport,
+        onCreateSmartFolder: () -> Unit,
+        onDuplicateItemSelected: (String) -> Unit,
+    ) {
+        content.addView(
+            settingsGroup {
+                addView(
+                    settingsRow(
+                        context.getString(R.string.view_render_settings_13),
+                        context.getString(R.string.settings_smart_folder_summary),
+                        onClick = onCreateSmartFolder,
+                    ),
+                )
+            },
+        )
+        content.addView(
+            sectionWithCount(
+                context.getString(R.string.settings_duplicates_title),
+                duplicateReport.groups.size.toLong(),
+            ),
+        )
+        if (duplicateReport.groups.isEmpty()) {
+            content.addView(emptyState(context.getString(R.string.view_render_settings_15)))
+            return
+        }
+        duplicateReport.groups.forEach { group ->
+            content.addView(
+                card {
+                    addView(
+                        cardTitleRow(
+                            context.getString(R.string.view_render_settings_16, group.items.size),
+                            statusBadge(readableSize(group.size)),
+                        ),
+                    )
+                    addView(
+                        label(group.hash, CabinetType.MICRO, false, CabinetColors.TextMuted).apply {
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.MIDDLE
+                        },
+                    )
+                    addView(spacer(CabinetMetrics.SPACE_SM))
+                    group.items.forEach { item ->
+                        addView(ghostButton(item.displayName) { onDuplicateItemSelected(item.id) })
+                        addView(spacer(CabinetMetrics.SPACE_XS))
+                    }
+                },
+            )
+        }
+    }
+
+    private fun addInfoTab(onAbout: () -> Unit) {
+        content.addView(
+            settingsGroup {
+                addView(
+                    settingsRow(
+                        context.getString(R.string.action_about_app),
+                        context.getString(R.string.settings_about_summary),
+                        onClick = onAbout,
+                    ),
+                )
+            },
+        )
+    }
+
+    private fun addBackupTab(
+        settings: SettingsSnapshot,
+        onExportBackup: () -> Unit,
+        onRunBackupNow: () -> Unit,
+        onImportBackup: () -> Unit,
+        onRestoreLatestBackup: () -> Unit,
+    ) {
+        content.addView(
+            card {
+                addView(
+                    statTileRow(
+                        listOf(
+                            context.getString(R.string.settings_backup_stat_items) to
+                                settings.backup.itemCount.toString(),
+                            context.getString(R.string.settings_backup_stat_collections) to
+                                settings.backup.collectionCount.toString(),
+                            context.getString(R.string.settings_backup_stat_tags) to
+                                settings.backup.tagCount.toString(),
+                        ),
+                    ),
+                )
+                addView(spacer(CabinetMetrics.SPACE_SM))
+                addView(
+                    definitionRow(
+                        context.getString(R.string.settings_backup_previews),
+                        settings.backup.previewCount.toString(),
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_2),
+                        settings.backup.exportedAt.ifBlank {
+                            context.getString(R.string.label_not_fetched)
+                        },
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_3),
+                        context.getString(R.string.view_render_settings_4),
+                    ),
+                )
+                addView(spacer(CabinetMetrics.SPACE_MD))
+                addView(
+                    actionGrid(
+                        listOf(
+                            ActionItem(context.getString(R.string.view_render_settings_5), onExportBackup),
+                            ActionItem(context.getString(R.string.view_render_settings_6), onRunBackupNow),
+                            ActionItem(context.getString(R.string.view_render_settings_7), onImportBackup),
+                            ActionItem(context.getString(R.string.view_render_settings_8), onRestoreLatestBackup),
+                        ),
+                    ),
+                )
+            },
+        )
+    }
+
+    private fun addSecurityTab(
+        settings: SettingsSnapshot,
+        onSetPin: () -> Unit,
+        onVerifyPin: () -> Unit,
+    ) {
+        content.addView(
+            card {
+                addView(
+                    cardTitleRow(
+                        context.getString(R.string.settings_pin_label),
+                        statusBadge(
+                            if (settings.security.pinEnabled) {
+                                context.getString(R.string.view_render_settings_9)
+                            } else {
+                                context.getString(R.string.label_not_configured)
+                            },
+                            if (settings.security.pinEnabled) CabinetColors.Success else CabinetColors.TextMuted,
+                        ),
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_10),
+                        context.getString(R.string.format_item_count, settings.security.protectedItemCount),
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.label_protected_memo),
+                        context.getString(R.string.format_item_count, settings.security.protectedMemoCount),
+                    ),
+                )
+                addView(spacer(CabinetMetrics.SPACE_MD))
+                addView(
+                    actionGrid(
+                        listOf(
+                            ActionItem(context.getString(R.string.action_set_pin), onSetPin),
+                            ActionItem(context.getString(R.string.action_verify_pin), onVerifyPin),
+                        ),
+                    ),
+                )
+            },
+        )
+    }
+
 
     /**
      * このアプリについて。
@@ -3728,6 +3734,21 @@ fun FileListOptions.periodLabel(context: Context): String = when (periodDays) {
  */
 const val DISPLAY_MODE_COMPACT = "compact"
 const val DISPLAY_MODE_ELEGANT = "elegant"
+
+/**
+ * 設定画面のタブ。
+ *
+ * 定義順にタブバーへ並ぶ。Context を持てないため表示名は [labelRes] で保持し、
+ * 呼び出し側が getString で解決する。
+ */
+enum class SettingsTab(@param:StringRes val labelRes: Int) {
+    APPEARANCE(R.string.settings_tab_appearance),
+    INTEGRATION(R.string.settings_tab_integration),
+    ORGANIZE(R.string.settings_tab_organize),
+    BACKUP(R.string.settings_tab_backup),
+    SECURITY(R.string.settings_tab_security),
+    INFO(R.string.settings_tab_info),
+}
 
 /** このアプリについて画面の寸法(ファミリー共通: 15sp bold / 戻るは 30sp)。 */
 private const val ABOUT_VERSION_TEXT_SIZE = 15
