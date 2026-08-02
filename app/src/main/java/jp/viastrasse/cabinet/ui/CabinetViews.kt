@@ -2,6 +2,7 @@ package jp.viastrasse.cabinet.ui
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -1896,13 +1897,20 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    /**
+     * 密度切替のセグメント1つ。
+     *
+     * アイコンとラベルは「くっつけて中央」に置く必要があるため、TextView の
+     * compound drawable(ビュー左端に固定される)ではなく ImageView + TextView を
+     * 横に並べる。Material 3 の SegmentedButton と同じ見え方にするための実装。
+     */
     private fun displayModeButton(
         text: String,
         value: String,
         selectedMode: String,
         onDisplayModeSelected: (String) -> Unit,
         leftSide: Boolean,
-    ): TextView {
+    ): View {
         val selected = value == selectedMode
         // 端末フォント依存で見た目が変わる絵文字ではなく、ファミリー共通の
         // Material アイコン(選択時はチェック)をベクタで描く。
@@ -1911,35 +1919,51 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             value == DISPLAY_MODE_COMPACT -> R.drawable.ic_view_headline
             else -> R.drawable.ic_view_agenda
         }
-        val iconColor = if (selected) CabinetColors.TextPrimary else CabinetColors.TextSecondary
-        return label(
-            text,
-            CabinetType.BODY,
-            true,
-            iconColor,
-        ).asTappable(segmentedBackground(selected, leftSide)).apply {
+        val contentColor = if (selected) CabinetColors.TextPrimary else CabinetColors.TextSecondary
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
-            setPadding(dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD))
-            val icon = ContextCompat.getDrawable(context, iconRes)?.mutate()?.apply {
-                setTint(iconColor)
-                setBounds(0, 0, dp(18), dp(18))
-            }
-            setCompoundDrawables(icon, null, null, null)
-            compoundDrawablePadding = dp(CabinetMetrics.SPACE_SM)
+            minimumHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            setPadding(
+                dp(CabinetMetrics.SPACE_SM),
+                dp(CabinetMetrics.SPACE_MD),
+                dp(CabinetMetrics.SPACE_SM),
+                dp(CabinetMetrics.SPACE_MD),
+            )
+            addView(
+                ImageView(context).apply {
+                    setImageResource(iconRes)
+                    imageTintList = ColorStateList.valueOf(contentColor)
+                    layoutParams = LinearLayout.LayoutParams(dp(18), dp(18))
+                },
+            )
+            addView(
+                label(text, CabinetType.BODY, true, contentColor).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply { leftMargin = dp(CabinetMetrics.SPACE_SM) }
+                },
+            )
+            asTappable(segmentedBackground(selected, leftSide))
             setOnClickListener { onDisplayModeSelected(value) }
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (!leftSide) leftMargin = -dp(1)
-            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { if (!leftSide) leftMargin = -dp(CabinetMetrics.STROKE) }
         }
     }
 
+    /**
+     * セグメントの背景。
+     *
+     * 外側の両端だけを丸めたピル型にし、選択側は塗りだけで示す。
+     * 枠線は選択・非選択とも同じ色にして、group 全体が1本の輪郭に見えるようにする。
+     */
     private fun segmentedBackground(selected: Boolean, leftSide: Boolean): GradientDrawable {
-        val radius = dp(CabinetMetrics.RADIUS_CONTROL).toFloat()
+        val radius = dp(CabinetMetrics.RADIUS_PILL).toFloat()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            setColor(if (selected) CabinetColors.AccentSoft else CabinetColors.SurfaceAlt)
-            setStroke(dp(1), if (selected) CabinetColors.Accent else CabinetColors.Outline)
+            setColor(if (selected) CabinetColors.AccentSoft else CabinetColors.AppBackground)
+            setStroke(dp(CabinetMetrics.STROKE), CabinetColors.Outline)
             cornerRadii = if (leftSide) {
                 floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
             } else {

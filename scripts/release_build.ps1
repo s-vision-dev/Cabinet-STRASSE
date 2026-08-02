@@ -191,7 +191,13 @@ try {
     if ([string]::IsNullOrWhiteSpace($status)) {
         Write-Host "No Git changes to commit."
     } else {
-        git commit -m "Release Cabinet by VIASTRASSE $versionName build $buildNumber"
+        # AGENTS.md の規約に合わせ、日本語で3行程度の本文を添える。
+        # 日本語は変数名として有効なため、変数の直後に続けるときは ${} で区切る。
+        $commitSubject = "リリースビルド $versionName build $buildNumber"
+        $commitBody1 = "ビルド番号を${buildNumber}から$($buildNumber + 1)へ更新。"
+        $commitBody2 = "リリースAPKを生成し、Dropbox配布用ファイルを差し替え。"
+        $commitBody3 = "リリース対象のソースとリソースの変更をコミット。"
+        git commit -m $commitSubject -m $commitBody1 -m $commitBody2 -m $commitBody3
     }
 
     Write-Step "Push"
