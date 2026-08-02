@@ -33,7 +33,7 @@ class WebDavStorageProvider(
         while (pending.isNotEmpty() && visited.size < MAX_ENTRIES) {
             val folder = pending.removeFirst()
             if (!visited.add(folder)) continue
-            listFolder(folder).forEach { entry ->
+            listWebDavFolder(folder).forEach { entry ->
                 if (entry.isDirectory) pending.add(entry.path) else files.add(entry)
             }
         }
@@ -46,10 +46,10 @@ class WebDavStorageProvider(
     }
 
     override fun testConnection() {
-        listFolder(resolveUrl(account.endpointUrl, account.remoteRoot))
+        listWebDavFolder(resolveUrl(account.endpointUrl, account.remoteRoot))
     }
 
-    private fun listFolder(url: String): List<RemoteStorageEntry> {
+    private fun listWebDavFolder(url: String): List<RemoteStorageEntry> {
         val body = """<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getcontentlength/><d:getcontenttype/><d:getlastmodified/><d:resourcetype/></d:prop></d:propfind>"""
             .toByteArray(Charsets.UTF_8)
         val connection = HttpSupport.request(

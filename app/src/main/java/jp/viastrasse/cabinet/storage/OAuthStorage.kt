@@ -170,22 +170,32 @@ class OAuthApiStorageProvider(
     private val tokens = OAuthTokenProvider(context, providerId)
     private fun bearer() = mapOf("Authorization" to "Bearer ${tokens.accessToken()}")
 
-    override fun listFiles(): List<RemoteStorageEntry> = when (providerId) {
-        "dropbox" -> listDropbox()
-        "google_drive" -> listGoogleDrive()
-        "onedrive" -> listOneDrive()
-        "box" -> listBox()
+    override fun listFiles(): List<RemoteStorageEntry> = listFolder("")
+
+    override fun listFolder(path: String): List<RemoteStorageEntry> = when (providerId) {
+        "dropbox" -> listDropbox(path)
+        "google_drive" -> path.requireRoot { listGoogleDrive() }
+        "onedrive" -> path.requireRoot { listOneDrive() }
+        "box" -> path.requireRoot { listBox() }
         else -> error("Unsupported OAuth provider: $providerId")
     }
 
     override fun testConnection() {
         when (providerId) {
-            "dropbox" -> HttpSupport.json(
-                "https://api.dropboxapi.com/2/users/get_current_account",
-                "POST",
-                bearer(),
-                JSONObject(),
-            )
+            "dropbox" -> {
+                HttpSupport.json(
+                    "https://api.dropboxapi.com/2/users/get_current_account",
+                    "POST",
+                    bearer(),
+                    JSONObject(),
+                )
+                HttpSupport.json(
+                    "https://api.dropboxapi.com/2/files/list_folder",
+                    "POST",
+                    bearer(),
+                    JSONObject().put("path", "").put("recursive", false).put("limit", 1),
+                )
+            }
             "google_drive" -> HttpSupport.json(
                 "https://www.googleapis.com/drive/v3/about?fields=user",
                 headers = bearer(),
@@ -228,23 +238,25 @@ class OAuthApiStorageProvider(
         HttpSupport.copy(connection, destination)
     }
 
-    private fun listDropbox(): List<RemoteStorageEntry> {
+    private fun listDropbox(path: String): List<RemoteStorageEntry> {
         val result = mutableListOf<RemoteStorageEntry>()
         var response = HttpSupport.json(
             "https://api.dropboxapi.com/2/files/list_folder",
             "POST",
             bearer(),
-            JSONObject().put("path", "").put("recursive", true).put("limit", 1000),
+            JSONObject().put("path", path).put("recursive", false).put("limit", 1000),
         )
         while (true) {
-            result += response.getJSONArray("entries").objects().mapNotNull { item ->
-                if (item.optString(".tag") == "folder") null else RemoteStorageEntry(
+            result += response.getJSONArray("entries").objects().map { item ->
+                val isDirectory = item.optString(".tag") == "folder"
+                RemoteStorageEntry(
                     id = item.optString("id").ifBlank { item.getString("path_lower") },
                     path = item.getString("path_display"),
                     name = item.getString("name"),
-                    mimeType = mimeFromName(item.getString("name")),
+                    mimeType = if (isDirectory) "inode/directory" else mimeFromName(item.getString("name")),
                     size = item.optLong("size"),
                     modifiedAt = item.optString("server_modified"),
+                    isDirectory = isDirectory,
                 )
             }
             if (!response.optBoolean("has_more")) break
@@ -256,6 +268,11 @@ class OAuthApiStorageProvider(
             )
         }
         return result
+    }
+
+    private inline fun <T> String.requireRoot(block: () -> T): T {
+        require(isBlank()) { "Folder navigation is not supported: $providerId" }
+        return block()
     }
 
     private fun listGoogleDrive(): List<RemoteStorageEntry> {

@@ -37,6 +37,7 @@ import jp.viastrasse.cabinet.data.SearchResponse
 import jp.viastrasse.cabinet.data.SettingsSnapshot
 import jp.viastrasse.cabinet.data.SmartFolderSummary
 import jp.viastrasse.cabinet.data.StorageProviderAccountSummary
+import jp.viastrasse.cabinet.storage.RemoteStorageEntry
 import jp.viastrasse.cabinet.theme.CabinetColors
 import java.io.File
 
@@ -301,6 +302,47 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         } else {
             entries.forEach { entry ->
                 fileList.addView(documentFileRow(entry, displayMode, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile))
+            }
+        }
+        content.addView(fileList)
+    }
+
+    fun renderRemoteStorage(
+        title: String,
+        location: String,
+        entries: List<RemoteStorageEntry>,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        listOptions: FileListOptions,
+        onListOptionsChanged: (FileListOptions) -> Unit,
+        onBack: () -> Unit,
+        onParent: (() -> Unit)?,
+        onOpenDirectory: (RemoteStorageEntry) -> Unit,
+        onOpenFile: (RemoteStorageEntry) -> Unit,
+        onRegisterFile: (RemoteStorageEntry) -> Unit,
+    ) {
+        resetContent()
+        content.addView(screenHeader(title, location, onBack))
+        if (onParent != null) {
+            content.addView(
+                actionBar(
+                    listOf(ActionItem("↑ ${context.getString(R.string.action_move_to_parent_folder)}", onParent)),
+                ),
+            )
+        }
+        content.addView(sectionWithCount("Files", entries.size.toLong()))
+        content.addView(fileListControls(listOptions, onListOptionsChanged))
+        if (entries.isEmpty()) {
+            val message = if (listOptions.hasActiveFilter) emptyListMessage(listOptions) else context.getString(R.string.empty_no_files)
+            content.addView(emptyState(message))
+            return
+        }
+        val fileList = fileListContainer(displayMode, listOptions.layout)
+        if (listOptions.layout == FileListLayout.PREVIEW_GRID) {
+            addRemotePreviewGrid(fileList, entries, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile)
+        } else {
+            entries.forEach { entry ->
+                fileList.addView(remoteStorageRow(entry, displayMode, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile))
             }
         }
         content.addView(fileList)
@@ -2091,6 +2133,35 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    private fun remoteStorageRow(
+        entry: RemoteStorageEntry,
+        displayMode: String,
+        fontPreference: FileListDisplayPreference,
+        onOpenDirectory: (RemoteStorageEntry) -> Unit,
+        onOpenFile: (RemoteStorageEntry) -> Unit,
+        onRegisterFile: (RemoteStorageEntry) -> Unit,
+    ): View {
+        val isElegant = isElegantDisplayMode(displayMode)
+        return listRow(isElegant, fontPreference) {
+            val openAction = { if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry) }
+            setOnClickListener { openAction() }
+            setOnLongClickListener {
+                showRemoteStorageMenu(entry, openAction, onRegisterFile)
+                true
+            }
+            addView(
+                fileRowBody(
+                    kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                    name = entry.name,
+                    updatedLabel = entry.modifiedAt.ifBlank { context.getString(R.string.label_no_updated_at) },
+                    sizeLabel = if (entry.isDirectory) "" else readableSize(entry.size),
+                    isElegant = isElegant,
+                    fontPreference = fontPreference,
+                ),
+            )
+        }
+    }
+
     private fun cabinetFileRow(
         item: CabinetItemSummary,
         displayMode: String,
@@ -2301,6 +2372,24 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         showActionSheet(
             title = entry.name,
             path = entry.uri,
+            onPathLongClick = null,
+            actions = buildList {
+                add(ActionItem(context.getString(R.string.action_open), onOpen))
+                if (!entry.isDirectory) {
+                    add(ActionItem(context.getString(R.string.action_register_to_cabinet)) { onRegisterFile(entry) })
+                }
+            },
+        )
+    }
+
+    private fun showRemoteStorageMenu(
+        entry: RemoteStorageEntry,
+        onOpen: () -> Unit,
+        onRegisterFile: (RemoteStorageEntry) -> Unit,
+    ) {
+        showActionSheet(
+            title = entry.name,
+            path = entry.path,
             onPathLongClick = null,
             actions = buildList {
                 add(ActionItem(context.getString(R.string.action_open), onOpen))
@@ -2708,6 +2797,28 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 fontPreference = fontPreference,
                 onOpen = openAction,
                 onMenu = { showDocumentFileMenu(entry, openAction, onRegisterFile) },
+            )
+        }
+    }
+
+    private fun addRemotePreviewGrid(
+        container: LinearLayout,
+        entries: List<RemoteStorageEntry>,
+        fontPreference: FileListDisplayPreference,
+        onOpenDirectory: (RemoteStorageEntry) -> Unit,
+        onOpenFile: (RemoteStorageEntry) -> Unit,
+        onRegisterFile: (RemoteStorageEntry) -> Unit,
+    ) {
+        addPreviewGrid(container, entries) { entry ->
+            val openAction = { if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry) }
+            previewCard(
+                title = entry.name,
+                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType),
+                meta = if (entry.isDirectory) entry.modifiedAt else "${entry.modifiedAt}  ${readableSize(entry.size)}",
+                imageUri = null,
+                fontPreference = fontPreference,
+                onOpen = openAction,
+                onMenu = { showRemoteStorageMenu(entry, openAction, onRegisterFile) },
             )
         }
     }

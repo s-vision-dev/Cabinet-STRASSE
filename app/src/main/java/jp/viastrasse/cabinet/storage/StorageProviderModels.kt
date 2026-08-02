@@ -18,6 +18,11 @@ interface DirectStorageProvider {
 
     fun listFiles(): List<RemoteStorageEntry>
 
+    fun listFolder(path: String): List<RemoteStorageEntry> {
+        require(path.isBlank()) { "Folder navigation is not supported: $providerId" }
+        return listFiles()
+    }
+
     fun download(entry: RemoteStorageEntry, destination: File)
 
     fun testConnection() {

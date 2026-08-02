@@ -210,6 +210,8 @@
     <string name="storage_provider_document_provider_description">Androidのファイル選択画面で%1$sのフォルダを選択してください。表示されない場合は、対応するストレージアプリを端末へインストールしてログインしてください。</string>
     <string name="storage_provider_not_connected">%1$sは接続されていません</string>
     <string name="storage_provider_access_failed">選択したストレージを開けませんでした</string>
+    <string name="storage_provider_error_title">ストレージ接続エラー</string>
+    <string name="storage_provider_dropbox_permissions_missing">Dropboxのファイル参照権限がありません。Dropbox App ConsoleのPermissionsでfiles.metadata.read、files.content.read、files.content.write、account_info.readを有効にしてSubmitを押し、Cabinetで接続を解除してから再接続してください。</string>
     <string name="storage_provider_back_to_settings">ストレージ設定へ戻る</string>
     <string name="storage_provider_disconnect">接続を解除</string>
     <string name="storage_provider_disconnected">%1$sの接続を解除しました</string>

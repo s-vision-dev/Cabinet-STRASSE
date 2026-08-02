@@ -2517,7 +2517,7 @@ class MainActivity : Activity() {
                 }
             }.onFailure { error ->
                 runOnUiThread {
-                    Toast.makeText(this, error.message ?: getString(R.string.storage_provider_auth_failed), Toast.LENGTH_LONG).show()
+                    showStorageProviderError(error, R.string.storage_provider_auth_failed)
                     openSettings()
                 }
             }
@@ -2554,29 +2554,132 @@ class MainActivity : Activity() {
     }
 
     private fun syncAndOpenStorageProvider(provider: StorageProviderAccountSummary) {
+        openRemoteStorageDirectory(provider, "", emptyList())
+    }
+
+    private fun openRemoteStorageDirectory(
+        provider: StorageProviderAccountSummary,
+        path: String,
+        parents: List<String>,
+    ) {
         Toast.makeText(this, getString(R.string.storage_provider_loading, provider.displayName), Toast.LENGTH_SHORT).show()
         thread(name = "cabinet-provider-list") {
             runCatching {
-                StorageProviderFactory(applicationContext).create(provider).listFiles().forEach { entry ->
-                    repository.registerRemoteFile(
-                        providerId = provider.id,
-                        remoteFileId = entry.id,
-                        remotePath = entry.path,
-                        displayName = entry.name,
-                        mimeType = entry.mimeType,
-                        size = entry.size,
-                        webUrl = entry.webUrl,
-                        note = provider.displayName,
+                StorageProviderFactory(applicationContext).create(provider).listFolder(path)
+            }.onSuccess { rawEntries ->
+                runOnUiThread {
+                    val entries = applyRemoteStorageListOptions(rawEntries)
+                    isDashboardVisible = false
+                    dashboardView.renderRemoteStorage(
+                        title = provider.displayName,
+                        location = path.ifBlank { "/" },
+                        entries = entries,
+                        displayMode = displayModePreference(),
+                        fontPreference = fileListDisplayPreference(),
+                        listOptions = fileListOptions,
+                        onListOptionsChanged = { options ->
+                            fileListOptions = options
+                            openRemoteStorageDirectory(provider, path, parents)
+                        },
+                        onBack = ::openSettings,
+                        onParent = parents.lastOrNull()?.let { parent ->
+                            { openRemoteStorageDirectory(provider, parent, parents.dropLast(1)) }
+                        },
+                        onOpenDirectory = { entry ->
+                            openRemoteStorageDirectory(provider, entry.path, parents + path)
+                        },
+                        onOpenFile = { entry -> registerAndOpenRemoteFile(provider, entry) },
+                        onRegisterFile = { entry -> registerRemoteStorageEntry(provider, entry, openAfterRegistration = false) },
                     )
                 }
-            }.onSuccess {
-                runOnUiThread { openMode("provider:${provider.id}") }
             }.onFailure { error ->
                 runOnUiThread {
-                    Toast.makeText(this, error.message ?: getString(R.string.storage_provider_access_failed), Toast.LENGTH_LONG).show()
+                    showStorageProviderError(error, R.string.storage_provider_access_failed)
                 }
             }
         }
+    }
+
+    private fun applyRemoteStorageListOptions(entries: List<RemoteStorageEntry>): List<RemoteStorageEntry> {
+        val cutoff = fileListOptions.periodDays?.let { System.currentTimeMillis() - it * 24L * 60L * 60L * 1000L }
+        val filtered = entries.filter { entry ->
+            val matchesName = fileListOptions.nameQuery.isBlank() ||
+                entry.name.contains(fileListOptions.nameQuery, ignoreCase = true)
+            if (!matchesName) return@filter false
+            if (entry.isDirectory) return@filter true
+            val modifiedAt = remoteStorageModifiedAtMillis(entry.modifiedAt)
+            val matchesPeriod = cutoff == null || modifiedAt == null || modifiedAt >= cutoff
+            val matchesExtension = fileListOptions.extensionQuery.isBlank() ||
+                extensionOf(entry.name).equals(fileListOptions.extensionQuery.trimStart('.'), ignoreCase = true)
+            matchesPeriod && matchesExtension
+        }
+        val sorted = when (fileListOptions.sort) {
+            FileListSort.DATE_DESC -> filtered.sortedByDescending { remoteStorageModifiedAtMillis(it.modifiedAt) ?: Long.MIN_VALUE }
+            FileListSort.DATE_ASC -> filtered.sortedBy { remoteStorageModifiedAtMillis(it.modifiedAt) ?: Long.MAX_VALUE }
+            FileListSort.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
+            FileListSort.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
+            FileListSort.EXT_ASC -> filtered.sortedWith(compareBy<RemoteStorageEntry> { extensionOf(it.name).lowercase() }.thenBy { it.name.lowercase() })
+            FileListSort.EXT_DESC -> filtered.sortedWith(compareByDescending<RemoteStorageEntry> { extensionOf(it.name).lowercase() }.thenBy { it.name.lowercase() })
+        }
+        return sorted.sortedWith(compareBy<RemoteStorageEntry> { !it.isDirectory })
+    }
+
+    private fun remoteStorageModifiedAtMillis(value: String): Long? = value
+        .takeIf { it.isNotBlank() }
+        ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+
+    private fun registerAndOpenRemoteFile(provider: StorageProviderAccountSummary, entry: RemoteStorageEntry) {
+        registerRemoteStorageEntry(provider, entry, openAfterRegistration = true)
+    }
+
+    private fun registerRemoteStorageEntry(
+        provider: StorageProviderAccountSummary,
+        entry: RemoteStorageEntry,
+        openAfterRegistration: Boolean,
+    ) {
+        thread(name = "cabinet-provider-register") {
+            runCatching {
+                repository.registerRemoteFile(
+                    providerId = provider.id,
+                    remoteFileId = entry.id,
+                    remotePath = entry.path,
+                    displayName = entry.name,
+                    mimeType = entry.mimeType,
+                    size = entry.size,
+                    webUrl = entry.webUrl,
+                    note = provider.displayName,
+                )
+            }.onSuccess { item ->
+                runOnUiThread {
+                    if (openAfterRegistration) {
+                        openItemFromList(item.id)
+                    } else {
+                        Toast.makeText(this, getString(R.string.main_register_remote_file, entry.name), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(this, error.message ?: getString(R.string.main_register_remote_file_2), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun showStorageProviderError(error: Throwable, fallbackMessage: Int) {
+        val detail = error.message.orEmpty()
+        val message = if (
+            detail.contains("files.metadata.read", ignoreCase = true) ||
+            detail.contains("files/list_folder", ignoreCase = true)
+        ) {
+            getString(R.string.storage_provider_dropbox_permissions_missing)
+        } else {
+            detail.ifBlank { getString(fallbackMessage) }
+        }
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(R.string.storage_provider_error_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.action_close, null)
+            .show()
     }
 
     private fun downloadAndOpenRemoteItem(
