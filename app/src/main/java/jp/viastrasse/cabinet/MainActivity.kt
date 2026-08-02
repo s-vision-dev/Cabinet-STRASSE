@@ -33,6 +33,8 @@ import jp.viastrasse.cabinet.preview.PreviewWorker
 import jp.viastrasse.cabinet.preview.ThumbnailGenerator
 import jp.viastrasse.cabinet.ui.CabinetDashboardView
 import jp.viastrasse.cabinet.ui.CabinetMetrics
+import jp.viastrasse.cabinet.ui.DISPLAY_MODE_COMPACT
+import jp.viastrasse.cabinet.ui.normalizeDisplayMode
 import jp.viastrasse.cabinet.ui.cabinetInput
 import jp.viastrasse.cabinet.ui.DeviceFileEntry
 import jp.viastrasse.cabinet.ui.DocumentFileEntry
@@ -72,6 +74,12 @@ class MainActivity : Activity() {
     private var currentDocumentChooseRoot: (() -> Unit)? = null
     private var pendingStorageProviderId: String? = null
     private var pendingApkInstallUri: Uri? = null
+
+    /**
+     * 設定配下のサブ画面(バックアップ/セキュリティ/重複/プロバイダ/About)を
+     * 表示している間の戻り先。設定へ1段戻すために持つ。
+     */
+    private var settingsBackTarget: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,6 +150,12 @@ class MainActivity : Activity() {
     }
 
     private fun handleSystemBack(): Boolean {
+        // 設定のサブ画面からはホームへ直帰せず、設定へ1段だけ戻る。
+        settingsBackTarget?.let { back ->
+            settingsBackTarget = null
+            back()
+            return true
+        }
         if (!isDashboardVisible) {
             renderDashboard()
             return true
@@ -290,7 +304,9 @@ class MainActivity : Activity() {
     }
 
     private fun renderDashboard() {
+        showDashboardView()
         isDashboardVisible = true
+        settingsBackTarget = null
         runCatching {
             repository.dashboard() to repository.settings().providers.filter { provider ->
                 provider.providerType != "local" &&
@@ -2256,24 +2272,15 @@ class MainActivity : Activity() {
         runCatching {
             validatedStorageProviderSettings() to repository.duplicateReport()
         }.onSuccess { (settings, duplicateReport) ->
+            showDashboardView()
             isDashboardVisible = false
+            settingsBackTarget = null
             dashboardView.renderSettings(
                 settings = settings,
                 duplicateReport = duplicateReport,
                 onBack = ::renderDashboard,
-                onExportBackup = ::exportBackup,
-                onRunBackupNow = ::runBackupNow,
-                onImportBackup = ::openBackupPicker,
-                onRestoreLatestBackup = ::restoreLatestLocalBackup,
-                onSetPin = ::showSetPinDialog,
-                onVerifyPin = ::showVerifyPinDialog,
-                onConfigureProvider = ::showStorageProviderDialog,
-                onAddRemoteFile = ::showRemoteFileDialog,
-                onOpenProvider = ::openStorageProvider,
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
-                onDuplicateItemSelected = ::openItemFromList,
                 selectedProviderId = selectedStorageProviderId(settings.providers),
-                onProviderSelected = ::updateSelectedStorageProvider,
                 displayMode = displayModePreference(),
                 fontPreference = fileListDisplayPreference(),
                 onDisplayModeSelected = ::updateDisplayModePreference,
@@ -2282,6 +2289,77 @@ class MainActivity : Activity() {
                 useViastrasseView = useViastrasseView(),
                 onUseViastrasseViewChanged = ::updateUseViastrasseView,
                 onAbout = ::openAbout,
+                onOpenBackupDetail = ::openBackupSettings,
+                onOpenSecurityDetail = ::openSecuritySettings,
+                onOpenDuplicates = ::openDuplicateSettings,
+                onOpenProviderDetail = ::openProviderSettings,
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openBackupSettings() {
+        runCatching { repository.settings() }.onSuccess { settings ->
+            showDashboardView()
+            isDashboardVisible = false
+            settingsBackTarget = ::openSettings
+            dashboardView.renderBackupSettings(
+                settings = settings,
+                onBack = ::openSettings,
+                onExportBackup = ::exportBackup,
+                onRunBackupNow = ::runBackupNow,
+                onImportBackup = ::openBackupPicker,
+                onRestoreLatestBackup = ::restoreLatestLocalBackup,
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openSecuritySettings() {
+        runCatching { repository.settings() }.onSuccess { settings ->
+            showDashboardView()
+            isDashboardVisible = false
+            settingsBackTarget = ::openSettings
+            dashboardView.renderSecuritySettings(
+                settings = settings,
+                onBack = ::openSettings,
+                onSetPin = ::showSetPinDialog,
+                onVerifyPin = ::showVerifyPinDialog,
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openDuplicateSettings() {
+        runCatching { repository.duplicateReport() }.onSuccess { duplicateReport ->
+            showDashboardView()
+            isDashboardVisible = false
+            settingsBackTarget = ::openSettings
+            dashboardView.renderDuplicates(
+                duplicateReport = duplicateReport,
+                onBack = ::openSettings,
+                onDuplicateItemSelected = ::openItemFromList,
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openProviderSettings() {
+        runCatching { validatedStorageProviderSettings() }.onSuccess { settings ->
+            showDashboardView()
+            isDashboardVisible = false
+            settingsBackTarget = ::openSettings
+            dashboardView.renderProviderSettings(
+                settings = settings,
+                selectedProviderId = selectedStorageProviderId(settings.providers),
+                onBack = ::openSettings,
+                onProviderSelected = ::updateSelectedStorageProvider,
+                onOpenProvider = ::openStorageProvider,
+                onConfigureProvider = ::showStorageProviderDialog,
             )
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
@@ -2317,39 +2395,44 @@ class MainActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0)
         }
         isDashboardVisible = false
-        dashboardView.renderAbout(
-            versionName = packageInfo.versionName.orEmpty(),
-            versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.longVersionCode.toInt()
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.versionCode
-            },
-            onBack = ::openSettings,
-            onOpenViastrasseFamily = {
-                ViastrasseFamilyLauncher.open(
-                    context = this,
-                    currentApp = "cabinet",
-                )
-            },
+        // ファミリー共通の全画面レイアウトなので、スクロール面ではなく
+        // Activity のコンテンツごと差し替える。
+        settingsBackTarget = ::openSettings
+        setContentView(
+            dashboardView.buildAboutView(
+                versionName = packageInfo.versionName.orEmpty(),
+                versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    packageInfo.longVersionCode.toInt()
+                } else {
+                    @Suppress("DEPRECATION")
+                    packageInfo.versionCode
+                },
+                onBack = ::openSettings,
+                onOpenViastrasseFamily = {
+                    ViastrasseFamilyLauncher.open(
+                        context = this,
+                        currentApp = "cabinet",
+                    )
+                },
+            ),
         )
+    }
+
+    /** About から戻るときなど、通常のスクロール面へ表示を戻す。 */
+    private fun showDashboardView() {
+        if (dashboardView.parent == null) {
+            setContentView(dashboardView)
+        }
     }
 
     private fun displayModePreference(): String {
         val value = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
             .getString(KEY_DISPLAY_MODE, DISPLAY_MODE_COMPACT)
-            .orEmpty()
-        return when (value) {
-            DISPLAY_MODE_COMPACT, DISPLAY_MODE_ELEGANT -> value
-            else -> DISPLAY_MODE_COMPACT
-        }
+        return normalizeDisplayMode(value)
     }
 
     private fun updateDisplayModePreference(displayMode: String) {
-        val normalized = when (displayMode) {
-            DISPLAY_MODE_COMPACT, DISPLAY_MODE_ELEGANT -> displayMode
-            else -> DISPLAY_MODE_COMPACT
-        }
+        val normalized = normalizeDisplayMode(displayMode)
         getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putString(KEY_DISPLAY_MODE, normalized)
@@ -3088,8 +3171,6 @@ class MainActivity : Activity() {
         private const val LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"
         private const val LEGACY_KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
         private const val LEGACY_KEY_FILE_LIST_BODY_FONT_SIZE = "file_list_body_font_size"
-        private const val DISPLAY_MODE_COMPACT = "compact"
-        private const val DISPLAY_MODE_ELEGANT = "elegant"
     }
 
     private data class ViewerNavigationItem(

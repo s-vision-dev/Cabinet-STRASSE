@@ -12,6 +12,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -24,6 +25,7 @@ import android.widget.Switch
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.annotation.StringRes
+import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import jp.viastrasse.cabinet.R
 import jp.viastrasse.cabinet.data.CabinetCollectionSummary
@@ -649,19 +651,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         settings: SettingsSnapshot,
         duplicateReport: DuplicateReport,
         onBack: () -> Unit,
-        onExportBackup: () -> Unit,
-        onRunBackupNow: () -> Unit,
-        onImportBackup: () -> Unit,
-        onRestoreLatestBackup: () -> Unit,
-        onSetPin: () -> Unit,
-        onVerifyPin: () -> Unit,
-        onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
-        onAddRemoteFile: (StorageProviderAccountSummary) -> Unit,
-        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
         onCreateSmartFolder: () -> Unit,
-        onDuplicateItemSelected: (String) -> Unit,
         selectedProviderId: String,
-        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
         displayMode: String,
         fontPreference: FileListDisplayPreference,
         onDisplayModeSelected: (String) -> Unit,
@@ -670,57 +661,199 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         useViastrasseView: Boolean,
         onUseViastrasseViewChanged: (Boolean) -> Unit,
         onAbout: () -> Unit,
+        onOpenBackupDetail: () -> Unit,
+        onOpenSecurityDetail: () -> Unit,
+        onOpenDuplicates: () -> Unit,
+        onOpenProviderDetail: () -> Unit,
     ) {
         resetContent()
-        content.addView(screenHeader("Settings", context.getString(R.string.view_render_settings), onBack))
+        content.addView(
+            screenHeader(
+                context.getString(R.string.settings_title),
+                context.getString(R.string.view_render_settings),
+                onBack,
+            ),
+        )
 
-        content.addView(section(context.getString(R.string.action_show)))
+        // 表示 ── ここだけは操作対象そのものを置く(切り替えた結果がすぐ見える方が良い)
+        content.addView(section(context.getString(R.string.settings_section_appearance)))
         content.addView(
             card {
                 addView(displayModeSelector(displayMode, onDisplayModeSelected))
                 addView(spacer(CabinetMetrics.SPACE_LG))
                 addView(fontPreferenceSelector(fontPreference, onFontPreferenceChanged))
-                addView(spacer(CabinetMetrics.SPACE_LG))
-                addView(Switch(context).apply {
-                    text = context.getString(R.string.setting_use_viastrasse_view)
-                    isChecked = useViastrasseView && viewInstalled
-                    isEnabled = viewInstalled
-                    setTextColor(CabinetColors.TextPrimary)
-                    setOnCheckedChangeListener { _, checked -> onUseViastrasseViewChanged(checked) }
-                })
-                addView(label(
-                    context.getString(
-                        if (viewInstalled) R.string.setting_viastrasse_view_available
-                        else R.string.setting_viastrasse_view_not_installed,
-                    ),
-                    CabinetType.CAPTION,
-                    false,
-                    CabinetColors.TextSecondary,
-                ))
             },
         )
 
-        content.addView(section(context.getString(R.string.action_about_app)))
+        // 連携
+        content.addView(section(context.getString(R.string.settings_section_integration)))
         content.addView(
-            card {
-                addView(ghostButton(context.getString(R.string.action_about_app), onAbout))
+            settingsGroup {
+                addView(
+                    settingsToggle(
+                        context.getString(R.string.setting_use_viastrasse_view),
+                        context.getString(
+                            if (viewInstalled) R.string.setting_viastrasse_view_available
+                            else R.string.setting_viastrasse_view_not_installed,
+                        ),
+                        checked = useViastrasseView && viewInstalled,
+                        enabled = viewInstalled,
+                        onCheckedChange = onUseViastrasseViewChanged,
+                    ),
+                )
+                addView(rowDivider())
+                val provider = settings.providers.firstOrNull { it.id == selectedProviderId }
+                    ?: settings.providers.firstOrNull()
+                addView(
+                    settingsRow(
+                        context.getString(R.string.storage_provider_section),
+                        if (provider == null) {
+                            context.getString(R.string.settings_provider_summary_empty)
+                        } else {
+                            context.getString(
+                                R.string.settings_provider_summary,
+                                provider.displayName,
+                                providerStatusLabel(provider.connectionStatus),
+                            )
+                        },
+                        onClick = onOpenProviderDetail,
+                    ),
+                )
             },
         )
 
-        content.addView(section("Backup"))
+        // 整理
+        content.addView(section(context.getString(R.string.settings_section_organize)))
+        content.addView(
+            settingsGroup {
+                addView(
+                    settingsRow(
+                        context.getString(R.string.view_render_settings_13),
+                        context.getString(R.string.settings_smart_folder_summary),
+                        onClick = onCreateSmartFolder,
+                    ),
+                )
+                addView(rowDivider())
+                addView(
+                    settingsRow(
+                        context.getString(R.string.settings_duplicates_title),
+                        if (duplicateReport.groups.isEmpty()) {
+                            context.getString(R.string.settings_duplicates_summary_empty)
+                        } else {
+                            context.getString(
+                                R.string.settings_duplicates_summary,
+                                duplicateReport.groups.size,
+                            )
+                        },
+                        onClick = onOpenDuplicates,
+                    ),
+                )
+            },
+        )
+
+        // バックアップ / セキュリティ
+        content.addView(section(context.getString(R.string.settings_section_backup)))
+        content.addView(
+            settingsGroup {
+                addView(
+                    settingsRow(
+                        context.getString(R.string.settings_backup_detail_title),
+                        context.getString(
+                            R.string.settings_backup_summary,
+                            settings.backup.itemCount,
+                            settings.backup.exportedAt.ifBlank {
+                                context.getString(R.string.label_not_fetched)
+                            },
+                        ),
+                        onClick = onOpenBackupDetail,
+                    ),
+                )
+                addView(rowDivider())
+                addView(
+                    settingsRow(
+                        context.getString(R.string.settings_security_detail_title),
+                        if (settings.security.pinEnabled) {
+                            context.getString(
+                                R.string.settings_pin_summary_enabled,
+                                settings.security.protectedItemCount,
+                            )
+                        } else {
+                            context.getString(R.string.settings_pin_summary_disabled)
+                        },
+                        onClick = onOpenSecurityDetail,
+                    ),
+                )
+            },
+        )
+
+        // アプリ情報(ファミリー共通で最下段に置く)
+        content.addView(section(context.getString(R.string.settings_section_info)))
+        content.addView(
+            settingsGroup {
+                addView(
+                    settingsRow(
+                        context.getString(R.string.action_about_app),
+                        context.getString(R.string.settings_about_summary),
+                        onClick = onAbout,
+                    ),
+                )
+            },
+        )
+    }
+
+    /** 設定 → バックアップ。統計と4つの操作をまとめる。 */
+    fun renderBackupSettings(
+        settings: SettingsSnapshot,
+        onBack: () -> Unit,
+        onExportBackup: () -> Unit,
+        onRunBackupNow: () -> Unit,
+        onImportBackup: () -> Unit,
+        onRestoreLatestBackup: () -> Unit,
+    ) {
+        resetContent()
+        content.addView(
+            screenHeader(
+                context.getString(R.string.settings_backup_detail_title),
+                null,
+                onBack,
+                context.getString(R.string.settings_title),
+            ),
+        )
         content.addView(
             card {
-                addView(statTileRow(
-                    listOf(
-                        "Items" to settings.backup.itemCount.toString(),
-                        "Collections" to settings.backup.collectionCount.toString(),
-                        "Tags" to settings.backup.tagCount.toString(),
+                addView(
+                    statTileRow(
+                        listOf(
+                            context.getString(R.string.settings_backup_stat_items) to
+                                settings.backup.itemCount.toString(),
+                            context.getString(R.string.settings_backup_stat_collections) to
+                                settings.backup.collectionCount.toString(),
+                            context.getString(R.string.settings_backup_stat_tags) to
+                                settings.backup.tagCount.toString(),
+                        ),
                     ),
-                ))
+                )
                 addView(spacer(CabinetMetrics.SPACE_SM))
-                addView(definitionRow("Previews", settings.backup.previewCount.toString()))
-                addView(definitionRow(context.getString(R.string.view_render_settings_2), settings.backup.exportedAt.ifBlank { context.getString(R.string.label_not_fetched) }))
-                addView(definitionRow(context.getString(R.string.view_render_settings_3), context.getString(R.string.view_render_settings_4)))
+                addView(
+                    definitionRow(
+                        context.getString(R.string.settings_backup_previews),
+                        settings.backup.previewCount.toString(),
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_2),
+                        settings.backup.exportedAt.ifBlank {
+                            context.getString(R.string.label_not_fetched)
+                        },
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_3),
+                        context.getString(R.string.view_render_settings_4),
+                    ),
+                )
                 addView(spacer(CabinetMetrics.SPACE_MD))
                 addView(
                     actionGrid(
@@ -734,21 +867,51 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 )
             },
         )
+    }
 
-        content.addView(section("Security"))
+    /** 設定 → セキュリティ。 */
+    fun renderSecuritySettings(
+        settings: SettingsSnapshot,
+        onBack: () -> Unit,
+        onSetPin: () -> Unit,
+        onVerifyPin: () -> Unit,
+    ) {
+        resetContent()
+        content.addView(
+            screenHeader(
+                context.getString(R.string.settings_security_detail_title),
+                null,
+                onBack,
+                context.getString(R.string.settings_title),
+            ),
+        )
         content.addView(
             card {
                 addView(
                     cardTitleRow(
-                        "PIN",
+                        context.getString(R.string.settings_pin_label),
                         statusBadge(
-                            if (settings.security.pinEnabled) context.getString(R.string.view_render_settings_9) else context.getString(R.string.label_not_configured),
+                            if (settings.security.pinEnabled) {
+                                context.getString(R.string.view_render_settings_9)
+                            } else {
+                                context.getString(R.string.label_not_configured)
+                            },
                             if (settings.security.pinEnabled) CabinetColors.Success else CabinetColors.TextMuted,
                         ),
                     ),
                 )
-                addView(definitionRow(context.getString(R.string.view_render_settings_10), context.getString(R.string.format_item_count, settings.security.protectedItemCount)))
-                addView(definitionRow(context.getString(R.string.label_protected_memo), context.getString(R.string.format_item_count, settings.security.protectedMemoCount)))
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_10),
+                        context.getString(R.string.format_item_count, settings.security.protectedItemCount),
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.label_protected_memo),
+                        context.getString(R.string.format_item_count, settings.security.protectedMemoCount),
+                    ),
+                )
                 addView(spacer(CabinetMetrics.SPACE_MD))
                 addView(
                     actionGrid(
@@ -760,22 +923,42 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 )
             },
         )
+    }
 
-        content.addView(section("Smart Folder"))
-        content.addView(ghostButton(context.getString(R.string.view_render_settings_13), onCreateSmartFolder))
-
-        content.addView(sectionWithCount(context.getString(R.string.view_render_settings_14), duplicateReport.groups.size.toLong()))
+    /** 設定 → 重複候補。設定本体から切り出した独立画面。 */
+    fun renderDuplicates(
+        duplicateReport: DuplicateReport,
+        onBack: () -> Unit,
+        onDuplicateItemSelected: (String) -> Unit,
+    ) {
+        resetContent()
+        content.addView(
+            screenHeader(
+                context.getString(R.string.settings_duplicates_title),
+                null,
+                onBack,
+                context.getString(R.string.settings_title),
+            ),
+        )
         if (duplicateReport.groups.isEmpty()) {
             content.addView(emptyState(context.getString(R.string.view_render_settings_15)))
+            return
         }
         duplicateReport.groups.forEach { group ->
             content.addView(
                 card {
-                    addView(cardTitleRow(context.getString(R.string.view_render_settings_16, group.items.size), statusBadge(readableSize(group.size))))
-                    addView(label(group.hash, CabinetType.MICRO, false, CabinetColors.TextMuted).apply {
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.MIDDLE
-                    })
+                    addView(
+                        cardTitleRow(
+                            context.getString(R.string.view_render_settings_16, group.items.size),
+                            statusBadge(readableSize(group.size)),
+                        ),
+                    )
+                    addView(
+                        label(group.hash, CabinetType.MICRO, false, CabinetColors.TextMuted).apply {
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.MIDDLE
+                        },
+                    )
                     addView(spacer(CabinetMetrics.SPACE_SM))
                     group.items.forEach { item ->
                         addView(ghostButton(item.displayName) { onDuplicateItemSelected(item.id) })
@@ -784,92 +967,196 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 },
             )
         }
-
-        content.addView(sectionWithCount(context.getString(R.string.storage_provider_section), settings.providers.size.toLong()))
-        val selectedProvider = settings.providers.firstOrNull { it.id == selectedProviderId }
-            ?: settings.providers.firstOrNull()
-        if (selectedProvider != null) {
-            content.addView(providerSelector(settings.providers, selectedProvider.id, onProviderSelected))
-            content.addView(spacer(CabinetMetrics.SPACE_MD))
-            content.addView(
-                card {
-                    addView(cardTitleRow(selectedProvider.displayName, statusBadge(providerStatusLabel(selectedProvider.connectionStatus), providerStatusColor(selectedProvider.connectionStatus))))
-                    addView(definitionRow(context.getString(R.string.view_render_settings_17), "${selectedProvider.providerType} / ${selectedProvider.authType}"))
-                    if (selectedProvider.accountName.isNotBlank()) {
-                        addView(definitionRow(context.getString(R.string.label_account), selectedProvider.accountName))
-                    }
-                    if (selectedProvider.endpointUrl.isNotBlank()) {
-                        addView(definitionRow(context.getString(R.string.storage_provider_endpoint), selectedProvider.endpointUrl))
-                    }
-                    if (selectedProvider.username.isNotBlank()) {
-                        addView(definitionRow(context.getString(R.string.storage_provider_username), selectedProvider.username))
-                    }
-                    if (selectedProvider.remoteRoot.isNotBlank() && !selectedProvider.remoteRoot.startsWith("direct://")) {
-                        addView(definitionRow(context.getString(R.string.storage_provider_remote_root), selectedProvider.remoteRoot))
-                    }
-                    if (selectedProvider.domain.isNotBlank()) {
-                        addView(definitionRow(context.getString(R.string.storage_provider_domain), selectedProvider.domain))
-                    }
-                    addView(definitionRow(context.getString(R.string.storage_provider_cache_policy), cachePolicyLabel(selectedProvider.cachePolicy)))
-                    addView(spacer(CabinetMetrics.SPACE_MD))
-                    addView(
-                        actionGrid(
-                            buildList {
-                                add(ActionItem(context.getString(R.string.view_render_settings_18)) { onOpenProvider(selectedProvider) })
-                                add(ActionItem(context.getString(R.string.label_settings)) { onConfigureProvider(selectedProvider) })
-                            },
-                        ),
-                    )
-                },
-            )
-        }
     }
 
-    fun renderAbout(
-        versionName: String,
-        versionCode: Int,
+    /** 設定 → ストレージプロバイダ。 */
+    fun renderProviderSettings(
+        settings: SettingsSnapshot,
+        selectedProviderId: String,
         onBack: () -> Unit,
-        onOpenViastrasseFamily: () -> Unit,
+        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
+        onOpenProvider: (StorageProviderAccountSummary) -> Unit,
+        onConfigureProvider: (StorageProviderAccountSummary) -> Unit,
     ) {
         resetContent()
         content.addView(
             screenHeader(
-                context.getString(R.string.action_about_app),
+                context.getString(R.string.settings_provider_detail_title),
                 null,
                 onBack,
-                context.getString(R.string.label_settings),
+                context.getString(R.string.settings_title),
             ),
         )
+        val selectedProvider = settings.providers.firstOrNull { it.id == selectedProviderId }
+            ?: settings.providers.firstOrNull()
+        if (selectedProvider == null) {
+            content.addView(emptyState(context.getString(R.string.settings_provider_summary_empty)))
+            return
+        }
+        content.addView(providerSelector(settings.providers, selectedProvider.id, onProviderSelected))
+        content.addView(spacer(CabinetMetrics.SPACE_MD))
         content.addView(
-            ImageView(context).apply {
-                setImageResource(R.drawable.cabinet_strasse_startup)
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                contentDescription = context.getString(R.string.app_name)
+            card {
+                addView(
+                    cardTitleRow(
+                        selectedProvider.displayName,
+                        statusBadge(
+                            providerStatusLabel(selectedProvider.connectionStatus),
+                            providerStatusColor(selectedProvider.connectionStatus),
+                        ),
+                    ),
+                )
+                addView(
+                    definitionRow(
+                        context.getString(R.string.view_render_settings_17),
+                        "${selectedProvider.providerType} / ${selectedProvider.authType}",
+                    ),
+                )
+                if (selectedProvider.accountName.isNotBlank()) {
+                    addView(definitionRow(context.getString(R.string.label_account), selectedProvider.accountName))
+                }
+                if (selectedProvider.endpointUrl.isNotBlank()) {
+                    addView(definitionRow(context.getString(R.string.storage_provider_endpoint), selectedProvider.endpointUrl))
+                }
+                if (selectedProvider.username.isNotBlank()) {
+                    addView(definitionRow(context.getString(R.string.storage_provider_username), selectedProvider.username))
+                }
+                if (selectedProvider.remoteRoot.isNotBlank() && !selectedProvider.remoteRoot.startsWith("direct://")) {
+                    addView(definitionRow(context.getString(R.string.storage_provider_remote_root), selectedProvider.remoteRoot))
+                }
+                if (selectedProvider.domain.isNotBlank()) {
+                    addView(definitionRow(context.getString(R.string.storage_provider_domain), selectedProvider.domain))
+                }
+                addView(
+                    definitionRow(
+                        context.getString(R.string.storage_provider_cache_policy),
+                        cachePolicyLabel(selectedProvider.cachePolicy),
+                    ),
+                )
+                addView(spacer(CabinetMetrics.SPACE_MD))
+                addView(
+                    actionGrid(
+                        listOf(
+                            ActionItem(context.getString(R.string.view_render_settings_18)) {
+                                onOpenProvider(selectedProvider)
+                            },
+                            ActionItem(context.getString(R.string.label_settings)) {
+                                onConfigureProvider(selectedProvider)
+                            },
+                        ),
+                    ),
+                )
             },
         )
-        content.addView(
-            label(
-                context.getString(R.string.about_version_format, versionName, versionCode),
-                CabinetType.BODY,
-                true,
-                CabinetColors.TextSecondary,
-            ).apply {
-                gravity = Gravity.CENTER
-                setPadding(0, dp(CabinetMetrics.SPACE_LG), 0, dp(CabinetMetrics.SPACE_XL))
-            },
-        )
-        content.addView(
-            ImageView(context).apply {
-                setImageResource(R.drawable.viastrasse_branding_dark)
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                contentDescription = context.getString(R.string.label_viastrasse_family)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { onOpenViastrasseFamily() }
-            },
-        )
+    }
+
+    /**
+     * このアプリについて。
+     *
+     * ファミリー共通の形: 起動背景色のベタ塗りに、中央へ起動ロゴ、その少し下に
+     * ブランドネイビーのバージョン、最下部に VIASTRASSE ブランディング(タップで
+     * ファミリーを開く)。戻るは左上の「‹」のみでロゴを主役にする。
+     */
+    fun buildAboutView(
+        versionName: String,
+        versionCode: Int,
+        onBack: () -> Unit,
+        onOpenViastrasseFamily: () -> Unit,
+    ): View {
+        return FrameLayout(context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+            setBackgroundColor(CabinetColors.StartupBackground)
+
+            addView(
+                ImageView(context).apply {
+                    setImageResource(R.drawable.cabinet_strasse_startup)
+                    adjustViewBounds = true
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = context.getString(R.string.app_name)
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER,
+                    )
+                },
+            )
+
+            // ロゴ中央からやや下(画面高の 56% 付近)にバージョンを置く
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    )
+                    addView(
+                        View(context).apply {
+                            layoutParams = LinearLayout.LayoutParams(1, 0, 0.56f)
+                        },
+                    )
+                    addView(
+                        label(
+                            context.getString(R.string.about_version_format, versionName, versionCode),
+                            ABOUT_VERSION_TEXT_SIZE,
+                            true,
+                            CabinetColors.Brand,
+                        ).apply {
+                            gravity = Gravity.CENTER
+                            letterSpacing = 0.04f
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                            )
+                        },
+                    )
+                    addView(
+                        View(context).apply {
+                            layoutParams = LinearLayout.LayoutParams(1, 0, 0.44f)
+                        },
+                    )
+                },
+            )
+
+            addView(
+                ImageView(context).apply {
+                    setImageResource(R.drawable.viastrasse_branding_dark)
+                    adjustViewBounds = true
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = context.getString(R.string.label_viastrasse_family)
+                    setOnClickListener { onOpenViastrasseFamily() }
+                    isClickable = true
+                    isFocusable = true
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.BOTTOM,
+                    )
+                },
+            )
+
+            addView(
+                label("‹", ABOUT_BACK_TEXT_SIZE, false, CabinetColors.TextPrimary).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = context.getString(R.string.settings_title)
+                    background = context.borderlessRipple(
+                        CabinetMetrics.RADIUS_PILL,
+                        CabinetColors.Ripple,
+                    )
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { onBack() }
+                    layoutParams = FrameLayout.LayoutParams(
+                        dp(56),
+                        dp(56),
+                        Gravity.TOP or Gravity.START,
+                    )
+                },
+            )
+        }
     }
 
     private fun resetContent() {
@@ -1232,6 +1519,160 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
+    /**
+     * ファミリー共通の設定行。
+     *
+     * 「タイトル(太字) / 現在値や説明のサブテキスト」を縦に積み、右端に遷移記号を置く。
+     * Home by VIASTRASSE の settingsRow と同じ情報構造で、Flutter 側の
+     * ListTile(title, subtitle, trailing: chevron) にも対応する。
+     */
+    private fun settingsRow(
+        title: String,
+        subtitle: String? = null,
+        showChevron: Boolean = true,
+        onClick: (() -> Unit)? = null,
+    ): View {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            setPadding(
+                dp(CabinetMetrics.SPACE_LG),
+                dp(CabinetMetrics.SPACE_MD),
+                dp(CabinetMetrics.SPACE_LG),
+                dp(CabinetMetrics.SPACE_MD),
+            )
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    )
+                    addView(label(title, CabinetType.BODY, true))
+                    if (!subtitle.isNullOrBlank()) {
+                        addView(
+                            label(subtitle, CabinetType.CAPTION, false, CabinetColors.TextSecondary)
+                                .apply {
+                                    setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
+                                    setLineSpacing(0f, 1.25f)
+                                },
+                        )
+                    }
+                },
+            )
+            if (showChevron && onClick != null) {
+                addView(
+                    label("›", CabinetType.TITLE, false, CabinetColors.TextMuted).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply { leftMargin = dp(CabinetMetrics.SPACE_SM) }
+                    },
+                )
+            }
+        }
+        if (onClick == null) {
+            return row
+        }
+        return row.asTappable(
+            context.pressableShape(
+                CabinetColors.Surface,
+                CabinetMetrics.RADIUS_CARD,
+                strokeColor = CabinetColors.Outline,
+            ),
+        ).apply { setOnClickListener { onClick() } }
+    }
+
+    /** 設定行を隙間なくまとめる入れ物。境界線でグループ内の行を区切る。 */
+    private fun settingsGroup(block: LinearLayout.() -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = context.surfaceShape(
+                CabinetColors.Surface,
+                CabinetMetrics.RADIUS_CARD,
+                CabinetColors.Outline,
+            )
+            clipToOutline = true
+            block()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { setMargins(0, 0, 0, dp(CabinetMetrics.SPACE_SM)) }
+        }
+    }
+
+    /** グループ内の行の区切り線。 */
+    private fun rowDivider(): View {
+        return View(context).apply {
+            setBackgroundColor(CabinetColors.Outline)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(CabinetMetrics.STROKE),
+            ).apply { setMargins(dp(CabinetMetrics.SPACE_LG), 0, 0, 0) }
+        }
+    }
+
+    /** 設定行と同じ枠組みでトグルを置く。 */
+    private fun settingsToggle(
+        title: String,
+        subtitle: String?,
+        checked: Boolean,
+        enabled: Boolean,
+        onCheckedChange: (Boolean) -> Unit,
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+            setPadding(
+                dp(CabinetMetrics.SPACE_LG),
+                dp(CabinetMetrics.SPACE_MD),
+                dp(CabinetMetrics.SPACE_LG),
+                dp(CabinetMetrics.SPACE_MD),
+            )
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    )
+                    addView(
+                        label(
+                            title,
+                            CabinetType.BODY,
+                            true,
+                            if (enabled) CabinetColors.TextPrimary else CabinetColors.TextMuted,
+                        ),
+                    )
+                    if (!subtitle.isNullOrBlank()) {
+                        addView(
+                            label(subtitle, CabinetType.CAPTION, false, CabinetColors.TextSecondary)
+                                .apply {
+                                    setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
+                                    setLineSpacing(0f, 1.25f)
+                                },
+                        )
+                    }
+                },
+            )
+            addView(
+                Switch(context).apply {
+                    isChecked = checked
+                    isEnabled = enabled
+                    setOnCheckedChangeListener { _, value -> onCheckedChange(value) }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply { leftMargin = dp(CabinetMetrics.SPACE_SM) }
+                },
+            )
+        }
+    }
+
     private fun noticeCard(title: String, body: String, accentColor: Int): View {
         return card(strokeColor = accentColor) {
             addView(label(title, CabinetType.CAPTION, true, accentColor))
@@ -1439,8 +1880,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    addView(displayModeButton(context.getString(R.string.view_display_mode_selector_2), "compact", selectedMode, onDisplayModeSelected, leftSide = true))
-                    addView(displayModeButton(context.getString(R.string.view_display_mode_selector_3), "elegant", selectedMode, onDisplayModeSelected, leftSide = false))
+                    addView(displayModeButton(context.getString(R.string.view_display_mode_selector_2), DISPLAY_MODE_COMPACT, selectedMode, onDisplayModeSelected, leftSide = true))
+                    addView(displayModeButton(context.getString(R.string.view_display_mode_selector_3), DISPLAY_MODE_ELEGANT, selectedMode, onDisplayModeSelected, leftSide = false))
                 },
             )
             addView(spacer(CabinetMetrics.SPACE_SM))
@@ -1463,16 +1904,29 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         leftSide: Boolean,
     ): TextView {
         val selected = value == selectedMode
-        val icon = if (value == "compact") "☰" else "▤"
+        // 端末フォント依存で見た目が変わる絵文字ではなく、ファミリー共通の
+        // Material アイコン(選択時はチェック)をベクタで描く。
+        val iconRes = when {
+            selected -> R.drawable.ic_check
+            value == DISPLAY_MODE_COMPACT -> R.drawable.ic_view_headline
+            else -> R.drawable.ic_view_agenda
+        }
+        val iconColor = if (selected) CabinetColors.TextPrimary else CabinetColors.TextSecondary
         return label(
-            if (selected) "✓  $text" else "$icon  $text",
+            text,
             CabinetType.BODY,
             true,
-            if (selected) CabinetColors.TextPrimary else CabinetColors.TextSecondary,
+            iconColor,
         ).asTappable(segmentedBackground(selected, leftSide)).apply {
             gravity = Gravity.CENTER
             minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
             setPadding(dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_SM), dp(CabinetMetrics.SPACE_MD))
+            val icon = ContextCompat.getDrawable(context, iconRes)?.mutate()?.apply {
+                setTint(iconColor)
+                setBounds(0, 0, dp(18), dp(18))
+            }
+            setCompoundDrawables(icon, null, null, null)
+            compoundDrawablePadding = dp(CabinetMetrics.SPACE_SM)
             setOnClickListener { onDisplayModeSelected(value) }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 if (!leftSide) leftMargin = -dp(1)
@@ -2407,7 +2861,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         return if (isElegant) compactHeight + 40 else compactHeight
     }
 
-    private fun isElegantDisplayMode(displayMode: String): Boolean = displayMode == "elegant"
+    private fun isElegantDisplayMode(displayMode: String): Boolean =
+        displayMode == DISPLAY_MODE_ELEGANT
 
     private fun fileListContainer(displayMode: String, layout: FileListLayout): LinearLayout {
         val isElegant = isElegantDisplayMode(displayMode)
@@ -3240,6 +3695,22 @@ fun FileListOptions.periodLabel(context: Context): String = when (periodDays) {
     365 -> context.getString(R.string.period_within_1_year)
     else -> context.getString(R.string.period_within_days, periodDays)
 }
+
+/**
+ * ファイル一覧の表示密度。
+ *
+ * 値は Mail by VIASTRASSE と揃えており、保存値の互換も保つ。
+ * 未知の値は [normalizeDisplayMode] でコンパクトへ寄せる。
+ */
+const val DISPLAY_MODE_COMPACT = "compact"
+const val DISPLAY_MODE_ELEGANT = "elegant"
+
+/** このアプリについて画面の寸法(ファミリー共通: 15sp bold / 戻るは 30sp)。 */
+private const val ABOUT_VERSION_TEXT_SIZE = 15
+private const val ABOUT_BACK_TEXT_SIZE = 30
+
+fun normalizeDisplayMode(value: String?): String =
+    if (value == DISPLAY_MODE_ELEGANT) DISPLAY_MODE_ELEGANT else DISPLAY_MODE_COMPACT
 
 /**
  * ファイル一覧の文字サイズ設定。

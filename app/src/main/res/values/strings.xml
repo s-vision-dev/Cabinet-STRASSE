@@ -373,7 +373,36 @@
     <string name="view_render_search_2">検索</string>
     <string name="view_render_search_3">検索結果</string>
     <string name="view_render_search_4">一致する資料はありません</string>
-    <string name="view_render_settings">表示 / Backup / Security / Storage Provider</string>
+    <string name="view_render_settings">表示 / バックアップ / セキュリティ / 連携</string>
+    <!-- 設定画面のセクション見出し(ファミリー共通の語彙に揃える) -->
+    <string name="settings_title">設定</string>
+    <string name="settings_section_appearance">表示</string>
+    <string name="settings_section_backup">バックアップ</string>
+    <string name="settings_section_security">セキュリティ</string>
+    <string name="settings_section_organize">整理</string>
+    <string name="settings_section_integration">連携</string>
+    <string name="settings_section_info">アプリ情報</string>
+    <!-- 設定行のサブテキスト(現在値の説明) -->
+    <string name="settings_display_mode_summary">%1$s / 文字サイズ %2$d–%3$dsp</string>
+    <string name="settings_backup_summary">資料 %1$d 件 / 最終取得 %2$s</string>
+    <string name="settings_pin_summary_enabled">PIN 有効 / 保護資料 %1$d 件</string>
+    <string name="settings_pin_summary_disabled">PIN 未設定 / 保護機能は使えません</string>
+    <string name="settings_smart_folder_summary">条件に合う資料をまとめて表示します</string>
+    <string name="settings_duplicates_summary">%1$d 件のグループが見つかりました</string>
+    <string name="settings_duplicates_summary_empty">完全一致の重複はありません</string>
+    <string name="settings_provider_summary">%1$s / %2$s</string>
+    <string name="settings_provider_summary_empty">接続済みのプロバイダはありません</string>
+    <string name="settings_about_summary">バージョンと VIASTRASSE ファミリー</string>
+    <!-- サブ画面 -->
+    <string name="settings_backup_detail_title">バックアップ</string>
+    <string name="settings_security_detail_title">セキュリティ</string>
+    <string name="settings_duplicates_title">重複候補</string>
+    <string name="settings_provider_detail_title">ストレージプロバイダ</string>
+    <string name="settings_backup_stat_items">資料</string>
+    <string name="settings_backup_stat_collections">コレクション</string>
+    <string name="settings_backup_stat_tags">タグ</string>
+    <string name="settings_backup_previews">プレビュー</string>
+    <string name="settings_pin_label">PIN</string>
     <string name="view_render_settings_10">保護資料</string>
     <string name="view_render_settings_13">＋ Smart Folderを作成</string>
     <string name="view_render_settings_14">重複候補</string>
