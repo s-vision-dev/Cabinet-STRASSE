@@ -747,7 +747,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                     if (selectedProvider.username.isNotBlank()) {
                         addView(definitionRow(context.getString(R.string.storage_provider_username), selectedProvider.username))
                     }
-                    if (selectedProvider.remoteRoot.isNotBlank()) {
+                    if (selectedProvider.remoteRoot.isNotBlank() && !selectedProvider.remoteRoot.startsWith("direct://")) {
                         addView(definitionRow(context.getString(R.string.storage_provider_remote_root), selectedProvider.remoteRoot))
                     }
                     if (selectedProvider.domain.isNotBlank()) {
@@ -760,9 +760,6 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                             buildList {
                                 add(ActionItem(context.getString(R.string.view_render_settings_18)) { onOpenProvider(selectedProvider) })
                                 add(ActionItem(context.getString(R.string.label_settings)) { onConfigureProvider(selectedProvider) })
-                                if (selectedProvider.providerType !in setOf("local", "usb", "sdcard")) {
-                                    add(ActionItem(context.getString(R.string.view_render_settings_19)) { onAddRemoteFile(selectedProvider) })
-                                }
                             },
                         ),
                     )

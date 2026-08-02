@@ -38,7 +38,7 @@
     <string name="app_name">Cabinet by VIASTRASSE</string>
     <string name="empty_no_files">表示できるファイルはありません</string>
     <string name="format_dot_separated">%1$s ・ %2$s</string>
-    <string name="format_item_count">%1$s 件</string>
+    <string name="format_item_count">%1$d 件</string>
     <string name="hint_display_name">表示名</string>
     <string name="hint_memo_body">メモ本文</string>
     <string name="hint_new_name">新しい名前</string>
@@ -92,7 +92,7 @@
     <string name="main_duplicate_explorer_entry">複製対象が見つかりません</string>
     <string name="main_duplicate_explorer_entry_2">フォルダを複製できませんでした</string>
     <string name="main_export_backup">バックアップに失敗しました</string>
-    <string name="main_extract_zip">%1$s件を解凍しました</string>
+    <string name="main_extract_zip">%1$d件を解凍しました</string>
     <string name="main_extract_zip_2">ZIPを解凍できませんでした</string>
     <string name="main_generate_thumbnail">サムネイル対象ファイルが見つかりません</string>
     <string name="main_generate_thumbnail_2">サムネイルを生成しました</string>
@@ -109,7 +109,7 @@
     <string name="main_import_backup">バックアップファイルを開けませんでした</string>
     <string name="main_import_backup_2">バックアップを復元しました</string>
     <string name="main_import_backup_3">バックアップ復元に失敗しました</string>
-    <string name="main_import_folder_2">%1$s件を取り込みました</string>
+    <string name="main_import_folder_2">%1$d件を取り込みました</string>
     <string name="main_import_version_file">バージョン追加先が見つかりません</string>
     <string name="main_import_version_file_3">新しいバージョンを追加しました</string>
     <string name="main_import_version_file_4">バージョンを追加できませんでした</string>
@@ -213,6 +213,19 @@
     <string name="storage_provider_back_to_settings">ストレージ設定へ戻る</string>
     <string name="storage_provider_disconnect">接続を解除</string>
     <string name="storage_provider_disconnected">%1$sの接続を解除しました</string>
+    <string name="storage_provider_connect">接続</string>
+    <string name="storage_provider_connecting">%1$sへ接続しています</string>
+    <string name="storage_provider_connected">%1$sへ接続しました</string>
+    <string name="storage_provider_connection_failed">ストレージへ接続できませんでした</string>
+    <string name="storage_provider_oauth_description">%1$sの認証画面を開き、Cabinetによるファイルアクセスを許可します。</string>
+    <string name="storage_provider_oauth_client_missing">%1$sのOAuth Client IDがビルド設定に登録されていません。</string>
+    <string name="storage_provider_auth_processing">認証結果を確認しています</string>
+    <string name="storage_provider_auth_complete">ストレージの認証が完了しました</string>
+    <string name="storage_provider_auth_failed">ストレージを認証できませんでした</string>
+    <string name="storage_provider_password">パスワードまたはアプリパスワード</string>
+    <string name="storage_provider_loading">%1$sのファイル一覧を取得しています</string>
+    <string name="storage_provider_downloading">%1$sを取得しています</string>
+    <string name="storage_provider_unsupported">%1$sの接続方式には対応していません</string>
     <string name="main_show_verify_pin_dialog">PINは一致しました</string>
     <string name="main_toggle_favorite_from_summary">お気に入りを解除しました</string>
     <string name="main_toggle_favorite_from_summary_2">お気に入りに追加しました</string>
@@ -237,13 +250,13 @@
     <string name="period_within_1_year">1年以内</string>
     <string name="period_within_30_days">30日以内</string>
     <string name="period_within_7_days">7日以内</string>
-    <string name="period_within_days">%1$s日以内</string>
+    <string name="period_within_days">%1$d日以内</string>
     <string name="separator_comma">カンマ</string>
     <string name="separator_semicolon">セミコロン</string>
     <string name="separator_tab">タブ</string>
     <string name="share_handle_share_2">Cabinet Inbox に保存しました</string>
     <string name="share_handle_share_3">Cabinet への保存に失敗しました</string>
-    <string name="share_handle_share_4">%1$s件を Cabinet Inbox に保存しました</string>
+    <string name="share_handle_share_4">%1$d件を Cabinet Inbox に保存しました</string>
     <string name="share_handle_share_5">共有内容を保存できませんでした</string>
     <string name="share_show_share_options">タグ</string>
     <string name="share_show_share_options_2">Cabinet Inboxへ保存</string>
@@ -302,7 +315,7 @@
     <string name="view_render_detail_11">リモートをキャッシュ</string>
     <string name="view_render_detail_12">＋ タグ</string>
     <string name="view_render_detail_13">タグはまだありません</string>
-    <string name="view_render_detail_14">%1$s・%2$s</string>
+    <string name="view_render_detail_14">%1$s・%2$d</string>
     <string name="view_render_detail_15">Collectionには未登録です</string>
     <string name="view_render_detail_16">操作</string>
     <string name="view_render_detail_17">★ お気に入り解除</string>
@@ -361,9 +374,9 @@
     <string name="view_render_settings_13">＋ Smart Folderを作成</string>
     <string name="view_render_settings_14">重複候補</string>
     <string name="view_render_settings_15">完全一致の重複候補はありません</string>
-    <string name="view_render_settings_16">%1$s 件が一致</string>
+    <string name="view_render_settings_16">%1$d 件が一致</string>
     <string name="view_render_settings_17">種別</string>
-    <string name="view_render_settings_18">参照を表示</string>
+    <string name="view_render_settings_18">ファイルを表示</string>
     <string name="view_render_settings_19">リモート参照を追加</string>
     <string name="view_render_settings_2">最終取得</string>
     <string name="view_render_settings_3">世代管理</string>
@@ -377,10 +390,10 @@
     <string name="view_show_local_file_menu">Inboxへコピー</string>
     <string name="view_show_local_file_menu_2">Inboxへ移動</string>
     <string name="view_show_local_file_menu_3">削除</string>
-    <string name="view_smart_folder_row">%1$s items ・ %2$s</string>
+    <string name="view_smart_folder_row">%1$d items ・ %2$s</string>
     <string name="viewer_build_archive_preview">表示できるエントリがありません。</string>
     <string name="viewer_build_archive_preview_2">
-...ほか %1$s 件</string>
+...ほか %1$d 件</string>
     <string name="viewer_build_presentation_preview">スライドを見つけられませんでした。</string>
     <string name="viewer_build_presentation_preview_2">表示できるテキストがありません。</string>
     <string name="viewer_build_spreadsheet_preview">プレビュー対象のシートを見つけられませんでした。</string>

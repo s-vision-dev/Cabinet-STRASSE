@@ -1,5 +1,6 @@
 package jp.viastrasse.cabinet
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -40,6 +41,11 @@ import jp.viastrasse.cabinet.ui.FileListOptions
 import jp.viastrasse.cabinet.ui.FileListSort
 import jp.viastrasse.cabinet.ui.LocalFileEntry
 import jp.viastrasse.cabinet.watch.FolderWatchWorker
+import jp.viastrasse.cabinet.storage.OAuthController
+import jp.viastrasse.cabinet.storage.OAuthProviderConfig
+import jp.viastrasse.cabinet.storage.RemoteStorageEntry
+import jp.viastrasse.cabinet.storage.SecureCredentialStore
+import jp.viastrasse.cabinet.storage.StorageProviderFactory
 import jp.viastrasse.family.ui.ViastrasseFamilyLauncher
 import jp.viastrasse.view.contract.ViastrasseViewLauncher
 import java.io.File
@@ -105,6 +111,7 @@ class MainActivity : Activity() {
     }
 
     @Suppress("DEPRECATION")
+    @SuppressLint("GestureBackNavigation")
     @Deprecated("Use explicit in-app navigation until this Activity migrates to OnBackPressedDispatcher.")
     override fun onBackPressed() {
         if (handleSystemBack()) {
@@ -144,6 +151,7 @@ class MainActivity : Activity() {
             val command = if (isCabinetLink) uri.host else uri.pathSegments.firstOrNull()
             val argumentIndex = if (isCabinetLink) 0 else 1
             when (command) {
+                "oauth" -> handleStorageOAuthCallback(uri)
                 "open" -> uri.pathSegments.getOrNull(argumentIndex)?.let(::openDetail) ?: renderDashboard()
                 "search" -> openSearch(uri.getQueryParameter("q").orEmpty())
                 "inbox" -> openMode("Inbox")
@@ -319,9 +327,11 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_STORAGE_PROVIDER_TREE && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             runCatching {
-                val grantedFlags = data.flags and (
+                val grantedFlags = if ((data.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
+                } else {
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                }
                 contentResolver.takePersistableUriPermission(
                     uri,
                     grantedFlags,
@@ -1698,6 +1708,10 @@ class MainActivity : Activity() {
         detail: jp.viastrasse.cabinet.data.CabinetItemDetail,
     ) {
         runAfterProtectionCheck(detail) {
+            if (detail.remote != null && (!detail.remote.isCached || !File(detail.path).isFile)) {
+                downloadAndOpenRemoteItem(itemId, detail)
+                return@runAfterProtectionCheck
+            }
             openRegisteredItem(
                 itemId = itemId,
                 path = detail.path,
@@ -2333,7 +2347,7 @@ class MainActivity : Activity() {
                     .show()
                 return
             }
-            else -> {
+            "usb", "sdcard" -> {
                 val dialog = AlertDialog.Builder(this, R.style.CabinetDialogTheme)
                     .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
                     .setMessage(getString(R.string.storage_provider_document_provider_description, provider.displayName))
@@ -2357,6 +2371,156 @@ class MainActivity : Activity() {
                 dialog.show()
                 return
             }
+            "dropbox", "google_drive", "onedrive", "box" -> {
+                showOAuthProviderDialog(provider)
+                return
+            }
+            "webdav", "nextcloud", "smb" -> {
+                showNetworkProviderDialog(provider)
+                return
+            }
+            else -> error(getString(R.string.storage_provider_unsupported, provider.displayName))
+        }
+    }
+
+    private fun showOAuthProviderDialog(provider: StorageProviderAccountSummary) {
+        val config = requireNotNull(OAuthProviderConfig.forProvider(provider.providerType))
+        val builder = AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
+            .setMessage(
+                if (config.clientId.isBlank() || (provider.providerType == "box" && config.clientSecret.isBlank())) {
+                    getString(R.string.storage_provider_oauth_client_missing, provider.displayName)
+                } else {
+                    getString(R.string.storage_provider_oauth_description, provider.displayName)
+                },
+            )
+            .setNegativeButton(getString(R.string.action_cancel), null)
+        if (config.clientId.isNotBlank() && (provider.providerType != "box" || config.clientSecret.isNotBlank())) {
+            builder.setPositiveButton(getString(R.string.storage_provider_connect)) { _, _ ->
+                runCatching {
+                    OAuthController(this).authorizationUri(provider.providerType)
+                }.onSuccess { authorizationUri ->
+                    startActivity(Intent(Intent.ACTION_VIEW, authorizationUri))
+                }.onFailure { error ->
+                    Toast.makeText(this, error.message ?: getString(R.string.storage_provider_auth_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        if (provider.connectionStatus == "connected") {
+            builder.setNeutralButton(getString(R.string.storage_provider_disconnect)) { _, _ ->
+                disconnectStorageProvider(provider)
+            }
+        }
+        builder.show()
+    }
+
+    private fun showNetworkProviderDialog(provider: StorageProviderAccountSummary) {
+        val accountInput = darkInput(getString(R.string.storage_provider_account_name)).apply { setText(provider.accountName) }
+        val endpointInput = darkInput(
+            getString(if (provider.providerType == "smb") R.string.storage_provider_server else R.string.storage_provider_endpoint),
+        ).apply {
+            setText(provider.endpointUrl)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val usernameInput = darkInput(getString(R.string.storage_provider_username)).apply { setText(provider.username) }
+        val rootInput = darkInput(
+            getString(if (provider.providerType == "smb") R.string.storage_provider_share else R.string.storage_provider_remote_root),
+        ).apply { setText(provider.remoteRoot.ifBlank { "/" }) }
+        val domainInput = darkInput(getString(R.string.storage_provider_domain)).apply { setText(provider.domain) }
+        val passwordInput = darkInput(getString(R.string.storage_provider_password)).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val views = buildList {
+            add(accountInput)
+            add(endpointInput)
+            add(usernameInput)
+            add(passwordInput)
+            add(rootInput)
+            if (provider.providerType == "smb") add(domainInput)
+        }
+        val builder = AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
+            .setView(dialogContainer(*views.toTypedArray()))
+            .setPositiveButton(getString(R.string.storage_provider_connect)) { _, _ ->
+                connectNetworkProvider(
+                    provider,
+                    StorageProviderConfiguration(
+                        accountName = accountInput.text.toString().trim(),
+                        endpointUrl = endpointInput.text.toString().trim(),
+                        username = usernameInput.text.toString().trim(),
+                        remoteRoot = rootInput.text.toString().trim(),
+                        domain = domainInput.text.toString().trim(),
+                        cachePolicy = provider.cachePolicy,
+                    ),
+                    passwordInput.text.toString(),
+                )
+            }
+            .setNegativeButton(getString(R.string.action_cancel), null)
+        if (provider.connectionStatus == "connected") {
+            builder.setNeutralButton(getString(R.string.storage_provider_disconnect)) { _, _ ->
+                disconnectStorageProvider(provider)
+            }
+        }
+        builder.show()
+    }
+
+    private fun connectNetworkProvider(
+        provider: StorageProviderAccountSummary,
+        configuration: StorageProviderConfiguration,
+        password: String,
+    ) {
+        Toast.makeText(this, getString(R.string.storage_provider_connecting, provider.displayName), Toast.LENGTH_SHORT).show()
+        thread(name = "cabinet-provider-connect") {
+            runCatching {
+                SecureCredentialStore.save(applicationContext, provider.id, "password", password)
+                val candidate = provider.copy(
+                    accountName = configuration.accountName,
+                    endpointUrl = configuration.endpointUrl,
+                    username = configuration.username,
+                    remoteRoot = configuration.remoteRoot,
+                    domain = configuration.domain,
+                )
+                StorageProviderFactory(applicationContext).create(candidate).testConnection()
+                repository.updateStorageProvider(provider.id, configuration)
+            }.onSuccess {
+                runOnUiThread {
+                    Toast.makeText(this, getString(R.string.storage_provider_connected, provider.displayName), Toast.LENGTH_SHORT).show()
+                    openSettings()
+                }
+            }.onFailure { error ->
+                SecureCredentialStore.clear(applicationContext, provider.id)
+                runOnUiThread {
+                    Toast.makeText(this, error.message ?: getString(R.string.storage_provider_connection_failed), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun handleStorageOAuthCallback(uri: Uri) {
+        Toast.makeText(this, getString(R.string.storage_provider_auth_processing), Toast.LENGTH_SHORT).show()
+        thread(name = "cabinet-provider-oauth") {
+            runCatching {
+                val providerId = OAuthController(applicationContext).finish(uri)
+                val provider = repository.settings().providers.first { it.providerType == providerId }
+                StorageProviderFactory(applicationContext).create(provider).testConnection()
+                repository.updateStorageProvider(
+                    provider.id,
+                    provider.toConfiguration().copy(
+                        accountName = provider.displayName,
+                        remoteRoot = "direct://$providerId",
+                    ),
+                )
+            }.onSuccess {
+                runOnUiThread {
+                    Toast.makeText(this, getString(R.string.storage_provider_auth_complete), Toast.LENGTH_SHORT).show()
+                    openSettings()
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(this, error.message ?: getString(R.string.storage_provider_auth_failed), Toast.LENGTH_LONG).show()
+                    openSettings()
+                }
+            }
         }
     }
 
@@ -2368,20 +2532,98 @@ class MainActivity : Activity() {
         val treeUri = provider.remoteRoot
             .takeIf { it.startsWith("content://") }
             ?.let(Uri::parse)
-        if (treeUri == null) {
+        if (treeUri != null) {
+            runCatching {
+                openDocumentTreeRoot(
+                    treeUri = treeUri,
+                    title = provider.displayName,
+                    onRootBack = ::openSettings,
+                    onChooseRoot = { showStorageProviderDialog(provider) },
+                )
+            }.onFailure { error ->
+                Toast.makeText(this, error.message ?: getString(R.string.storage_provider_access_failed), Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        if (provider.connectionStatus != "connected") {
             Toast.makeText(this, getString(R.string.storage_provider_not_connected, provider.displayName), Toast.LENGTH_SHORT).show()
             showStorageProviderDialog(provider)
             return
         }
-        runCatching {
-            openDocumentTreeRoot(
-                treeUri = treeUri,
-                title = provider.displayName,
-                onRootBack = ::openSettings,
-                onChooseRoot = { showStorageProviderDialog(provider) },
-            )
-        }.onFailure { error ->
-            Toast.makeText(this, error.message ?: getString(R.string.storage_provider_access_failed), Toast.LENGTH_SHORT).show()
+        syncAndOpenStorageProvider(provider)
+    }
+
+    private fun syncAndOpenStorageProvider(provider: StorageProviderAccountSummary) {
+        Toast.makeText(this, getString(R.string.storage_provider_loading, provider.displayName), Toast.LENGTH_SHORT).show()
+        thread(name = "cabinet-provider-list") {
+            runCatching {
+                StorageProviderFactory(applicationContext).create(provider).listFiles().forEach { entry ->
+                    repository.registerRemoteFile(
+                        providerId = provider.id,
+                        remoteFileId = entry.id,
+                        remotePath = entry.path,
+                        displayName = entry.name,
+                        mimeType = entry.mimeType,
+                        size = entry.size,
+                        webUrl = entry.webUrl,
+                        note = provider.displayName,
+                    )
+                }
+            }.onSuccess {
+                runOnUiThread { openMode("provider:${provider.id}") }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(this, error.message ?: getString(R.string.storage_provider_access_failed), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun downloadAndOpenRemoteItem(
+        itemId: String,
+        detail: jp.viastrasse.cabinet.data.CabinetItemDetail,
+    ) {
+        val remote = requireNotNull(detail.remote)
+        val provider = repository.settings().providers.firstOrNull { it.id == remote.providerAccountId }
+        if (provider == null || provider.connectionStatus != "connected") {
+            Toast.makeText(this, getString(R.string.storage_provider_not_connected, remote.providerAccountId), Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, getString(R.string.storage_provider_downloading, remote.displayName), Toast.LENGTH_SHORT).show()
+        thread(name = "cabinet-provider-download") {
+            runCatching {
+                val destination = uniqueDestination(
+                    File(filesDir, "remote-cache/${provider.id}").apply { mkdirs() },
+                    sanitizeFileName(remote.displayName),
+                )
+                StorageProviderFactory(applicationContext).create(provider).download(
+                    RemoteStorageEntry(
+                        id = remote.remoteFileId,
+                        path = remote.remotePath,
+                        name = remote.displayName,
+                        mimeType = remote.mimeType,
+                        size = remote.size,
+                        webUrl = remote.webUrl,
+                    ),
+                    destination,
+                )
+                repository.markRemoteFileCached(itemId, destination.absolutePath, destination.length())
+                destination
+            }.onSuccess { destination ->
+                runOnUiThread {
+                    openRegisteredItem(
+                        itemId,
+                        destination.absolutePath,
+                        detail.item.mimeType,
+                        detail.item.title,
+                        detail.item.displayName,
+                    )
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(this, error.message ?: getString(R.string.main_cache_remote_file_4), Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -2399,9 +2641,10 @@ class MainActivity : Activity() {
                     )
                 }
             }
+            SecureCredentialStore.clear(applicationContext, provider.id)
             repository.updateStorageProvider(
                 provider.id,
-                provider.toConfiguration().copy(remoteRoot = ""),
+                provider.toConfiguration().copy(accountName = "", remoteRoot = ""),
             )
         }.onSuccess {
             Toast.makeText(this, getString(R.string.storage_provider_disconnected, provider.displayName), Toast.LENGTH_SHORT).show()

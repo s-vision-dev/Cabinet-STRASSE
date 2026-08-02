@@ -1,0 +1,7 @@
+# Copy these keys to local.properties after registering Cabinet as a native app
+# with each provider. Do not commit real credentials.
+cabinet.oauth.dropbox.clientId=
+cabinet.oauth.googleDrive.clientId=
+cabinet.oauth.oneDrive.clientId=
+cabinet.oauth.box.clientId=
+cabinet.oauth.box.clientSecret=

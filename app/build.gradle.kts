@@ -18,6 +18,16 @@ val buildNumber = if (buildNumberFile.exists()) {
 } else {
     1
 }
+val localProperties = Properties().apply {
+    val file = File(repoRoot, "local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+fun quotedProperty(name: String): String {
+    val value = localProperties.getProperty(name, "")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+    return "\"$value\""
+}
 
 android {
     namespace = "jp.viastrasse.cabinet"
@@ -29,6 +39,11 @@ android {
         targetSdk = 36
         versionCode = buildNumber
         versionName = versionProperties.getProperty("VERSION_NAME", "0.1.1")
+        buildConfigField("String", "DROPBOX_CLIENT_ID", quotedProperty("cabinet.oauth.dropbox.clientId"))
+        buildConfigField("String", "GOOGLE_DRIVE_CLIENT_ID", quotedProperty("cabinet.oauth.googleDrive.clientId"))
+        buildConfigField("String", "ONEDRIVE_CLIENT_ID", quotedProperty("cabinet.oauth.oneDrive.clientId"))
+        buildConfigField("String", "BOX_CLIENT_ID", quotedProperty("cabinet.oauth.box.clientId"))
+        buildConfigField("String", "BOX_CLIENT_SECRET", quotedProperty("cabinet.oauth.box.clientSecret"))
     }
 
     compileOptions {
@@ -41,6 +56,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 }
 
@@ -119,4 +138,5 @@ dependencies {
     implementation("io.noties.markwon:ext-tasklist:4.6.2")
     implementation("io.noties.markwon:html:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
 }

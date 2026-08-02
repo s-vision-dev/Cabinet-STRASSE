@@ -942,8 +942,17 @@ impl CabinetCore {
                 "WebDAV endpoint must use http or https.".to_owned(),
             ));
         }
+        let remote_root = configuration.remote_root.trim();
         let connected = provider_type == "local"
-            || configuration.remote_root.trim().starts_with("content://");
+            || remote_root.starts_with("content://")
+            || remote_root == format!("direct://{provider_type}")
+            || (matches!(provider_type.as_str(), "webdav" | "nextcloud")
+                && !endpoint_url.is_empty()
+                && !configuration.username.trim().is_empty())
+            || (provider_type == "smb"
+                && !endpoint_url.is_empty()
+                && !remote_root.is_empty()
+                && !configuration.username.trim().is_empty());
         let status = if connected {
             "connected"
         } else {
@@ -2103,6 +2112,49 @@ impl CabinetCore {
         .collect::<Vec<_>>()
         .join("\n");
 
+        let existing_item_id = self
+            .conn
+            .query_row(
+                "SELECT i.id
+                 FROM cabinet_items i
+                 JOIN remote_file_references r ON r.id = i.remote_file_reference_id
+                 WHERE r.provider_account_id = ?1 AND r.remote_file_id = ?2
+                 LIMIT 1",
+                params![normalized_provider, remote_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(existing_item_id) = existing_item_id {
+            self.conn.execute(
+                "UPDATE remote_file_references
+                 SET remote_path = ?1, display_name = ?2, mime_type = ?3, size = ?4,
+                     web_url = ?5, last_synced_at = ?6
+                 WHERE provider_account_id = ?7 AND remote_file_id = ?8",
+                params![
+                    normalized_remote_path,
+                    normalized_display_name,
+                    mime_type,
+                    size,
+                    web_url.trim(),
+                    now,
+                    normalized_provider,
+                    remote_id,
+                ],
+            )?;
+            self.conn.execute(
+                "UPDATE cabinet_items
+                 SET title = ?1, display_name = ?1, mime_type = ?2, size = ?3,
+                     note = ?4, updated_at = ?5
+                 WHERE id = ?6",
+                params![normalized_display_name, mime_type, size, note, now, existing_item_id],
+            )?;
+            self.rebuild_fts_for_item(&existing_item_id)?;
+            let item = self
+                .item_by_id(&existing_item_id)?
+                .expect("existing remote item must exist");
+            return Ok(serde_json::to_string(&item)?);
+        }
+
         self.conn.execute(
             "INSERT INTO remote_file_references(
                 id, provider_account_id, remote_file_id, remote_path, display_name,
@@ -2660,7 +2712,18 @@ impl CabinetCore {
                  WHEN EXISTS(
                      SELECT 1 FROM storage_provider_configurations c
                      WHERE c.provider_id = storage_provider_accounts.id
-                       AND c.remote_root LIKE 'content://%'
+                       AND (
+                           c.remote_root LIKE 'content://%'
+                           OR c.remote_root = 'direct://' || storage_provider_accounts.provider_type
+                           OR (
+                               storage_provider_accounts.provider_type IN ('webdav', 'nextcloud')
+                               AND c.endpoint_url <> '' AND c.username <> ''
+                           )
+                           OR (
+                               storage_provider_accounts.provider_type = 'smb'
+                               AND c.endpoint_url <> '' AND c.remote_root <> '' AND c.username <> ''
+                           )
+                       )
                  ) THEN 'connected'
                  ELSE 'not_configured'
              END
@@ -4117,7 +4180,7 @@ mod tests {
             .iter()
             .find(|provider| provider["id"] == "webdav")
             .expect("WebDAV provider");
-        assert_eq!(webdav["connection_status"], "not_configured");
+        assert_eq!(webdav["connection_status"], "connected");
         let connected_settings = core
             .update_storage_provider_json(
                 "webdav",
@@ -4196,6 +4259,29 @@ mod tests {
         assert!(dashboard.explorer_count >= 1);
         let provider_mode = core.mode_json("provider:dropbox").expect("provider mode");
         assert!(provider_mode.contains("remote-plan.pdf"));
+        core.register_remote_file_json(
+            "dropbox",
+            "remote-001",
+            "/Projects/Cabinet/remote-plan-renamed.pdf",
+            "remote-plan-renamed.pdf",
+            "application/pdf",
+            4096,
+            "https://dropbox.example/remote-plan-renamed.pdf",
+            "更新後メモ",
+        )
+        .expect("update remote file");
+        let remote_count: i64 = core
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM remote_file_references
+                 WHERE provider_account_id = 'dropbox' AND remote_file_id = 'remote-001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count remote references");
+        assert_eq!(remote_count, 1);
+        let updated_mode = core.mode_json("provider:dropbox").expect("updated provider mode");
+        assert!(updated_mode.contains("remote-plan-renamed.pdf"));
         let _ = fs::remove_file(path);
     }
 
