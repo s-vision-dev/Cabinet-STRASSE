@@ -157,9 +157,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onQuickAccessTileAction: (QuickAccessEntry) -> Unit,
         onStartQuickAccessEditing: () -> Unit,
         onFinishQuickAccessEditing: () -> Unit,
-        onMoveQuickAccess: (QuickAccessEntry, Int) -> Unit,
-        onRemoveQuickAccess: (QuickAccessEntry) -> Unit,
-        onReorderQuickAccess: (QuickAccessEntry, QuickAccessEntry) -> Unit,
+        onPlaceQuickAccess: (QuickAccessEntry, Int, Int) -> Unit,
     ) {
         resetContent()
         // アプリ名の行はスクロールしても上端に残す。説明文は本文側に置く。
@@ -174,9 +172,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
                 onTileAction = onQuickAccessTileAction,
                 onStartEditing = onStartQuickAccessEditing,
                 onFinishEditing = onFinishQuickAccessEditing,
-                onMove = onMoveQuickAccess,
-                onRemove = onRemoveQuickAccess,
-                onReorder = onReorderQuickAccess,
+                onPlace = onPlaceQuickAccess,
             ),
         )
         content.addView(
@@ -2599,9 +2595,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onTileAction: (QuickAccessEntry) -> Unit,
         onStartEditing: () -> Unit,
         onFinishEditing: () -> Unit,
-        onMove: (QuickAccessEntry, Int) -> Unit,
-        onRemove: (QuickAccessEntry) -> Unit,
-        onReorder: (QuickAccessEntry, QuickAccessEntry) -> Unit,
+        onPlace: (QuickAccessEntry, Int, Int) -> Unit,
     ): View {
         return card {
             addView(
@@ -2668,50 +2662,90 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
                 addView(emptyState(context.getString(R.string.quick_access_empty)))
                 return@card
             }
-            entries.chunked(2).forEachIndexed { rowIndex, rowEntries ->
-                addView(
-                    LinearLayout(context).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        rowEntries.forEachIndexed { columnIndex, entry ->
-                            val position = rowIndex * 2 + columnIndex
-                            addView(
-                                quickAccessTile(
-                                    entry = entry,
-                                    editing = editing,
-                                    isFirst = position == 0,
-                                    isLast = position == entries.lastIndex,
-                                    onOpen = onOpen,
-                                    onTileAction = onTileAction,
-                                    onStartEditing = onStartEditing,
-                                    onMove = onMove,
-                                    onRemove = onRemove,
-                                    onReorder = onReorder,
-                                ).apply {
-                                    layoutParams = LinearLayout.LayoutParams(
-                                        0,
-                                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                                        1f,
-                                    ).apply {
-                                        if (columnIndex > 0) leftMargin = dp(CabinetMetrics.SPACE_SM)
-                                        bottomMargin = dp(CabinetMetrics.SPACE_SM)
-                                    }
-                                },
-                            )
-                        }
-                        // 奇数個のときは右側を空けて、タイルの幅を揃える。
-                        if (rowEntries.size == 1) {
-                            addView(
-                                View(context).apply {
-                                    layoutParams = LinearLayout.LayoutParams(
-                                        0,
-                                        LinearLayout.LayoutParams.MATCH_PARENT,
-                                        1f,
-                                    ).apply { leftMargin = dp(CabinetMetrics.SPACE_SM) }
-                                },
-                            )
-                        }
-                    },
-                )
+            val placements = resolveQuickAccessPlacements(entries)
+            addView(
+                QuickAccessBoard(context, editing) { entry, column, row ->
+                    onPlace(entry, column, row)
+                }.apply {
+                    placements.forEach { (entry, position) ->
+                        addView(
+                            quickAccessTile(
+                                entry = entry,
+                                editing = editing,
+                                onOpen = onOpen,
+                                onTileAction = onTileAction,
+                                onStartEditing = onStartEditing,
+                            ),
+                            QuickAccessBoard.LayoutParams(
+                                position.column,
+                                position.row,
+                                entry.columnSpan,
+                                entry.rowSpan,
+                            ),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private fun resolveQuickAccessPlacements(
+        entries: List<QuickAccessEntry>,
+    ): Map<QuickAccessEntry, QuickAccessPosition> {
+        val placements = linkedMapOf<QuickAccessEntry, QuickAccessPosition>()
+        val occupied = mutableSetOf<Pair<Int, Int>>()
+        val pending = mutableListOf<QuickAccessEntry>()
+        entries.forEach { entry ->
+            val saved = QuickAccessPosition(entry.column, entry.row)
+            if (entry.column >= 0 && entry.row >= 0 && canPlaceQuickAccess(entry, saved, occupied)) {
+                placements[entry] = saved
+                markQuickAccessOccupied(entry, saved, occupied)
+            } else {
+                pending += entry
+            }
+        }
+        pending.forEach { entry ->
+            var row = 0
+            while (true) {
+                val column = (0..QuickAccessEntry.GRID_COLUMNS - entry.columnSpan)
+                    .firstOrNull { candidate ->
+                        canPlaceQuickAccess(entry, QuickAccessPosition(candidate, row), occupied)
+                    }
+                if (column != null) {
+                    val position = QuickAccessPosition(column, row)
+                    placements[entry] = position
+                    markQuickAccessOccupied(entry, position, occupied)
+                    break
+                }
+                row++
+            }
+        }
+        return placements
+    }
+
+    private fun canPlaceQuickAccess(
+        entry: QuickAccessEntry,
+        position: QuickAccessPosition,
+        occupied: Set<Pair<Int, Int>>,
+    ): Boolean {
+        if (position.column < 0 || position.row < 0 ||
+            position.column + entry.columnSpan > QuickAccessEntry.GRID_COLUMNS
+        ) return false
+        return (position.row until position.row + entry.rowSpan).all { row ->
+            (position.column until position.column + entry.columnSpan).all { column ->
+                (column to row) !in occupied
+            }
+        }
+    }
+
+    private fun markQuickAccessOccupied(
+        entry: QuickAccessEntry,
+        position: QuickAccessPosition,
+        occupied: MutableSet<Pair<Int, Int>>,
+    ) {
+        for (row in position.row until position.row + entry.rowSpan) {
+            for (column in position.column until position.column + entry.columnSpan) {
+                occupied += column to row
             }
         }
     }
@@ -2719,14 +2753,9 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
     private fun quickAccessTile(
         entry: QuickAccessEntry,
         editing: Boolean,
-        isFirst: Boolean,
-        isLast: Boolean,
         onOpen: (QuickAccessEntry) -> Unit,
         onTileAction: (QuickAccessEntry) -> Unit,
         onStartEditing: () -> Unit,
-        onMove: (QuickAccessEntry, Int) -> Unit,
-        onRemove: (QuickAccessEntry) -> Unit,
-        onReorder: (QuickAccessEntry, QuickAccessEntry) -> Unit,
     ): View {
         val accent = kindAccent(entry.kind)
         // 編集中は枠線を強調して、通常表示と区別できるようにする。
@@ -2749,50 +2778,13 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             }
             setOnLongClickListener { view ->
                 if (editing) {
-                    // 編集中の長押しはドラッグ開始。掴んだタイルは薄く表示する。
+                    // 編集中の長押しはドラッグ開始。
                     view.startDragAndDrop(null, View.DragShadowBuilder(view), entry, 0)
-                    view.alpha = DRAGGED_TILE_ALPHA
                 } else {
                     // Crossroad と同じく、長押しで編集モードに入る。
                     onStartEditing()
                 }
                 true
-            }
-            if (editing) {
-                setOnDragListener { view, event ->
-                    when (event.action) {
-                        DragEvent.ACTION_DRAG_STARTED -> true
-                        DragEvent.ACTION_DRAG_ENTERED -> {
-                            // 落とし先を塗りで示す。掴んでいる本人は変えない。
-                            if ((event.localState as? QuickAccessEntry)?.isSameTarget(entry) != true) {
-                                view.background = context.surfaceShape(
-                                    CabinetColors.AccentSoft,
-                                    CabinetMetrics.RADIUS_CARD,
-                                    CabinetColors.Accent,
-                                )
-                            }
-                            true
-                        }
-                        DragEvent.ACTION_DRAG_EXITED -> {
-                            view.background = idleBackground()
-                            true
-                        }
-                        DragEvent.ACTION_DROP -> {
-                            val dragged = event.localState as? QuickAccessEntry
-                            view.background = idleBackground()
-                            if (dragged != null && !dragged.isSameTarget(entry)) {
-                                onReorder(dragged, entry)
-                            }
-                            true
-                        }
-                        DragEvent.ACTION_DRAG_ENDED -> {
-                            view.alpha = 1f
-                            view.background = idleBackground()
-                            true
-                        }
-                        else -> true
-                    }
-                }
             }
             // 左端のアクセントバーで種別を示す。
             addView(
@@ -2831,24 +2823,13 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
                         },
                     )
                     addView(
-                        label(entry.label, CabinetType.BODY, true).apply {
-                            maxLines = 2
+                        label(entry.displayLabel, CabinetType.BODY, true).apply {
+                            maxLines = if (entry.rowSpan > 1) 3 else 2
                             ellipsize = TextUtils.TruncateAt.MIDDLE
                             setPadding(0, dp(CabinetMetrics.SPACE_SM), 0, 0)
                             setLineSpacing(0f, 1.2f)
                         },
                     )
-                    if (editing) {
-                        addView(
-                            quickAccessTileControls(
-                                entry = entry,
-                                isFirst = isFirst,
-                                isLast = isLast,
-                                onMove = onMove,
-                                onRemove = onRemove,
-                            ),
-                        )
-                    }
                     layoutParams = LinearLayout.LayoutParams(
                         0,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -2856,80 +2837,6 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
                     )
                 },
             )
-        }
-    }
-
-    /** 編集モード中にタイル内へ出す並べ替え・削除の操作列。 */
-    private fun quickAccessTileControls(
-        entry: QuickAccessEntry,
-        isFirst: Boolean,
-        isLast: Boolean,
-        onMove: (QuickAccessEntry, Int) -> Unit,
-        onRemove: (QuickAccessEntry) -> Unit,
-    ): View {
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(CabinetMetrics.SPACE_SM), 0, 0)
-            addView(
-                quickAccessControlButton(
-                    glyph = "←",
-                    description = context.getString(R.string.quick_access_move_up),
-                    enabled = !isFirst,
-                ) { onMove(entry, -1) },
-            )
-            addView(
-                quickAccessControlButton(
-                    glyph = "→",
-                    description = context.getString(R.string.quick_access_move_down),
-                    enabled = !isLast,
-                ) { onMove(entry, 1) },
-            )
-            addView(
-                View(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
-                },
-            )
-            addView(
-                quickAccessControlButton(
-                    glyph = "×",
-                    description = context.getString(R.string.quick_access_remove),
-                    enabled = true,
-                    tint = CabinetColors.Danger,
-                ) { onRemove(entry) },
-            )
-        }
-    }
-
-    private fun quickAccessControlButton(
-        glyph: String,
-        description: String,
-        enabled: Boolean,
-        tint: Int = CabinetColors.TextSecondary,
-        onClick: () -> Unit,
-    ): View {
-        val color = if (enabled) tint else CabinetColors.TextMuted
-        return label(glyph, CabinetType.BODY, true, color).apply {
-            gravity = Gravity.CENTER
-            contentDescription = description
-            minWidth = dp(36)
-            minHeight = dp(36)
-            background = context.surfaceShape(
-                CabinetColors.Surface,
-                CabinetMetrics.RADIUS_TILE,
-                strokeColor = CabinetColors.Outline,
-            )
-            isEnabled = enabled
-            alpha = if (enabled) 1f else 0.4f
-            if (enabled) {
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { onClick() }
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { rightMargin = dp(CabinetMetrics.SPACE_SM) }
         }
     }
 
@@ -4224,6 +4131,88 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
     }
 }
 
+private data class QuickAccessPosition(
+    val column: Int,
+    val row: Int,
+)
+
+/** Crossroadと同じ4列座標で、空きマスを含む配置を維持するボード。 */
+private class QuickAccessBoard(
+    context: Context,
+    private val editing: Boolean,
+    private val onPlace: (QuickAccessEntry, Int, Int) -> Unit,
+) : ViewGroup(context) {
+    private val gap = (8 * resources.displayMetrics.density).toInt()
+    private var cellSize = 1
+
+    init {
+        if (editing) {
+            setOnDragListener { _, event ->
+                when (event.action) {
+                    DragEvent.ACTION_DRAG_STARTED -> event.localState is QuickAccessEntry
+                    DragEvent.ACTION_DROP -> {
+                        val entry = event.localState as? QuickAccessEntry ?: return@setOnDragListener false
+                        val step = cellSize + gap
+                        val column = (event.x.toInt() / step)
+                            .coerceIn(0, QuickAccessEntry.GRID_COLUMNS - entry.columnSpan)
+                        val row = (event.y.toInt() / step).coerceAtLeast(0)
+                        onPlace(entry, column, row)
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+    }
+
+    override fun generateDefaultLayoutParams(): ViewGroup.LayoutParams =
+        LayoutParams(0, 0, QuickAccessEntry.DEFAULT_COLUMN_SPAN, QuickAccessEntry.DEFAULT_ROW_SPAN)
+
+    override fun checkLayoutParams(params: ViewGroup.LayoutParams?): Boolean = params is LayoutParams
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        cellSize = ((width - gap * (QuickAccessEntry.GRID_COLUMNS - 1)) / QuickAccessEntry.GRID_COLUMNS)
+            .coerceAtLeast(1)
+        var occupiedRows = 1
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            val params = child.layoutParams as LayoutParams
+            val childWidth = cellSize * params.columnSpan + gap * (params.columnSpan - 1)
+            val childHeight = cellSize * params.rowSpan + gap * (params.rowSpan - 1)
+            child.measure(
+                MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(childHeight, MeasureSpec.EXACTLY),
+            )
+            occupiedRows = maxOf(occupiedRows, params.row + params.rowSpan)
+        }
+        val rows = if (editing) maxOf(5, occupiedRows + 1) else occupiedRows
+        val desiredHeight = rows * cellSize + (rows - 1) * gap
+        setMeasuredDimension(
+            resolveSize(width, widthMeasureSpec),
+            resolveSize(desiredHeight, heightMeasureSpec),
+        )
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val step = cellSize + gap
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            val params = child.layoutParams as LayoutParams
+            val childLeft = params.column * step
+            val childTop = params.row * step
+            child.layout(childLeft, childTop, childLeft + child.measuredWidth, childTop + child.measuredHeight)
+        }
+    }
+
+    class LayoutParams(
+        val column: Int,
+        val row: Int,
+        val columnSpan: Int,
+        val rowSpan: Int,
+    ) : ViewGroup.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+}
+
 /** 汎用の操作項目。ボタン列・アクションシート・グリッドで共有する。 */
 data class ActionItem(
     val label: String,
@@ -4352,9 +4341,6 @@ enum class SettingsTab(@param:StringRes val labelRes: Int) {
 /** このアプリについて画面の寸法(ファミリー共通: 15sp bold / 戻るは 30sp)。 */
 private const val ABOUT_VERSION_TEXT_SIZE = 15
 private const val ABOUT_BACK_TEXT_SIZE = 30
-
-/** ドラッグ中に掴んでいるタイルの不透明度(Crossroad と同じ)。 */
-private const val DRAGGED_TILE_ALPHA = 0.28f
 
 /** 見出しで「by VIASTRASSE」を小さく添えるための区切りと倍率。 */
 private const val APP_NAME_SUFFIX_MARKER = " by "

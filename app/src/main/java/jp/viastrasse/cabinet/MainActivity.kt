@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.ContentUris
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,9 +14,12 @@ import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.provider.Settings
 import android.text.InputType
+import android.view.Gravity
 import android.widget.EditText
 import android.widget.ArrayAdapter
+import android.widget.GridLayout
 import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
@@ -46,6 +50,7 @@ import jp.viastrasse.cabinet.ui.FileListOptions
 import jp.viastrasse.cabinet.ui.FileListSort
 import jp.viastrasse.cabinet.ui.LocalFileEntry
 import jp.viastrasse.cabinet.ui.SettingsTab
+import jp.viastrasse.cabinet.theme.CabinetColors
 import jp.viastrasse.cabinet.watch.FolderWatchWorker
 import jp.viastrasse.cabinet.storage.OAuthController
 import jp.viastrasse.cabinet.storage.OAuthProviderConfig
@@ -367,9 +372,7 @@ class MainActivity : Activity() {
                 onQuickAccessTileAction = ::showQuickAccessMenu,
                 onStartQuickAccessEditing = ::startQuickAccessEditing,
                 onFinishQuickAccessEditing = ::finishQuickAccessEditing,
-                onMoveQuickAccess = ::moveQuickAccessEntry,
-                onRemoveQuickAccess = ::removeQuickAccessEntry,
-                onReorderQuickAccess = ::reorderQuickAccessEntry,
+                onPlaceQuickAccess = ::placeQuickAccessEntry,
             )
         }.onFailure { error ->
             dashboardView.renderError(error.message ?: getString(R.string.main_render_dashboard))
@@ -2727,12 +2730,13 @@ class MainActivity : Activity() {
         val actions = listOf(
             getString(R.string.quick_access_edit_done),
             getString(R.string.action_open),
-            getString(R.string.quick_access_move_up),
-            getString(R.string.quick_access_move_down),
+            getString(R.string.quick_access_move),
+            getString(R.string.quick_access_resize),
+            getString(R.string.quick_access_rename),
             getString(R.string.quick_access_remove),
         )
         AlertDialog.Builder(this, R.style.CabinetDialogTheme)
-            .setTitle(entry.label)
+            .setTitle(entry.displayLabel)
             .setItems(actions.toTypedArray()) { _, which ->
                 when (which) {
                     0 -> finishQuickAccessEditing()
@@ -2740,23 +2744,86 @@ class MainActivity : Activity() {
                         finishQuickAccessEditing()
                         openQuickAccessEntry(entry)
                     }
-                    2 -> moveQuickAccessEntry(entry, -1)
-                    3 -> moveQuickAccessEntry(entry, 1)
+                    2 -> Toast.makeText(this, R.string.quick_access_move_hint, Toast.LENGTH_SHORT).show()
+                    3 -> showQuickAccessSizeDialog(entry)
+                    4 -> showQuickAccessRenameDialog(entry)
                     else -> removeQuickAccessEntry(entry)
                 }
             }
             .show()
     }
 
-    private fun moveQuickAccessEntry(entry: QuickAccessEntry, offset: Int) {
-        quickAccessStore.move(entry, offset)
+    private fun placeQuickAccessEntry(entry: QuickAccessEntry, column: Int, row: Int) {
+        quickAccessStore.place(entry, column, row)
         renderDashboard()
     }
 
-    /** ドラッグしたタイルを、離した先のタイルの位置へ差し込む。 */
-    private fun reorderQuickAccessEntry(entry: QuickAccessEntry, target: QuickAccessEntry) {
-        quickAccessStore.reorder(entry, target)
-        renderDashboard()
+    private fun showQuickAccessRenameDialog(entry: QuickAccessEntry) {
+        val input = EditText(this).apply {
+            setText(entry.alias)
+            hint = entry.label
+            setSingleLine(true)
+            selectAll()
+        }
+        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(R.string.quick_access_rename)
+            .setMessage(R.string.quick_access_rename_description)
+            .setView(input)
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                quickAccessStore.rename(entry, input.text.toString())
+                renderDashboard()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun showQuickAccessSizeDialog(entry: QuickAccessEntry) {
+        val density = resources.displayMetrics.density
+        val grid = GridLayout(this).apply {
+            columnCount = QuickAccessEntry.GRID_COLUMNS
+            rowCount = QuickAccessEntry.MAX_SPAN
+            setPadding((8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt())
+        }
+        val dialog = AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            .setTitle(getString(R.string.quick_access_resize_title, entry.displayLabel))
+            .setView(grid)
+            .setNegativeButton(R.string.action_cancel, null)
+            .create()
+        for (row in 0 until QuickAccessEntry.MAX_SPAN) {
+            for (column in 0 until QuickAccessEntry.GRID_COLUMNS) {
+                val columnSpan = column + 1
+                val rowSpan = row + 1
+                val selected = column < entry.columnSpan && row < entry.rowSpan
+                grid.addView(
+                    TextView(this).apply {
+                        text = getString(R.string.quick_access_size_format, columnSpan, rowSpan)
+                        gravity = Gravity.CENTER
+                        setTextColor(if (selected) CabinetColors.AppBackground else CabinetColors.TextSecondary)
+                        contentDescription = getString(R.string.quick_access_size_format, columnSpan, rowSpan)
+                        background = GradientDrawable().apply {
+                            cornerRadius = 6 * density
+                            setColor(if (selected) CabinetColors.Accent else CabinetColors.SurfaceSunken)
+                            setStroke((1 * density).toInt(), CabinetColors.HairlineStrong)
+                        }
+                        setOnClickListener {
+                            quickAccessStore.resize(entry, columnSpan, rowSpan)
+                            dialog.dismiss()
+                            renderDashboard()
+                        }
+                        layoutParams = GridLayout.LayoutParams(
+                            GridLayout.spec(row),
+                            GridLayout.spec(column, 1f),
+                        ).apply {
+                            width = 0
+                            height = (58 * density).toInt()
+                            val margin = (3 * density).toInt()
+                            setMargins(margin, margin, margin, margin)
+                        }
+                    },
+                )
+            }
+        }
+        dialog.show()
     }
 
     private fun removeQuickAccessEntry(entry: QuickAccessEntry) {

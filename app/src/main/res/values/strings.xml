@@ -405,10 +405,17 @@
     <string name="quick_access_removed">クイックアクセスから外しました。</string>
     <string name="quick_access_move_up">前へ移動</string>
     <string name="quick_access_move_down">後ろへ移動</string>
+    <string name="quick_access_move">タイルを移動</string>
+    <string name="quick_access_move_hint">タイルを長押しして、クイックアクセス内の空いている場所へ移動してください。</string>
+    <string name="quick_access_resize">タイルのサイズを変更</string>
+    <string name="quick_access_resize_title">%1$sのサイズ</string>
+    <string name="quick_access_size_format">%1$d × %2$d</string>
+    <string name="quick_access_rename">表示名を変更</string>
+    <string name="quick_access_rename_description">クイックアクセス内だけで使用する表示名です。空欄で保存すると元の名前に戻ります。</string>
     <string name="quick_access_edit">編集</string>
     <string name="quick_access_edit_done">完了</string>
     <string name="quick_access_edit_started">タイル編集モードを開始しました。タイルを長押しして動かせます。</string>
-    <string name="quick_access_edit_hint">タイルを長押ししてドラッグすると並べ替えられます。矢印ボタンでも移動できます。</string>
+    <string name="quick_access_edit_hint">タイルを長押しして、クイックアクセス内の任意の空きマスへ移動できます。タップするとサイズと表示名を変更できます。</string>
     <string name="quick_access_missing">対象が見つかりません。移動または削除された可能性があります。</string>
     <!-- 画面名(ヘッダーの「← 画面名」に出る) -->
     <string name="screen_explorer">エクスプローラー</string>

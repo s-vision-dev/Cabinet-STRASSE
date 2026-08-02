@@ -28,10 +28,28 @@ data class QuickAccessEntry(
     val mimeType: String = "",
     val size: Long = 0L,
     val webUrl: String = "",
+    /** クイックアクセス内だけで使う表示名。空なら元の [label] を表示する。 */
+    val alias: String = "",
+    /** 4列グリッド上の保存位置。負数は空き位置への自動配置を表す。 */
+    val column: Int = UNPLACED,
+    val row: Int = UNPLACED,
+    val columnSpan: Int = DEFAULT_COLUMN_SPAN,
+    val rowSpan: Int = DEFAULT_ROW_SPAN,
 ) {
+    val displayLabel: String
+        get() = alias.trim().ifBlank { label }
+
     /** 同じ対象を指すかどうか。重複登録の判定に使う。 */
     fun isSameTarget(other: QuickAccessEntry): Boolean =
         type == other.type && target == other.target && providerId == other.providerId
+
+    companion object {
+        const val GRID_COLUMNS = 4
+        const val UNPLACED = -1
+        const val DEFAULT_COLUMN_SPAN = 2
+        const val DEFAULT_ROW_SPAN = 1
+        const val MAX_SPAN = 4
+    }
 }
 
 enum class QuickAccessType {
@@ -88,6 +106,13 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
                             mimeType = item.optString(FIELD_MIME_TYPE),
                             size = item.optLong(FIELD_SIZE),
                             webUrl = item.optString(FIELD_WEB_URL),
+                            alias = item.optString(FIELD_ALIAS),
+                            column = item.optInt(FIELD_COLUMN, QuickAccessEntry.UNPLACED),
+                            row = item.optInt(FIELD_ROW, QuickAccessEntry.UNPLACED),
+                            columnSpan = item.optInt(FIELD_COLUMN_SPAN, QuickAccessEntry.DEFAULT_COLUMN_SPAN)
+                                .coerceIn(1, QuickAccessEntry.MAX_SPAN),
+                            rowSpan = item.optInt(FIELD_ROW_SPAN, QuickAccessEntry.DEFAULT_ROW_SPAN)
+                                .coerceIn(1, QuickAccessEntry.MAX_SPAN),
                         ),
                     )
                 }
@@ -108,6 +133,56 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
     }
 
     fun contains(entry: QuickAccessEntry): Boolean = load().any { it.isSameTarget(entry) }
+
+    fun rename(entry: QuickAccessEntry, alias: String) {
+        replace(entry, entry.copy(alias = alias.trim()))
+    }
+
+    fun resize(entry: QuickAccessEntry, columnSpan: Int, rowSpan: Int) {
+        replace(
+            entry,
+            entry.copy(
+                column = QuickAccessEntry.UNPLACED,
+                row = QuickAccessEntry.UNPLACED,
+                columnSpan = columnSpan.coerceIn(1, QuickAccessEntry.MAX_SPAN),
+                rowSpan = rowSpan.coerceIn(1, QuickAccessEntry.MAX_SPAN),
+            ),
+        )
+    }
+
+    /** 指定マスへ配置し、重なる既存タイルだけを次の空き位置へ回す。 */
+    fun place(entry: QuickAccessEntry, column: Int, row: Int) {
+        val columnSpan = entry.columnSpan.coerceIn(1, QuickAccessEntry.MAX_SPAN)
+        val rowSpan = entry.rowSpan.coerceIn(1, QuickAccessEntry.MAX_SPAN)
+        val placed = entry.copy(
+            column = column.coerceIn(0, QuickAccessEntry.GRID_COLUMNS - columnSpan),
+            row = row.coerceAtLeast(0),
+            columnSpan = columnSpan,
+            rowSpan = rowSpan,
+        )
+        val updated = load().map { current ->
+            when {
+                current.isSameTarget(entry) -> placed
+                current.column < 0 || current.row < 0 -> current
+                overlaps(current, placed) -> current.copy(
+                    column = QuickAccessEntry.UNPLACED,
+                    row = QuickAccessEntry.UNPLACED,
+                )
+                else -> current
+            }
+        }
+        save(updated)
+    }
+
+    private fun replace(entry: QuickAccessEntry, replacement: QuickAccessEntry) {
+        save(load().map { current -> if (current.isSameTarget(entry)) replacement else current })
+    }
+
+    private fun overlaps(left: QuickAccessEntry, right: QuickAccessEntry): Boolean =
+        left.column < right.column + right.columnSpan &&
+            left.column + left.columnSpan > right.column &&
+            left.row < right.row + right.rowSpan &&
+            left.row + left.rowSpan > right.row
 
     /**
      * [entry] を [target] があった位置へ移す。ドラッグでの並べ替え用。
@@ -154,6 +229,11 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
                     put(FIELD_MIME_TYPE, entry.mimeType)
                     put(FIELD_SIZE, entry.size)
                     put(FIELD_WEB_URL, entry.webUrl)
+                    put(FIELD_ALIAS, entry.alias)
+                    put(FIELD_COLUMN, entry.column)
+                    put(FIELD_ROW, entry.row)
+                    put(FIELD_COLUMN_SPAN, entry.columnSpan)
+                    put(FIELD_ROW_SPAN, entry.rowSpan)
                 },
             )
         }
@@ -177,5 +257,10 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
         private const val FIELD_MIME_TYPE = "mime_type"
         private const val FIELD_SIZE = "size"
         private const val FIELD_WEB_URL = "web_url"
+        private const val FIELD_ALIAS = "alias"
+        private const val FIELD_COLUMN = "column"
+        private const val FIELD_ROW = "row"
+        private const val FIELD_COLUMN_SPAN = "column_span"
+        private const val FIELD_ROW_SPAN = "row_span"
     }
 }
