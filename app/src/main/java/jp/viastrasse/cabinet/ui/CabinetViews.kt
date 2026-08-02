@@ -48,9 +48,28 @@ import jp.viastrasse.cabinet.storage.RemoteStorageEntry
 import jp.viastrasse.cabinet.theme.CabinetColors
 import java.io.File
 
-class CabinetDashboardView(context: Context) : ScrollView(context) {
+/**
+ * 画面の土台。
+ *
+ * 上端に固定ヘッダー([pinnedHeader])、その下にスクロールする本文([content])を持つ。
+ * ヘッダーを使わない画面では [pinnedHeader] を空にして隠すため、見た目は
+ * 単一のスクロール面と変わらない。
+ */
+class CabinetDashboardView(context: Context) : LinearLayout(context) {
     var onOpenSettings: (() -> Unit)? = null
     var onShowItemDetail: ((String) -> Unit)? = null
+
+    /** スクロールしても上端に残る領域。 */
+    private val pinnedHeader = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(
+            dp(CabinetMetrics.SCREEN_PADDING),
+            dp(CabinetMetrics.SPACE_LG),
+            dp(CabinetMetrics.SCREEN_PADDING),
+            0,
+        )
+        visibility = GONE
+    }
 
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -62,8 +81,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         )
     }
 
-    init {
-        setBackgroundColor(CabinetColors.AppBackground)
+    private val scroller = ScrollView(context).apply {
         isFillViewport = true
         clipToPadding = false
         addView(
@@ -72,6 +90,47 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
+        )
+    }
+
+    init {
+        orientation = VERTICAL
+        setBackgroundColor(CabinetColors.AppBackground)
+        addView(
+            pinnedHeader,
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT),
+        )
+        addView(
+            scroller,
+            LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+    }
+
+    /**
+     * 固定ヘッダーの中身を差し替える。
+     *
+     * null を渡すとヘッダーを隠し、本文が上端から始まる。
+     */
+    private fun setPinnedHeader(view: View?) {
+        pinnedHeader.removeAllViews()
+        if (view == null) {
+            pinnedHeader.visibility = GONE
+            content.setPadding(
+                content.paddingLeft,
+                dp(CabinetMetrics.SPACE_LG),
+                content.paddingRight,
+                content.paddingBottom,
+            )
+            return
+        }
+        pinnedHeader.addView(view)
+        pinnedHeader.visibility = VISIBLE
+        // ヘッダー直下から本文が続くので、本文側の上余白は詰める。
+        content.setPadding(
+            content.paddingLeft,
+            dp(CabinetMetrics.SPACE_MD),
+            content.paddingRight,
+            content.paddingBottom,
         )
     }
 
@@ -88,7 +147,9 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onMoveTrash: (CabinetItemSummary) -> Unit,
     ) {
         resetContent()
-        content.addView(homeHeader())
+        // アプリ名の行はスクロールしても上端に残す。説明文は本文側に置く。
+        setPinnedHeader(homeTitleRow())
+        content.addView(homeSubtitle())
         content.addView(searchLauncher(onOpenSearch))
         content.addView(
             fileManagerHome(
@@ -1170,7 +1231,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     private fun resetContent() {
         content.removeAllViews()
-        scrollTo(0, 0)
+        setPinnedHeader(null)
+        scroller.scrollTo(0, 0)
     }
 
     // ---------------------------------------------------------------------
@@ -2053,30 +2115,41 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
     // ダッシュボード
     // ---------------------------------------------------------------------
 
-    private fun homeHeader(): View {
+    /**
+     * TOP の固定ヘッダー。
+     *
+     * ファミリー各アプリと同じく、見出しは「{アプリ名} by VIASTRASSE」の1行のみ。
+     * 右端にアプリメニューを置き、スクロールしても常に届くようにする。
+     */
+    private fun homeTitleRow(): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.TOP
-            setPadding(0, 0, 0, dp(CabinetMetrics.SPACE_MD))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(CabinetMetrics.SPACE_SM))
             addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    // ファミリー各アプリと同じく、見出しは「{アプリ名} by VIASTRASSE」の
-                    // 1行のみ。装飾用の小見出しは置かない。
-                    addView(
-                        label(context.getString(R.string.app_name), CabinetType.DISPLAY, true)
-                            .apply { text = appTitleText() },
+                label(context.getString(R.string.app_name), CabinetType.DISPLAY, true).apply {
+                    text = appTitleText()
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f,
                     )
-                    addView(
-                        label(context.getString(R.string.view_home_header), CabinetType.CAPTION, false, CabinetColors.TextMuted).apply {
-                            setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
-                        },
-                    )
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 },
             )
             addView(appMenuButton())
         }
+    }
+
+    /** TOP の説明文。ヘッダーとは別に、本文側でスクロールする。 */
+    private fun homeSubtitle(): View {
+        return label(
+            context.getString(R.string.view_home_header),
+            CabinetType.CAPTION,
+            false,
+            CabinetColors.TextMuted,
+        ).apply { setPadding(0, 0, 0, dp(CabinetMetrics.SPACE_MD)) }
     }
 
     /**
