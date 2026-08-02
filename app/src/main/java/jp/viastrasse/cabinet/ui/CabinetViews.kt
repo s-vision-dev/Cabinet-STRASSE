@@ -8,8 +8,11 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Editable
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextUtils
 import android.text.TextWatcher
+import android.text.style.RelativeSizeSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -112,7 +115,6 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 onModeSelected,
             ),
         )
-        content.addView(footerNote("Cabinet core schema v${dashboard.version}"))
     }
 
     fun renderError(message: String) {
@@ -1254,13 +1256,6 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         }
     }
 
-    private fun footerNote(text: String): View {
-        return label(text, CabinetType.MICRO, false, CabinetColors.TextMuted).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, dp(CabinetMetrics.SPACE_XL), 0, 0)
-        }
-    }
-
     // ---------------------------------------------------------------------
     // ボタン・チップ
     // ---------------------------------------------------------------------
@@ -2066,13 +2061,11 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label("THE CABINET", CabinetType.MICRO, true, CabinetColors.Accent).apply {
-                        letterSpacing = 0.18f
-                    })
+                    // ファミリー各アプリと同じく、見出しは「{アプリ名} by VIASTRASSE」の
+                    // 1行のみ。装飾用の小見出しは置かない。
                     addView(
-                        label("Cabinet by VIASTRASSE", CabinetType.DISPLAY, true).apply {
-                            setPadding(0, dp(CabinetMetrics.SPACE_XS), 0, 0)
-                        },
+                        label(context.getString(R.string.app_name), CabinetType.DISPLAY, true)
+                            .apply { text = appTitleText() },
                     )
                     addView(
                         label(context.getString(R.string.view_home_header), CabinetType.CAPTION, false, CabinetColors.TextMuted).apply {
@@ -2083,6 +2076,28 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
                 },
             )
             addView(appMenuButton())
+        }
+    }
+
+    /**
+     * 見出し用のアプリ名。
+     *
+     * 「Cabinet」を主役にし、続く「by VIASTRASSE」は半分の字送りで添える。
+     * 区切りが見つからない場合は、そのままの大きさで返す。
+     */
+    private fun appTitleText(): CharSequence {
+        val name = context.getString(R.string.app_name)
+        val suffixIndex = name.indexOf(APP_NAME_SUFFIX_MARKER)
+        if (suffixIndex <= 0) {
+            return name
+        }
+        return SpannableString(name).apply {
+            setSpan(
+                RelativeSizeSpan(APP_NAME_SUFFIX_SCALE),
+                suffixIndex,
+                name.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
     }
 
@@ -3753,6 +3768,10 @@ enum class SettingsTab(@param:StringRes val labelRes: Int) {
 /** このアプリについて画面の寸法(ファミリー共通: 15sp bold / 戻るは 30sp)。 */
 private const val ABOUT_VERSION_TEXT_SIZE = 15
 private const val ABOUT_BACK_TEXT_SIZE = 30
+
+/** 見出しで「by VIASTRASSE」を小さく添えるための区切りと倍率。 */
+private const val APP_NAME_SUFFIX_MARKER = " by "
+private const val APP_NAME_SUFFIX_SCALE = 0.5f
 
 fun normalizeDisplayMode(value: String?): String =
     if (value == DISPLAY_MODE_ELEGANT) DISPLAY_MODE_ELEGANT else DISPLAY_MODE_COMPACT
