@@ -39,6 +39,7 @@ import java.io.File
 
 class CabinetDashboardView(context: Context) : ScrollView(context) {
     var onOpenSettings: (() -> Unit)? = null
+    var onShowItemDetail: ((String) -> Unit)? = null
 
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -2241,6 +2242,7 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             onPathLongClick = null,
             actions = listOf(
                 ActionItem(context.getString(R.string.action_open)) { onItemSelected(item.id) },
+                ActionItem(context.getString(R.string.action_show_details)) { onShowItemDetail?.invoke(item.id) },
                 ActionItem(if (item.isFavorite) context.getString(R.string.view_show_cabinet_item_menu_2) else context.getString(R.string.action_favorite)) { onToggleFavorite(item) },
             ),
             // ゴミ箱の中の資料に「ゴミ箱へ移動」を出しても意味がない。

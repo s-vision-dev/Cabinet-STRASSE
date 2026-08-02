@@ -38,7 +38,6 @@ import jp.viastrasse.cabinet.ui.FileListSort
 import jp.viastrasse.cabinet.ui.LocalFileEntry
 import jp.viastrasse.cabinet.watch.FolderWatchWorker
 import jp.viastrasse.family.ui.ViastrasseFamilyLauncher
-import jp.viastrasse.view.contract.ViastrasseViewContract
 import jp.viastrasse.view.contract.ViastrasseViewLauncher
 import java.io.File
 import java.net.URL
@@ -65,6 +64,7 @@ class MainActivity : Activity() {
         repository = CabinetRepository(applicationContext)
         dashboardView = CabinetDashboardView(this)
         dashboardView.onOpenSettings = ::openSettings
+        dashboardView.onShowItemDetail = ::openDetail
         setContentView(dashboardView)
         registerSystemBackCallback()
         FolderWatchWorker.enqueuePeriodic(applicationContext)
@@ -276,7 +276,7 @@ class MainActivity : Activity() {
             dashboardView.render(
                 dashboard,
                 { mode -> openMode(mode.name) },
-                ::openDetail,
+                ::openItemFromList,
                 ::openFolderPicker,
                 { openSearch("") },
                 ::toggleFavoriteFromSummary,
@@ -350,7 +350,7 @@ class MainActivity : Activity() {
                     openMode(mode)
                 },
                 onBack = ::renderDashboard,
-                onItemSelected = ::openDetail,
+                onItemSelected = ::openItemFromList,
                 onCollectionSelected = { collection -> openMode("collection:${collection.id}") },
                 onSmartFolderSelected = { folder -> openMode("smart:${folder.id}") },
                 onToggleFavorite = ::toggleFavoriteFromSummary,
@@ -1182,7 +1182,7 @@ class MainActivity : Activity() {
                 it,
                 ::renderDashboard,
                 ::openSearch,
-                ::openDetail,
+                ::openItemFromList,
                 ::toggleFavoriteFromSummary,
                 ::moveSummaryToTrash,
             )
@@ -1198,6 +1198,16 @@ class MainActivity : Activity() {
             showDetail(itemId, detail)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_open_detail), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openItemFromList(itemId: String) {
+        runCatching {
+            repository.detail(itemId)
+        }.onSuccess { detail ->
+            openProtectedAwareItem(itemId, detail)
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.msg_file_open_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1531,12 +1541,19 @@ class MainActivity : Activity() {
         mimeType: String,
         title: String,
         navigationItems: List<ViewerNavigationItem> = emptyList(),
+        viewDisplayName: String = title,
     ) {
-        if (useViastrasseView() && ViastrasseViewContract.supports(mimeType, title)) {
-            val sourceUri = if (path.startsWith("content://") || path.startsWith("file://")) {
-                Uri.parse(path)
-            } else {
-                runCatching {
+        if (useViastrasseView() && ViastrasseViewLauncher.isInstalled(this)) {
+            val sourceUri = when {
+                path.startsWith("content://") -> Uri.parse(path)
+                path.startsWith("file://") -> runCatching {
+                    FileProvider.getUriForFile(
+                        this,
+                        "jp.viastrasse.cabinet.fileprovider",
+                        java.io.File(requireNotNull(Uri.parse(path).path)),
+                    )
+                }.getOrNull()
+                else -> runCatching {
                     FileProvider.getUriForFile(
                         this,
                         "jp.viastrasse.cabinet.fileprovider",
@@ -1548,7 +1565,7 @@ class MainActivity : Activity() {
                     context = this,
                     uri = sourceUri,
                     mimeType = mimeType,
-                    displayName = title,
+                    displayName = viewDisplayName,
                 )
             ) {
                 return
@@ -1615,13 +1632,24 @@ class MainActivity : Activity() {
             }
     }
 
-    private fun openRegisteredItem(itemId: String, path: String, mimeType: String, title: String) {
+    private fun openRegisteredItem(
+        itemId: String,
+        path: String,
+        mimeType: String,
+        title: String,
+        viewDisplayName: String,
+    ) {
         runCatching {
             repository.markOpened(itemId)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_open_registered_item), Toast.LENGTH_SHORT).show()
         }
-        openViewer(path, mimeType, title)
+        openViewer(
+            path = path,
+            mimeType = mimeType,
+            title = title,
+            viewDisplayName = viewDisplayName,
+        )
     }
 
     private fun openProtectedAwareItem(
@@ -1629,7 +1657,13 @@ class MainActivity : Activity() {
         detail: jp.viastrasse.cabinet.data.CabinetItemDetail,
     ) {
         runAfterProtectionCheck(detail) {
-            openRegisteredItem(itemId, detail.path, detail.item.mimeType, detail.item.title)
+            openRegisteredItem(
+                itemId = itemId,
+                path = detail.path,
+                mimeType = detail.item.mimeType,
+                title = detail.item.title,
+                viewDisplayName = detail.item.displayName,
+            )
         }
     }
 
@@ -2108,7 +2142,7 @@ class MainActivity : Activity() {
                 onAddRemoteFile = ::showRemoteFileDialog,
                 onOpenProvider = { provider -> openMode("provider:${provider.id}") },
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
-                onDuplicateItemSelected = ::openDetail,
+                onDuplicateItemSelected = ::openItemFromList,
                 displayMode = displayModePreference(),
                 fontPreference = fileListDisplayPreference(),
                 onDisplayModeSelected = ::updateDisplayModePreference,
