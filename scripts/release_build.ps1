@@ -184,7 +184,11 @@ try {
     Set-BuildNumber -BuildFile $buildFile -NextBuildNumber ($buildNumber + 1)
 
     Write-Step "Commit release changes"
+    # git add -u は追跡済みファイルしか拾わない。新規追加したソースやリソースが
+    # コミットから漏れてビルド不能な状態で push されるのを防ぐため、
+    # ソースツリーは -A で追加する（生成物は .gitignore 側で除外済み）。
     git add -u
+    git add -A -- app/src crates
     git add -- build-number.txt version.properties AGENTS.md scripts/release_build.ps1 app/libs/viastrasse-view-contract-release.aar
 
     $status = git status --porcelain
