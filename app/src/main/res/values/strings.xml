@@ -426,4 +426,9 @@ code: %1$s / %2$s</string>
     <string name="setting_use_viastrasse_view">対応する文書をView by VIASTRASSEで表示する</string>
     <string name="setting_viastrasse_view_available">View by VIASTRASSEが利用できます。無効の場合は内蔵ビューアーを使用します。</string>
     <string name="setting_viastrasse_view_not_installed">View by VIASTRASSEがインストールされていません。</string>
+    <string name="apk_install_permission_title">APKのインストール許可</string>
+    <string name="apk_install_permission_message">CabinetからAPKをインストールするには、「この提供元のアプリを許可」を有効にしてください。設定から戻るとインストール確認画面を開きます。</string>
+    <string name="apk_install_file_unavailable">APKファイルをインストーラーへ渡せませんでした。</string>
+    <string name="apk_install_launch_failed">Androidのパッケージインストーラーを開けませんでした。</string>
+    <string name="viewer_apk_install_opening">Androidのパッケージインストーラーを開いています。</string>
 </resources>

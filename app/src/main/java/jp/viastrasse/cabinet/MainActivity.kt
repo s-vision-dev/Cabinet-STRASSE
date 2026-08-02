@@ -71,6 +71,7 @@ class MainActivity : Activity() {
     private var currentDocumentRootBack: (() -> Unit)? = null
     private var currentDocumentChooseRoot: (() -> Unit)? = null
     private var pendingStorageProviderId: String? = null
+    private var pendingApkInstallUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +104,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        val apkUri = pendingApkInstallUri
+        if (apkUri != null && canRequestApkInstall()) {
+            pendingApkInstallUri = null
+            launchApkInstaller(apkUri)
+        }
         val pendingDirectory = pendingPublicDirectoryType
         if (pendingDirectory != null && canReadPublicDirectories()) {
             pendingPublicDirectoryType = null
@@ -1594,6 +1600,10 @@ class MainActivity : Activity() {
         navigationItems: List<ViewerNavigationItem> = emptyList(),
         viewDisplayName: String = title,
     ) {
+        if (isApkFile(path, mimeType, title)) {
+            requestApkInstall(path)
+            return
+        }
         if (useViastrasseView() && ViastrasseViewLauncher.isInstalled(this)) {
             val sourceUri = when {
                 path.startsWith("content://") -> Uri.parse(path)
@@ -1647,6 +1657,64 @@ class MainActivity : Activity() {
                 }
             },
         )
+    }
+
+    private fun isApkFile(path: String, mimeType: String, title: String): Boolean {
+        return mimeType == APK_MIME_TYPE ||
+            extensionOf(title).equals("apk", ignoreCase = true) ||
+            path.substringBefore('?').substringBefore('#').endsWith(".apk", ignoreCase = true)
+    }
+
+    private fun requestApkInstall(path: String) {
+        val apkUri = runCatching {
+            when {
+                path.startsWith("content://") -> Uri.parse(path)
+                path.startsWith("file://") -> Uri.parse(path).path?.let(::File)
+                    ?.let { FileProvider.getUriForFile(this, FILE_PROVIDER_AUTHORITY, it) }
+                else -> FileProvider.getUriForFile(this, FILE_PROVIDER_AUTHORITY, File(path))
+            }
+        }.getOrNull()
+        if (apkUri == null) {
+            Toast.makeText(this, getString(R.string.apk_install_file_unavailable), Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!canRequestApkInstall()) {
+            pendingApkInstallUri = apkUri
+            AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+                .setTitle(R.string.apk_install_permission_title)
+                .setMessage(R.string.apk_install_permission_message)
+                .setPositiveButton(R.string.main_prompt_all_files_access_3) { _, _ ->
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:$packageName"),
+                        ),
+                    )
+                }
+                .setNegativeButton(R.string.action_cancel) { _, _ -> pendingApkInstallUri = null }
+                .show()
+            return
+        }
+        launchApkInstaller(apkUri)
+    }
+
+    private fun canRequestApkInstall(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()
+    }
+
+    private fun launchApkInstaller(apkUri: Uri) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(apkUri, APK_MIME_TYPE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { error ->
+                Toast.makeText(
+                    this,
+                    error.message ?: getString(R.string.apk_install_launch_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
     }
 
     private fun localViewerNavigation(entries: List<LocalFileEntry>): List<ViewerNavigationItem> {
@@ -3003,6 +3071,8 @@ class MainActivity : Activity() {
         private const val KEY_FILE_LIST_META_FONT_SIZE = "file_list_meta_font_size"
         private const val KEY_USE_VIASTRASSE_VIEW = "use_viastrasse_view"
         private const val KEY_SELECTED_STORAGE_PROVIDER = "selected_storage_provider"
+        private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        private const val FILE_PROVIDER_AUTHORITY = "jp.viastrasse.cabinet.fileprovider"
 
         // Mail由来の命名だった旧キー。既存インストールの設定を引き継ぐために読むだけ残す。
         private const val LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"

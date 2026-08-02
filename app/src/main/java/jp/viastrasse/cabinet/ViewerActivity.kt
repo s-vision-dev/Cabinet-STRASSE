@@ -131,6 +131,8 @@ class ViewerActivity : Activity() {
                 renderAudio(displayTitle, uri)
             } else if (isOfficeOpenXml(typeHint, mimeType)) {
                 renderOfficePreview(displayTitle, uri, typeHint, mimeType)
+            } else if (isApkFile(typeHint, mimeType)) {
+                openApkInstaller(displayTitle, uri)
             } else if (isArchiveFile(typeHint, mimeType)) {
                 renderArchivePreview(displayTitle, uri, mimeType)
             } else {
@@ -1689,9 +1691,24 @@ class ViewerActivity : Activity() {
     private fun isArchiveFile(path: String, mimeType: String): Boolean {
         return mimeType in setOf(
             "application/zip",
-            "application/vnd.android.package-archive",
             "application/x-zip-compressed",
-        ) || path.hasAnyExtension("zip", "apk")
+        ) || path.hasAnyExtension("zip")
+    }
+
+    private fun isApkFile(path: String, mimeType: String): Boolean {
+        return mimeType == APK_MIME_TYPE || path.hasAnyExtension("apk")
+    }
+
+    private fun openApkInstaller(title: String, uri: Uri) {
+        renderText(title, getString(R.string.viewer_apk_install_opening))
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, APK_MIME_TYPE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { error ->
+                renderText(title, error.message ?: getString(R.string.apk_install_launch_failed))
+            }
     }
 
     private fun isCsvFile(path: String, mimeType: String): Boolean {
@@ -1797,6 +1814,7 @@ class ViewerActivity : Activity() {
     }
 
     companion object {
+        private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         /** 画像ごとの回転角の保存先。 */
         private const val ROTATION_PREFS_NAME = "cabinet-viewer-rotation"
 
