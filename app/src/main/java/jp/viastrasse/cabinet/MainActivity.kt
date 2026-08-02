@@ -2658,6 +2658,14 @@ class MainActivity : Activity() {
                     navigationItems = emptyList(),
                 )
             }
+            QuickAccessType.REMOTE_ROOT -> {
+                val provider = repository.settings().providers.firstOrNull { it.id == entry.providerId }
+                if (provider == null) {
+                    notifyQuickAccessMissing(entry)
+                    return
+                }
+                openStorageProvider(provider, ::renderDashboard)
+            }
             QuickAccessType.REMOTE_FOLDER -> {
                 val provider = connectedQuickAccessProvider(entry) ?: return
                 openRemoteStorageDirectory(

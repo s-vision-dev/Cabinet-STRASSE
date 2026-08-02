@@ -58,6 +58,7 @@ enum class QuickAccessType {
     SAF_FOLDER,
     SAF_FILE,
     CONTENT_FILE,
+    REMOTE_ROOT,
     REMOTE_FOLDER,
     REMOTE_FILE,
     ITEM,

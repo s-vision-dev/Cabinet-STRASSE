@@ -2440,6 +2440,10 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             setPadding(dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD))
             asTappable(context.pressableShape(CabinetColors.SurfaceAlt, CabinetMetrics.RADIUS_TILE, strokeColor = null))
             setOnClickListener { onClick() }
+            setOnLongClickListener {
+                showStorageProviderShortcutMenu(provider, onClick)
+                true
+            }
             addView(
                 label(storageProviderIcon(provider.providerType), CabinetType.MICRO, true, CabinetColors.Accent).apply {
                     gravity = Gravity.CENTER
@@ -2471,6 +2475,32 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
                 },
             )
         }
+    }
+
+    private fun showStorageProviderShortcutMenu(
+        provider: StorageProviderAccountSummary,
+        onOpen: () -> Unit,
+    ) {
+        showActionSheet(
+            title = provider.displayName,
+            path = provider.accountName.ifBlank { provider.displayName },
+            onPathLongClick = null,
+            actions = listOf(
+                ActionItem(context.getString(R.string.action_open), onOpen),
+                ActionItem(context.getString(R.string.quick_access_add)) {
+                    onAddQuickAccess?.invoke(
+                        QuickAccessEntry(
+                            type = QuickAccessType.REMOTE_ROOT,
+                            target = provider.id,
+                            label = provider.displayName,
+                            kind = storageProviderIcon(provider.providerType),
+                            providerId = provider.id,
+                            remotePath = "/",
+                        ),
+                    )
+                },
+            ),
+        )
     }
 
     private fun storageProviderIcon(providerType: String): String = when (providerType) {
