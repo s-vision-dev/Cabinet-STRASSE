@@ -436,6 +436,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onOpenDirectory: (RemoteStorageEntry) -> Unit,
         onOpenFile: (RemoteStorageEntry) -> Unit,
         onRegisterFile: (RemoteStorageEntry) -> Unit,
+        onAddQuickAccess: (RemoteStorageEntry) -> Unit,
     ) {
         resetContent()
         content.addView(screenHeader(title, location, onBack))
@@ -455,10 +456,10 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         }
         val fileList = fileListContainer(displayMode, listOptions.layout)
         if (listOptions.layout == FileListLayout.PREVIEW_GRID) {
-            addRemotePreviewGrid(fileList, entries, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile)
+            addRemotePreviewGrid(fileList, entries, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile, onAddQuickAccess)
         } else {
             entries.forEach { entry ->
-                fileList.addView(remoteStorageRow(entry, displayMode, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile))
+                fileList.addView(remoteStorageRow(entry, displayMode, fontPreference, onOpenDirectory, onOpenFile, onRegisterFile, onAddQuickAccess))
             }
         }
         content.addView(fileList)
@@ -3236,13 +3237,14 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onOpenDirectory: (RemoteStorageEntry) -> Unit,
         onOpenFile: (RemoteStorageEntry) -> Unit,
         onRegisterFile: (RemoteStorageEntry) -> Unit,
+        onAddQuickAccess: (RemoteStorageEntry) -> Unit,
     ): View {
         val isElegant = isElegantDisplayMode(displayMode)
         return listRow(isElegant, fontPreference) {
             val openAction = { if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry) }
             setOnClickListener { openAction() }
             setOnLongClickListener {
-                showRemoteStorageMenu(entry, openAction, onRegisterFile)
+                showRemoteStorageMenu(entry, openAction, onRegisterFile, onAddQuickAccess)
                 true
             }
             addView(
@@ -3476,6 +3478,17 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             onPathLongClick = { onOpenLocation(entry) },
             actions = listOf(
                 ActionItem(context.getString(R.string.action_open)) { onOpenFile(entry) },
+                ActionItem(context.getString(R.string.quick_access_add)) {
+                    onAddQuickAccess?.invoke(
+                        QuickAccessEntry(
+                            type = QuickAccessType.CONTENT_FILE,
+                            target = entry.uri,
+                            label = entry.name,
+                            kind = fileKindLabel(entry.mimeType, entry.name),
+                            mimeType = entry.mimeType,
+                        ),
+                    )
+                },
                 ActionItem(context.getString(R.string.action_register_to_cabinet)) { onRegisterFile(entry) },
             ),
         )
@@ -3492,6 +3505,20 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             onPathLongClick = null,
             actions = buildList {
                 add(ActionItem(context.getString(R.string.action_open), onOpen))
+                add(
+                    ActionItem(context.getString(R.string.quick_access_add)) {
+                        onAddQuickAccess?.invoke(
+                            QuickAccessEntry(
+                                type = if (entry.isDirectory) QuickAccessType.SAF_FOLDER else QuickAccessType.SAF_FILE,
+                                target = entry.uri,
+                                label = entry.name,
+                                kind = if (entry.isDirectory) "DIR" else fileKindLabel(entry.mimeType, entry.name),
+                                treeUri = entry.treeUri,
+                                relativePath = entry.relativePath,
+                            ),
+                        )
+                    },
+                )
                 if (!entry.isDirectory) {
                     add(ActionItem(context.getString(R.string.action_register_to_cabinet)) { onRegisterFile(entry) })
                 }
@@ -3503,6 +3530,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         entry: RemoteStorageEntry,
         onOpen: () -> Unit,
         onRegisterFile: (RemoteStorageEntry) -> Unit,
+        onAddQuickAccess: (RemoteStorageEntry) -> Unit,
     ) {
         showActionSheet(
             title = entry.name,
@@ -3510,6 +3538,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
             onPathLongClick = null,
             actions = buildList {
                 add(ActionItem(context.getString(R.string.action_open), onOpen))
+                add(ActionItem(context.getString(R.string.quick_access_add)) { onAddQuickAccess(entry) })
                 if (!entry.isDirectory) {
                     add(ActionItem(context.getString(R.string.action_register_to_cabinet)) { onRegisterFile(entry) })
                 }
@@ -3938,6 +3967,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
         onOpenDirectory: (RemoteStorageEntry) -> Unit,
         onOpenFile: (RemoteStorageEntry) -> Unit,
         onRegisterFile: (RemoteStorageEntry) -> Unit,
+        onAddQuickAccess: (RemoteStorageEntry) -> Unit,
     ) {
         addPreviewGrid(container, entries) { entry ->
             val openAction = { if (entry.isDirectory) onOpenDirectory(entry) else onOpenFile(entry) }
@@ -3948,7 +3978,7 @@ class CabinetDashboardView(context: Context) : LinearLayout(context) {
                 imageUri = null,
                 fontPreference = fontPreference,
                 onOpen = openAction,
-                onMenu = { showRemoteStorageMenu(entry, openAction, onRegisterFile) },
+                onMenu = { showRemoteStorageMenu(entry, openAction, onRegisterFile, onAddQuickAccess) },
             )
         }
     }
@@ -4248,6 +4278,8 @@ data class DocumentFileEntry(
     val updatedLabel: String,
     val updatedAtMillis: Long,
     val extension: String,
+    val treeUri: String = "",
+    val relativePath: List<String> = emptyList(),
 )
 
 /**

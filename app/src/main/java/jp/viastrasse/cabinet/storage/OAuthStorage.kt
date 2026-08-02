@@ -174,9 +174,9 @@ class OAuthApiStorageProvider(
 
     override fun listFolder(path: String): List<RemoteStorageEntry> = when (providerId) {
         "dropbox" -> listDropbox(path)
-        "google_drive" -> path.requireRoot { listGoogleDrive() }
-        "onedrive" -> path.requireRoot { listOneDrive() }
-        "box" -> path.requireRoot { listBox() }
+        "google_drive" -> listGoogleDrive(path)
+        "onedrive" -> listOneDrive(path)
+        "box" -> listBox(path)
         else -> error("Unsupported OAuth provider: $providerId")
     }
 
@@ -270,34 +270,32 @@ class OAuthApiStorageProvider(
         return result
     }
 
-    private inline fun <T> String.requireRoot(block: () -> T): T {
-        require(isBlank()) { "Folder navigation is not supported: $providerId" }
-        return block()
-    }
-
-    private fun listGoogleDrive(): List<RemoteStorageEntry> {
+    private fun listGoogleDrive(folderId: String): List<RemoteStorageEntry> {
         val result = mutableListOf<RemoteStorageEntry>()
         var pageToken = ""
         do {
+            val parentId = folderId.ifBlank { "root" }.replace("'", "\\'")
             val url = Uri.parse("https://www.googleapis.com/drive/v3/files").buildUpon()
-                .appendQueryParameter("q", "trashed = false")
+                .appendQueryParameter("q", "'$parentId' in parents and trashed = false")
                 .appendQueryParameter("pageSize", "1000")
                 .appendQueryParameter("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink)")
                 .apply { if (pageToken.isNotBlank()) appendQueryParameter("pageToken", pageToken) }
                 .build().toString()
             val response = HttpSupport.json(url, headers = bearer())
-            result += response.optJSONArray("files").objects().mapNotNull { item ->
+            result += response.optJSONArray("files").objects().map { item ->
                 val sourceMime = item.optString("mimeType")
-                if (sourceMime == "application/vnd.google-apps.folder") return@mapNotNull null
+                val isDirectory = sourceMime == "application/vnd.google-apps.folder"
                 val export = googleExport(sourceMime)
                 val displayName = item.getString("name") + export?.second.orEmpty()
                 RemoteStorageEntry(
                     id = item.getString("id"),
-                    path = export?.let { "google-export:${it.first}" }.orEmpty().ifBlank { item.getString("name") },
-                    name = displayName,
-                    mimeType = export?.first ?: sourceMime.ifBlank { mimeFromName(displayName) },
+                    path = if (isDirectory) item.getString("name") else export?.let { "google-export:${it.first}" }.orEmpty().ifBlank { item.getString("name") },
+                    name = if (isDirectory) item.getString("name") else displayName,
+                    mimeType = if (isDirectory) "inode/directory" else export?.first ?: sourceMime.ifBlank { mimeFromName(displayName) },
                     size = item.optLong("size"), modifiedAt = item.optString("modifiedTime"),
                     webUrl = item.optString("webViewLink"),
+                    isDirectory = isDirectory,
+                    navigationKey = item.getString("id"),
                 )
             }
             pageToken = response.optString("nextPageToken")
@@ -305,63 +303,52 @@ class OAuthApiStorageProvider(
         return result
     }
 
-    private fun listOneDrive(): List<RemoteStorageEntry> {
-        val files = mutableListOf<RemoteStorageEntry>()
-        val folders = ArrayDeque<Pair<String, String>>().apply { add("root" to "") }
-        while (folders.isNotEmpty() && files.size < MAX_REMOTE_FILES) {
-            val (folderId, folderPath) = folders.removeFirst()
-            var url = if (folderId == "root") {
-                "https://graph.microsoft.com/v1.0/me/drive/root/children"
-            } else {
-                "https://graph.microsoft.com/v1.0/me/drive/items/${HttpSupport.encode(folderId)}/children"
-            } + "?\$top=999&\$select=id,name,size,lastModifiedDateTime,webUrl,file,folder"
-            while (url.isNotBlank()) {
-                val response = HttpSupport.json(url, headers = bearer())
-                response.optJSONArray("value").objects().forEach { item ->
-                    val path = "$folderPath/${item.getString("name")}".trimStart('/')
-                    if (item.has("folder")) {
-                        folders.add(item.getString("id") to path)
-                    } else {
-                        files += RemoteStorageEntry(
-                            id = item.getString("id"), path = path, name = item.getString("name"),
-                            mimeType = item.optJSONObject("file")?.optString("mimeType").orEmpty().ifBlank { mimeFromName(item.getString("name")) },
-                            size = item.optLong("size"), modifiedAt = item.optString("lastModifiedDateTime"), webUrl = item.optString("webUrl"),
-                        )
-                    }
-                }
-                url = response.optString("@odata.nextLink")
+    private fun listOneDrive(folderId: String): List<RemoteStorageEntry> {
+        val entries = mutableListOf<RemoteStorageEntry>()
+        var url = (if (folderId.isBlank()) {
+            "https://graph.microsoft.com/v1.0/me/drive/root/children"
+        } else {
+            "https://graph.microsoft.com/v1.0/me/drive/items/${HttpSupport.encode(folderId)}/children"
+        }) + "?\$top=999&\$select=id,name,size,lastModifiedDateTime,webUrl,file,folder"
+        while (url.isNotBlank() && entries.size < MAX_REMOTE_FILES) {
+            val response = HttpSupport.json(url, headers = bearer())
+            entries += response.optJSONArray("value").objects().map { item ->
+                val isDirectory = item.has("folder")
+                RemoteStorageEntry(
+                    id = item.getString("id"), path = item.getString("name"), name = item.getString("name"),
+                    mimeType = if (isDirectory) "inode/directory" else item.optJSONObject("file")?.optString("mimeType").orEmpty().ifBlank { mimeFromName(item.getString("name")) },
+                    size = item.optLong("size"), modifiedAt = item.optString("lastModifiedDateTime"), webUrl = item.optString("webUrl"),
+                    isDirectory = isDirectory,
+                    navigationKey = item.getString("id"),
+                )
             }
+            url = response.optString("@odata.nextLink")
         }
-        return files.take(MAX_REMOTE_FILES)
+        return entries.take(MAX_REMOTE_FILES)
     }
 
-    private fun listBox(): List<RemoteStorageEntry> {
-        val files = mutableListOf<RemoteStorageEntry>()
-        val folders = ArrayDeque<Pair<String, String>>().apply { add("0" to "") }
-        while (folders.isNotEmpty() && files.size < MAX_REMOTE_FILES) {
-            val (folderId, folderPath) = folders.removeFirst()
-            var offset = 0
-            do {
-                val response = HttpSupport.json(
-                    "https://api.box.com/2.0/folders/${HttpSupport.encode(folderId)}/items?limit=1000&offset=$offset&fields=id,type,name,size,modified_at",
-                    headers = bearer(),
+    private fun listBox(folderId: String): List<RemoteStorageEntry> {
+        val result = mutableListOf<RemoteStorageEntry>()
+        var offset = 0
+        do {
+            val response = HttpSupport.json(
+                "https://api.box.com/2.0/folders/${HttpSupport.encode(folderId.ifBlank { "0" })}/items?limit=1000&offset=$offset&fields=id,type,name,size,modified_at",
+                headers = bearer(),
+            )
+            val entries = response.optJSONArray("entries").objects()
+            result += entries.map { item ->
+                val isDirectory = item.optString("type") == "folder"
+                RemoteStorageEntry(
+                    id = item.getString("id"), path = item.getString("name"), name = item.getString("name"),
+                    mimeType = if (isDirectory) "inode/directory" else mimeFromName(item.getString("name")),
+                    size = item.optLong("size"), modifiedAt = item.optString("modified_at"),
+                    isDirectory = isDirectory,
+                    navigationKey = item.getString("id"),
                 )
-                val entries = response.optJSONArray("entries").objects()
-                entries.forEach { item ->
-                    val path = "$folderPath/${item.getString("name")}".trimStart('/')
-                    if (item.optString("type") == "folder") {
-                        folders.add(item.getString("id") to path)
-                    } else {
-                        files += RemoteStorageEntry(
-                            id = item.getString("id"), path = path, name = item.getString("name"),
-                            mimeType = mimeFromName(item.getString("name")), size = item.optLong("size"), modifiedAt = item.optString("modified_at"),
-                        )
-                    }
-                }
-                offset += entries.size
-            } while (entries.isNotEmpty() && offset < response.optInt("total_count"))
-        }
-        return files.take(MAX_REMOTE_FILES)
+            }
+            offset += entries.size
+        } while (entries.isNotEmpty() && offset < response.optInt("total_count"))
+        return result.take(MAX_REMOTE_FILES)
     }
 
     private fun googleExport(mimeType: String): Pair<String, String>? = when (mimeType) {

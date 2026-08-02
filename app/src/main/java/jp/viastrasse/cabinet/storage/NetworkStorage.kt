@@ -24,20 +24,12 @@ class WebDavStorageProvider(
             Base64.NO_WRAP,
         )
 
-    override fun listFiles(): List<RemoteStorageEntry> {
+    override fun listFiles(): List<RemoteStorageEntry> = listFolder("")
+
+    override fun listFolder(path: String): List<RemoteStorageEntry> {
         require(account.endpointUrl.startsWith("http://") || account.endpointUrl.startsWith("https://"))
-        val root = resolveUrl(account.endpointUrl, account.remoteRoot)
-        val pending = ArrayDeque<String>().apply { add(root) }
-        val visited = mutableSetOf<String>()
-        val files = mutableListOf<RemoteStorageEntry>()
-        while (pending.isNotEmpty() && visited.size < MAX_ENTRIES) {
-            val folder = pending.removeFirst()
-            if (!visited.add(folder)) continue
-            listWebDavFolder(folder).forEach { entry ->
-                if (entry.isDirectory) pending.add(entry.path) else files.add(entry)
-            }
-        }
-        return files.take(MAX_ENTRIES)
+        val folder = path.ifBlank { resolveUrl(account.endpointUrl, account.remoteRoot) }
+        return listWebDavFolder(folder).take(MAX_ENTRIES)
     }
 
     override fun download(entry: RemoteStorageEntry, destination: File) {
@@ -138,31 +130,25 @@ class SmbStorageProvider(
         return "smb://$server/$share/"
     }
 
-    override fun listFiles(): List<RemoteStorageEntry> {
+    override fun listFiles(): List<RemoteStorageEntry> = listFolder("")
+
+    override fun listFolder(path: String): List<RemoteStorageEntry> {
         val context = smbContext()
-        val pending = ArrayDeque<SmbFile>().apply { add(SmbFile(rootUrl(), context)) }
-        val files = mutableListOf<RemoteStorageEntry>()
-        var visited = 0
-        while (pending.isNotEmpty() && visited < MAX_ENTRIES) {
-            val folder = pending.removeFirst()
-            folder.listFiles().forEach { child ->
-                visited += 1
-                if (child.isDirectory) {
-                    pending.add(child)
-                } else {
-                    val name = child.name.trimEnd('/')
-                    files += RemoteStorageEntry(
-                        id = child.canonicalPath,
-                        path = child.canonicalPath,
-                        name = name,
-                        mimeType = mimeFromName(name),
-                        size = child.length(),
-                        modifiedAt = child.lastModified().toString(),
-                    )
-                }
-            }
+        val folder = SmbFile(path.ifBlank(::rootUrl), context)
+        return folder.listFiles().take(MAX_ENTRIES).map { child ->
+            val isDirectory = child.isDirectory
+            val name = child.name.trimEnd('/')
+            RemoteStorageEntry(
+                id = child.canonicalPath,
+                path = child.canonicalPath,
+                name = name,
+                mimeType = if (isDirectory) "inode/directory" else mimeFromName(name),
+                size = if (isDirectory) 0L else child.length(),
+                modifiedAt = child.lastModified().toString(),
+                isDirectory = isDirectory,
+                navigationKey = child.canonicalPath,
+            )
         }
-        return files.take(MAX_ENTRIES)
     }
 
     override fun download(entry: RemoteStorageEntry, destination: File) {

@@ -12,20 +12,36 @@ import org.json.JSONObject
  */
 data class QuickAccessEntry(
     val type: QuickAccessType,
-    /** [QuickAccessType.FOLDER]/[QuickAccessType.FILE] は絶対パス、[QuickAccessType.ITEM] は資料 ID。 */
+    /** 通常ファイルは絶対パス、SAFはcontent URI、資料は資料ID。 */
     val target: String,
     val label: String,
     /** 種別バッジに出す文字。DIR / PDF など。 */
     val kind: String,
+    /** SAF項目への永続アクセス権を保持しているツリーURI。 */
+    val treeUri: String = "",
+    /** SAFツリーのルートから対象までの表示名による相対階層。 */
+    val relativePath: List<String> = emptyList(),
+    /** リモート項目を所有するストレージプロバイダのアカウントID。 */
+    val providerId: String = "",
+    val remoteId: String = "",
+    val remotePath: String = "",
+    val mimeType: String = "",
+    val size: Long = 0L,
+    val webUrl: String = "",
 ) {
     /** 同じ対象を指すかどうか。重複登録の判定に使う。 */
     fun isSameTarget(other: QuickAccessEntry): Boolean =
-        type == other.type && target == other.target
+        type == other.type && target == other.target && providerId == other.providerId
 }
 
 enum class QuickAccessType {
     FOLDER,
     FILE,
+    SAF_FOLDER,
+    SAF_FILE,
+    CONTENT_FILE,
+    REMOTE_FOLDER,
+    REMOTE_FILE,
     ITEM,
     ;
 
@@ -58,6 +74,20 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
                             target = target,
                             label = item.optString(FIELD_LABEL).ifBlank { target },
                             kind = item.optString(FIELD_KIND).ifBlank { "FILE" },
+                            treeUri = item.optString(FIELD_TREE_URI),
+                            relativePath = item.optJSONArray(FIELD_RELATIVE_PATH)?.let { path ->
+                                buildList {
+                                    for (pathIndex in 0 until path.length()) {
+                                        path.optString(pathIndex).takeIf { it.isNotBlank() }?.let(::add)
+                                    }
+                                }
+                            }.orEmpty(),
+                            providerId = item.optString(FIELD_PROVIDER_ID),
+                            remoteId = item.optString(FIELD_REMOTE_ID),
+                            remotePath = item.optString(FIELD_REMOTE_PATH),
+                            mimeType = item.optString(FIELD_MIME_TYPE),
+                            size = item.optLong(FIELD_SIZE),
+                            webUrl = item.optString(FIELD_WEB_URL),
                         ),
                     )
                 }
@@ -116,6 +146,14 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
                     put(FIELD_TARGET, entry.target)
                     put(FIELD_LABEL, entry.label)
                     put(FIELD_KIND, entry.kind)
+                    put(FIELD_TREE_URI, entry.treeUri)
+                    put(FIELD_RELATIVE_PATH, JSONArray(entry.relativePath))
+                    put(FIELD_PROVIDER_ID, entry.providerId)
+                    put(FIELD_REMOTE_ID, entry.remoteId)
+                    put(FIELD_REMOTE_PATH, entry.remotePath)
+                    put(FIELD_MIME_TYPE, entry.mimeType)
+                    put(FIELD_SIZE, entry.size)
+                    put(FIELD_WEB_URL, entry.webUrl)
                 },
             )
         }
@@ -131,5 +169,13 @@ class QuickAccessStore(private val preferences: SharedPreferences) {
         private const val FIELD_TARGET = "target"
         private const val FIELD_LABEL = "label"
         private const val FIELD_KIND = "kind"
+        private const val FIELD_TREE_URI = "tree_uri"
+        private const val FIELD_RELATIVE_PATH = "relative_path"
+        private const val FIELD_PROVIDER_ID = "provider_id"
+        private const val FIELD_REMOTE_ID = "remote_id"
+        private const val FIELD_REMOTE_PATH = "remote_path"
+        private const val FIELD_MIME_TYPE = "mime_type"
+        private const val FIELD_SIZE = "size"
+        private const val FIELD_WEB_URL = "web_url"
     }
 }

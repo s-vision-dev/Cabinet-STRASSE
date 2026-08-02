@@ -73,10 +73,14 @@ class MainActivity : Activity() {
     private var pendingPublicDirectoryType: String? = null
     private var fileListOptions: FileListOptions = FileListOptions()
     private var currentDocumentParents: List<DocumentFile> = emptyList()
+    private var currentDocumentTreeUri: Uri? = null
+    private var currentDocumentRelativePath: List<String> = emptyList()
     private var currentDocumentProviderTitle: String = ""
     private var currentDocumentRootBack: (() -> Unit)? = null
     private var currentDocumentChooseRoot: (() -> Unit)? = null
     private var pendingStorageProviderId: String? = null
+    private var currentLocalParents: List<File> = emptyList()
+    private var currentLocalRootBack: () -> Unit = ::renderDashboard
     private var pendingApkInstallUri: Uri? = null
 
     /** このアプリについてを表示している間の戻り先。設定へ1段戻すために持つ。 */
@@ -177,15 +181,15 @@ class MainActivity : Activity() {
             finishQuickAccessEditing()
             return true
         }
+        // フォルダを掘り下げている間は、まず親フォルダへ1段戻る。
+        navigateUpTarget?.let { up ->
+            up()
+            return true
+        }
         // 設定のサブ画面からはホームへ直帰せず、設定へ1段だけ戻る。
         settingsBackTarget?.let { back ->
             settingsBackTarget = null
             back()
-            return true
-        }
-        // フォルダを掘り下げている間は、まず親フォルダへ1段戻る。
-        navigateUpTarget?.let { up ->
-            up()
             return true
         }
         if (!isDashboardVisible) {
@@ -616,7 +620,11 @@ class MainActivity : Activity() {
             }
         }
         storeSdTreeUris(roots.map { it.first.toString() })
-        renderSdCardRootList(roots.map { (_, document) -> toDocumentFileEntry(document).asSdRootEntry() })
+        renderSdCardRootList(
+            roots.map { (treeUri, document) ->
+                toDocumentFileEntry(document, treeUri.toString(), emptyList()).asSdRootEntry()
+            },
+        )
     }
 
     private fun openSdCardPicker() {
@@ -667,7 +675,7 @@ class MainActivity : Activity() {
             },
             onBack = ::renderDashboard,
             onParent = null,
-            onOpenDirectory = { entry -> openDocumentDirectory(entry.document, emptyList()) },
+            onOpenDirectory = { entry -> openDocumentTreeRoot(Uri.parse(entry.treeUri)) },
             onOpenFile = {},
             onRegisterFile = {},
             onChooseRoot = ::openSdCardPicker,
@@ -680,24 +688,55 @@ class MainActivity : Activity() {
         onRootBack: () -> Unit = ::openSdCardExplorer,
         onChooseRoot: () -> Unit = ::openSdCardPicker,
     ) {
+        openDocumentTreePath(treeUri, emptyList(), title, onRootBack, onChooseRoot)
+    }
+
+    private fun openDocumentTreePath(
+        treeUri: Uri,
+        relativePath: List<String>,
+        title: String,
+        onRootBack: () -> Unit,
+        onChooseRoot: () -> Unit,
+    ) {
         val root = DocumentFile.fromTreeUri(this, treeUri) ?: error(getString(R.string.main_open_document_tree_root))
+        val parents = mutableListOf<DocumentFile>()
+        var directory = root
+        relativePath.forEach { segment ->
+            val child = directory.listFiles().firstOrNull { candidate ->
+                candidate.isDirectory && candidate.name == segment
+            } ?: error(getString(R.string.quick_access_missing))
+            parents += directory
+            directory = child
+        }
+        currentDocumentTreeUri = treeUri
         currentDocumentProviderTitle = title
         currentDocumentRootBack = onRootBack
         currentDocumentChooseRoot = onChooseRoot
-        openDocumentDirectory(root, emptyList())
+        openDocumentDirectory(directory, parents, relativePath)
     }
 
-    private fun openDocumentDirectory(directory: DocumentFile, parents: List<DocumentFile>) {
+    private fun openDocumentDirectory(
+        directory: DocumentFile,
+        parents: List<DocumentFile>,
+        relativePath: List<String>,
+    ) {
         require(directory.isDirectory) { getString(R.string.msg_folder_open_failed) }
         currentDocumentParents = parents
+        currentDocumentRelativePath = relativePath
         val rawEntries = directory.listFiles()
             .sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenBy { it.name.orEmpty().lowercase() })
-            .map(::toDocumentFileEntry)
+            .map { document ->
+                val entry = toDocumentFileEntry(
+                    document,
+                    currentDocumentTreeUri?.toString().orEmpty(),
+                )
+                entry.copy(relativePath = relativePath + entry.name)
+            }
         val entries = applyDocumentFileListOptions(rawEntries)
         isDashboardVisible = false
         navigateUpTarget = parents.lastOrNull()?.let { parent ->
-            { openDocumentDirectory(parent, parents.dropLast(1)) }
-        }
+            { openDocumentDirectory(parent, parents.dropLast(1), relativePath.dropLast(1)) }
+        } ?: currentDocumentRootBack
         dashboardView.renderDocumentTree(
             title = currentDocumentProviderTitle.ifBlank { getString(R.string.label_sd_card) },
             location = directory.name ?: directory.uri.toString(),
@@ -707,14 +746,14 @@ class MainActivity : Activity() {
             listOptions = fileListOptions,
             onListOptionsChanged = { options ->
                 fileListOptions = options
-                openDocumentDirectory(directory, parents)
+                openDocumentDirectory(directory, parents, relativePath)
             },
             onBack = currentDocumentRootBack ?: ::renderDashboard,
             onParent = parents.lastOrNull()?.let { parent ->
-                { openDocumentDirectory(parent, parents.dropLast(1)) }
+                { openDocumentDirectory(parent, parents.dropLast(1), relativePath.dropLast(1)) }
             } ?: currentDocumentRootBack,
             parentLabel = if (parents.isEmpty()) getString(R.string.storage_provider_back_to_settings) else getString(R.string.action_move_to_parent_folder),
-            onOpenDirectory = { entry -> openDocumentDirectory(entry.document, parents + directory) },
+            onOpenDirectory = { entry -> openDocumentDirectory(entry.document, parents + directory, entry.relativePath) },
             onOpenFile = { entry ->
                 openViewer(
                     path = entry.uri,
@@ -761,7 +800,11 @@ class MainActivity : Activity() {
             .apply()
     }
 
-    private fun toDocumentFileEntry(document: DocumentFile): DocumentFileEntry {
+    private fun toDocumentFileEntry(
+        document: DocumentFile,
+        treeUri: String = "",
+        relativePath: List<String> = emptyList(),
+    ): DocumentFileEntry {
         val name = document.name.orEmpty().ifBlank { document.uri.lastPathSegment ?: "document" }
         val updatedAtMillis = document.lastModified()
         val updated = if (updatedAtMillis > 0L) {
@@ -791,6 +834,8 @@ class MainActivity : Activity() {
             updatedLabel = updated,
             updatedAtMillis = updatedAtMillis,
             extension = extensionOf(name),
+            treeUri = treeUri,
+            relativePath = relativePath,
         )
     }
 
@@ -836,7 +881,7 @@ class MainActivity : Activity() {
         }.onSuccess {
             PreviewWorker.enqueue(applicationContext)
             Toast.makeText(this, getString(R.string.msg_registered_named, entry.name), Toast.LENGTH_SHORT).show()
-            openDocumentDirectory(currentDirectory, currentDocumentParents)
+            openDocumentDirectory(currentDirectory, currentDocumentParents, currentDocumentRelativePath)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.msg_register_failed), Toast.LENGTH_SHORT).show()
         }
@@ -860,7 +905,11 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun openLocalExplorer(directory: File) {
+    private fun openLocalExplorer(
+        directory: File,
+        parents: List<File> = emptyList(),
+        onRootBack: () -> Unit = ::renderDashboard,
+    ) {
         runCatching {
             require(directory.exists() && directory.isDirectory) { getString(R.string.msg_folder_open_failed) }
             val rawEntries = directory.listFiles()
@@ -870,9 +919,12 @@ class MainActivity : Activity() {
             applyLocalFileListOptions(rawEntries)
         }.onSuccess { entries ->
             isDashboardVisible = false
-            val rootPaths = explorerRoots().map { it.absolutePath }.toSet()
-            val parent = directory.parentFile?.takeIf { directory.absolutePath !in rootPaths }
-            navigateUpTarget = parent?.let { { openLocalExplorer(it) } }
+            currentLocalParents = parents
+            currentLocalRootBack = onRootBack
+            val parentAction = parents.lastOrNull()?.let { parent ->
+                { openLocalExplorer(parent, parents.dropLast(1), onRootBack) }
+            }
+            navigateUpTarget = parentAction ?: onRootBack
             dashboardView.renderLocalExplorer(
                 currentDirectory = directory,
                 entries = entries,
@@ -881,11 +933,11 @@ class MainActivity : Activity() {
                 listOptions = fileListOptions,
                 onListOptionsChanged = { options ->
                     fileListOptions = options
-                    openLocalExplorer(directory)
+                    openLocalExplorer(directory, parents, onRootBack)
                 },
-                onBack = ::renderDashboard,
-                onParent = parent?.let { { openLocalExplorer(it) } },
-                onOpenDirectory = ::openLocalExplorer,
+                onBack = onRootBack,
+                onParent = parentAction,
+                onOpenDirectory = { child -> openLocalExplorer(child, parents + directory, onRootBack) },
                 onOpenFile = { file ->
                     openViewer(
                         path = file.absolutePath,
@@ -906,6 +958,10 @@ class MainActivity : Activity() {
             Toast.makeText(this, error.message ?: getString(R.string.main_open_local_explorer), Toast.LENGTH_SHORT).show()
             renderDashboard()
         }
+    }
+
+    private fun refreshLocalExplorer(directory: File) {
+        openLocalExplorer(directory, currentLocalParents, currentLocalRootBack)
     }
 
     private fun queryDeviceFiles(directoryType: String): List<DeviceFileEntry> {
@@ -1111,7 +1167,7 @@ class MainActivity : Activity() {
         }.onSuccess { item ->
             PreviewWorker.enqueue(applicationContext)
             Toast.makeText(this, getString(R.string.msg_registered_named, item.displayName), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(currentDirectory)
+            refreshLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.msg_register_failed), Toast.LENGTH_SHORT).show()
         }
@@ -1130,7 +1186,7 @@ class MainActivity : Activity() {
             folder
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_create_explorer_folder, it.name), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(directory)
+            refreshLocalExplorer(directory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.msg_folder_create_failed), Toast.LENGTH_SHORT).show()
         }
@@ -1151,7 +1207,7 @@ class MainActivity : Activity() {
             destination
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_rename_explorer_entry_2, it.name), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(currentDirectory)
+            refreshLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.msg_rename_failed), Toast.LENGTH_SHORT).show()
         }
@@ -1172,7 +1228,7 @@ class MainActivity : Activity() {
             destination
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_copy_explorer_entry_to_inbox_3, it.name), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(currentDirectory)
+            refreshLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_copy_explorer_entry_to_inbox_4), Toast.LENGTH_SHORT).show()
         }
@@ -1197,7 +1253,7 @@ class MainActivity : Activity() {
             destination
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_move_explorer_entry_to_inbox_5, it.name), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(currentDirectory)
+            refreshLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_move_explorer_entry_to_inbox_6), Toast.LENGTH_SHORT).show()
         }
@@ -1218,7 +1274,7 @@ class MainActivity : Activity() {
             destination
         }.onSuccess {
             Toast.makeText(this, getString(R.string.msg_duplicated_named, it.name), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(currentDirectory)
+            refreshLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.msg_duplicate_failed), Toast.LENGTH_SHORT).show()
         }
@@ -1235,7 +1291,7 @@ class MainActivity : Activity() {
             check(deleted) { getString(R.string.msg_delete_failed) }
         }.onSuccess {
             Toast.makeText(this, getString(R.string.main_delete_explorer_entry_2, file.name), Toast.LENGTH_SHORT).show()
-            openLocalExplorer(currentDirectory)
+            refreshLocalExplorer(currentDirectory)
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.msg_delete_failed), Toast.LENGTH_SHORT).show()
         }
@@ -2545,8 +2601,100 @@ class MainActivity : Activity() {
                     navigationItems = emptyList(),
                 )
             }
+            QuickAccessType.SAF_FOLDER -> {
+                val treeUri = entry.treeUri.takeIf { it.isNotBlank() }?.let(Uri::parse)
+                if (treeUri == null) {
+                    notifyQuickAccessMissing(entry)
+                    return
+                }
+                runCatching {
+                    openDocumentTreePath(
+                        treeUri = treeUri,
+                        relativePath = entry.relativePath,
+                        title = entry.label,
+                        onRootBack = ::renderDashboard,
+                        onChooseRoot = ::openSdCardPicker,
+                    )
+                }.onFailure {
+                    notifyQuickAccessMissing(entry)
+                }
+            }
+            QuickAccessType.SAF_FILE -> {
+                val uri = Uri.parse(entry.target)
+                val document = DocumentFile.fromSingleUri(this, uri)
+                if (document?.isFile != true) {
+                    notifyQuickAccessMissing(entry)
+                    return
+                }
+                openViewer(
+                    path = entry.target,
+                    mimeType = document.type.orEmpty().ifBlank {
+                        mimeTypeForExtension(extensionOf(entry.label)) ?: "application/octet-stream"
+                    },
+                    title = entry.label,
+                    navigationItems = emptyList(),
+                )
+            }
+            QuickAccessType.CONTENT_FILE -> {
+                val uri = Uri.parse(entry.target)
+                val canRead = runCatching {
+                    contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+                }.getOrDefault(false)
+                if (!canRead) {
+                    notifyQuickAccessMissing(entry)
+                    return
+                }
+                openViewer(
+                    path = entry.target,
+                    mimeType = entry.mimeType.ifBlank {
+                        contentResolver.getType(uri).orEmpty().ifBlank {
+                            mimeTypeForExtension(extensionOf(entry.label)) ?: "application/octet-stream"
+                        }
+                    },
+                    title = entry.label,
+                    navigationItems = emptyList(),
+                )
+            }
+            QuickAccessType.REMOTE_FOLDER -> {
+                val provider = connectedQuickAccessProvider(entry) ?: return
+                openRemoteStorageDirectory(
+                    provider = provider,
+                    path = entry.target,
+                    location = entry.remotePath.ifBlank { "/${entry.label}" },
+                    parents = emptyList(),
+                    onRootBack = ::renderDashboard,
+                )
+            }
+            QuickAccessType.REMOTE_FILE -> {
+                val provider = connectedQuickAccessProvider(entry) ?: return
+                registerAndOpenRemoteFile(
+                    provider,
+                    RemoteStorageEntry(
+                        id = entry.remoteId.ifBlank { entry.target },
+                        path = entry.remotePath,
+                        name = entry.label,
+                        mimeType = entry.mimeType.ifBlank { "application/octet-stream" },
+                        size = entry.size,
+                        webUrl = entry.webUrl,
+                    ),
+                )
+            }
             QuickAccessType.ITEM -> openItemFromList(entry.target)
         }
+    }
+
+    private fun connectedQuickAccessProvider(entry: QuickAccessEntry): StorageProviderAccountSummary? {
+        val provider = repository.settings().providers.firstOrNull { it.id == entry.providerId }
+        if (provider == null) {
+            notifyQuickAccessMissing(entry)
+            return null
+        }
+        if (provider.connectionStatus != "connected") {
+            Toast.makeText(this, getString(R.string.storage_provider_not_connected, provider.displayName), Toast.LENGTH_SHORT).show()
+            showStorageProviderDialog(provider)
+            return null
+        }
+        return provider
     }
 
     /** 対象が消えている場合は、登録から外すところまで案内する。 */
@@ -2842,13 +2990,14 @@ class MainActivity : Activity() {
     }
 
     private fun syncAndOpenStorageProvider(provider: StorageProviderAccountSummary, onRootBack: () -> Unit) {
-        openRemoteStorageDirectory(provider, "", emptyList(), onRootBack)
+        openRemoteStorageDirectory(provider, "", "/", emptyList(), onRootBack)
     }
 
     private fun openRemoteStorageDirectory(
         provider: StorageProviderAccountSummary,
         path: String,
-        parents: List<String>,
+        location: String,
+        parents: List<RemoteFolderState>,
         onRootBack: () -> Unit,
     ) {
         Toast.makeText(this, getString(R.string.storage_provider_loading, provider.displayName), Toast.LENGTH_SHORT).show()
@@ -2860,28 +3009,36 @@ class MainActivity : Activity() {
                     val entries = applyRemoteStorageListOptions(rawEntries)
                     isDashboardVisible = false
                     navigateUpTarget = parents.lastOrNull()?.let { parent ->
-                        { openRemoteStorageDirectory(provider, parent, parents.dropLast(1), onRootBack) }
-                    }
+                        { openRemoteStorageDirectory(provider, parent.key, parent.location, parents.dropLast(1), onRootBack) }
+                    } ?: onRootBack
                     dashboardView.renderRemoteStorage(
                         title = provider.displayName,
-                        location = path.ifBlank { "/" },
+                        location = location,
                         entries = entries,
                         displayMode = displayModePreference(),
                         fontPreference = fileListDisplayPreference(),
                         listOptions = fileListOptions,
                         onListOptionsChanged = { options ->
                             fileListOptions = options
-                            openRemoteStorageDirectory(provider, path, parents, onRootBack)
+                            openRemoteStorageDirectory(provider, path, location, parents, onRootBack)
                         },
                         onBack = onRootBack,
                         onParent = parents.lastOrNull()?.let { parent ->
-                            { openRemoteStorageDirectory(provider, parent, parents.dropLast(1), onRootBack) }
+                            { openRemoteStorageDirectory(provider, parent.key, parent.location, parents.dropLast(1), onRootBack) }
                         },
                         onOpenDirectory = { entry ->
-                            openRemoteStorageDirectory(provider, entry.path, parents + path, onRootBack)
+                            val childLocation = if (location == "/") "/${entry.name}" else "$location/${entry.name}"
+                            openRemoteStorageDirectory(
+                                provider,
+                                entry.navigationKey,
+                                childLocation,
+                                parents + RemoteFolderState(path, location),
+                                onRootBack,
+                            )
                         },
                         onOpenFile = { entry -> registerAndOpenRemoteFile(provider, entry) },
                         onRegisterFile = { entry -> registerRemoteStorageEntry(provider, entry, openAfterRegistration = false) },
+                        onAddQuickAccess = { entry -> addQuickAccessEntry(remoteQuickAccessEntry(provider, entry)) },
                     )
                 }
             }.onFailure { error ->
@@ -2891,6 +3048,22 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    private fun remoteQuickAccessEntry(
+        provider: StorageProviderAccountSummary,
+        entry: RemoteStorageEntry,
+    ): QuickAccessEntry = QuickAccessEntry(
+        type = if (entry.isDirectory) QuickAccessType.REMOTE_FOLDER else QuickAccessType.REMOTE_FILE,
+        target = if (entry.isDirectory) entry.navigationKey else entry.id,
+        label = entry.name,
+        kind = if (entry.isDirectory) "DIR" else extensionOf(entry.name).uppercase().ifBlank { "FILE" },
+        providerId = provider.id,
+        remoteId = entry.id,
+        remotePath = entry.path,
+        mimeType = entry.mimeType,
+        size = entry.size,
+        webUrl = entry.webUrl,
+    )
 
     private fun applyRemoteStorageListOptions(entries: List<RemoteStorageEntry>): List<RemoteStorageEntry> {
         val cutoff = fileListOptions.periodDays?.let { System.currentTimeMillis() - it * 24L * 60L * 60L * 1000L }
@@ -3304,6 +3477,11 @@ class MainActivity : Activity() {
         private const val LEGACY_KEY_FILE_LIST_SUBJECT_FONT_SIZE = "file_list_subject_font_size"
         private const val LEGACY_KEY_FILE_LIST_BODY_FONT_SIZE = "file_list_body_font_size"
     }
+
+    private data class RemoteFolderState(
+        val key: String,
+        val location: String,
+    )
 
     private data class ViewerNavigationItem(
         val path: String,

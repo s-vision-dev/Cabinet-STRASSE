@@ -11,6 +11,7 @@ data class RemoteStorageEntry(
     val modifiedAt: String = "",
     val isDirectory: Boolean = false,
     val webUrl: String = "",
+    val navigationKey: String = path,
 )
 
 interface DirectStorageProvider {
