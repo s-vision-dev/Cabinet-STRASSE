@@ -13,6 +13,8 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.text.InputType
 import android.widget.EditText
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
@@ -24,6 +26,7 @@ import jp.viastrasse.cabinet.data.CabinetItemDetail
 import jp.viastrasse.cabinet.data.CabinetItemSummary
 import jp.viastrasse.cabinet.data.CabinetRepository
 import jp.viastrasse.cabinet.data.StorageProviderAccountSummary
+import jp.viastrasse.cabinet.data.StorageProviderConfiguration
 import jp.viastrasse.cabinet.preview.OcrTextRecognizer
 import jp.viastrasse.cabinet.preview.PreviewWorker
 import jp.viastrasse.cabinet.preview.ThumbnailGenerator
@@ -58,6 +61,7 @@ class MainActivity : Activity() {
     private var pendingPublicDirectoryType: String? = null
     private var fileListOptions: FileListOptions = FileListOptions()
     private var currentDocumentParents: List<DocumentFile> = emptyList()
+    private var pendingStorageProviderId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -307,6 +311,29 @@ class MainActivity : Activity() {
             )
             rememberSdTreeUri(uri)
             openDocumentTreeRoot(uri)
+            return
+        }
+        if (requestCode == REQUEST_STORAGE_PROVIDER_TREE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            runCatching {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+                val providerId = requireNotNull(pendingStorageProviderId)
+                val provider = repository.settings().providers.first { it.id == providerId }
+                repository.updateStorageProvider(
+                    providerId = provider.id,
+                    configuration = provider.toConfiguration().copy(remoteRoot = uri.toString()),
+                )
+            }.onSuccess {
+                pendingStorageProviderId = null
+                Toast.makeText(this, getString(R.string.main_show_storage_provider_dialog_4), Toast.LENGTH_SHORT).show()
+                openSettings()
+            }.onFailure { error ->
+                pendingStorageProviderId = null
+                Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
+            }
             return
         }
         if (requestCode == REQUEST_OPEN_BACKUP && resultCode == RESULT_OK) {
@@ -2143,6 +2170,8 @@ class MainActivity : Activity() {
                 onOpenProvider = { provider -> openMode("provider:${provider.id}") },
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 onDuplicateItemSelected = ::openItemFromList,
+                selectedProviderId = selectedStorageProviderId(settings.providers),
+                onProviderSelected = ::updateSelectedStorageProvider,
                 displayMode = displayModePreference(),
                 fontPreference = fileListDisplayPreference(),
                 onDisplayModeSelected = ::updateDisplayModePreference,
@@ -2249,34 +2278,145 @@ class MainActivity : Activity() {
         openSettings()
     }
 
+    private fun selectedStorageProviderId(providers: List<StorageProviderAccountSummary>): String {
+        val saved = appPrefs().getString(KEY_SELECTED_STORAGE_PROVIDER, null)
+        return providers.firstOrNull { it.id == saved }?.id ?: providers.firstOrNull()?.id.orEmpty()
+    }
+
+    private fun updateSelectedStorageProvider(provider: StorageProviderAccountSummary) {
+        appPrefs().edit().putString(KEY_SELECTED_STORAGE_PROVIDER, provider.id).apply()
+        openSettings()
+    }
+
     private fun showStorageProviderDialog(provider: StorageProviderAccountSummary) {
-        val accountInput = darkInput(getString(R.string.main_show_storage_provider_dialog)).apply {
+        when (provider.providerType) {
+            "local" -> {
+                AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+                    .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
+                    .setMessage(getString(R.string.storage_provider_local_description))
+                    .setPositiveButton(getString(R.string.action_close), null)
+                    .show()
+                return
+            }
+            "usb", "sdcard" -> {
+                AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+                    .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
+                    .setMessage(getString(R.string.storage_provider_saf_description))
+                    .setPositiveButton(getString(R.string.storage_provider_choose_folder)) { _, _ ->
+                        pendingStorageProviderId = provider.id
+                        startActivityForResult(
+                            Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                            },
+                            REQUEST_STORAGE_PROVIDER_TREE,
+                        )
+                    }
+                    .setNegativeButton(getString(R.string.action_cancel), null)
+                    .show()
+                return
+            }
+        }
+
+        val accountInput = darkInput(getString(R.string.storage_provider_account_name)).apply {
             setText(provider.accountName)
         }
-        val statusInput = darkInput(getString(R.string.main_show_storage_provider_dialog_2)).apply {
-            setText(provider.connectionStatus.ifBlank { "not_configured" })
+        val endpointInput = darkInput(
+            getString(
+                if (provider.providerType == "smb") R.string.storage_provider_server
+                else R.string.storage_provider_endpoint,
+            ),
+        ).apply {
+            setText(provider.endpointUrl)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
-        val container = dialogContainer(accountInput, statusInput)
+        val usernameInput = darkInput(getString(R.string.storage_provider_username)).apply {
+            setText(provider.username)
+        }
+        val remoteRootInput = darkInput(
+            getString(
+                if (provider.providerType == "smb") R.string.storage_provider_share
+                else R.string.storage_provider_remote_root,
+            ),
+        ).apply {
+            setText(provider.remoteRoot)
+        }
+        val domainInput = darkInput(getString(R.string.storage_provider_domain)).apply {
+            setText(provider.domain)
+        }
+        val cachePolicies = listOf("metadata_only", "on_demand", "offline_selected")
+        val cachePolicySpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                listOf(
+                    getString(R.string.storage_provider_cache_metadata),
+                    getString(R.string.storage_provider_cache_on_demand),
+                    getString(R.string.storage_provider_cache_offline),
+                ),
+            )
+            setSelection(cachePolicies.indexOf(provider.cachePolicy).coerceAtLeast(1))
+        }
+        val fields = buildList {
+            add(accountInput)
+            when (provider.providerType) {
+                "nextcloud", "webdav" -> {
+                    add(endpointInput)
+                    add(usernameInput)
+                    add(remoteRootInput)
+                }
+                "smb" -> {
+                    add(endpointInput)
+                    add(remoteRootInput)
+                    add(domainInput)
+                    add(usernameInput)
+                }
+            }
+            add(cachePolicySpinner)
+        }
+        val container = dialogContainer(*fields.toTypedArray())
         AlertDialog.Builder(this, R.style.CabinetDialogTheme)
             .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
             .setView(container)
             .setPositiveButton(getString(R.string.action_save)) { _, _ ->
-                runCatching {
-                    repository.updateStorageProvider(
-                        providerId = provider.id,
-                        accountName = accountInput.text.toString(),
-                        connectionStatus = statusInput.text.toString(),
-                    )
-                }.onSuccess {
-                    Toast.makeText(this, getString(R.string.main_show_storage_provider_dialog_4), Toast.LENGTH_SHORT).show()
-                    openSettings()
-                }.onFailure { error ->
-                    Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
-                }
+                saveStorageProviderConfiguration(
+                    provider = provider,
+                    configuration = StorageProviderConfiguration(
+                        accountName = accountInput.text.toString().trim(),
+                        endpointUrl = endpointInput.text.toString().trim(),
+                        username = usernameInput.text.toString().trim(),
+                        remoteRoot = remoteRootInput.text.toString().trim(),
+                        domain = domainInput.text.toString().trim(),
+                        cachePolicy = cachePolicies[cachePolicySpinner.selectedItemPosition.coerceIn(cachePolicies.indices)],
+                    ),
+                )
             }
             .setNegativeButton(getString(R.string.action_cancel), null)
             .show()
     }
+
+    private fun saveStorageProviderConfiguration(
+        provider: StorageProviderAccountSummary,
+        configuration: StorageProviderConfiguration,
+    ) {
+        runCatching {
+            repository.updateStorageProvider(provider.id, configuration)
+        }.onSuccess {
+            Toast.makeText(this, getString(R.string.main_show_storage_provider_dialog_4), Toast.LENGTH_SHORT).show()
+            openSettings()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun StorageProviderAccountSummary.toConfiguration() = StorageProviderConfiguration(
+        accountName = accountName,
+        endpointUrl = endpointUrl,
+        username = username,
+        remoteRoot = remoteRoot,
+        domain = domain,
+        cachePolicy = cachePolicy,
+    )
 
     private fun showCreateSmartFolderDialog() {
         val presets = arrayOf("pdf", "image", "url", "remote", "ocr", "protected", "favorites", "unsorted", "trash")
@@ -2491,6 +2631,7 @@ class MainActivity : Activity() {
         private const val REQUEST_OPEN_BACKUP = 2402
         private const val REQUEST_ADD_VERSION = 2403
         private const val REQUEST_OPEN_SD_TREE = 2404
+        private const val REQUEST_STORAGE_PROVIDER_TREE = 2405
         private const val APP_PREFS_NAME = "cabinet-app-settings"
         private const val KEY_SD_TREE_URI = "sd_tree_uri"
         private const val KEY_SD_TREE_URIS = "sd_tree_uris"
@@ -2499,6 +2640,7 @@ class MainActivity : Activity() {
         private const val KEY_FILE_LIST_NAME_FONT_SIZE = "file_list_name_font_size"
         private const val KEY_FILE_LIST_META_FONT_SIZE = "file_list_meta_font_size"
         private const val KEY_USE_VIASTRASSE_VIEW = "use_viastrasse_view"
+        private const val KEY_SELECTED_STORAGE_PROVIDER = "selected_storage_provider"
 
         // Mail由来の命名だった旧キー。既存インストールの設定を引き継ぐために読むだけ残す。
         private const val LEGACY_KEY_FILE_LIST_FROM_FONT_SIZE = "file_list_from_font_size"

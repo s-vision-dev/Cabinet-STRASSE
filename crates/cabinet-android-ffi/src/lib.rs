@@ -106,27 +106,18 @@ pub extern "system" fn Java_jp_viastrasse_cabinet_core_CabinetNative_updateStora
     _class: JClass,
     database_path: JString,
     provider_id: JString,
-    account_name: JString,
-    connection_status: JString,
+    configuration_json: JString,
 ) -> jstring {
     let provider_id_value = match jstring_value(&mut env, &provider_id) {
         Ok(value) => value,
         Err(error) => return error,
     };
-    let account_name_value = match jstring_value(&mut env, &account_name) {
-        Ok(value) => value,
-        Err(error) => return error,
-    };
-    let connection_status_value = match jstring_value(&mut env, &connection_status) {
+    let configuration_json_value = match jstring_value(&mut env, &configuration_json) {
         Ok(value) => value,
         Err(error) => return error,
     };
     run_string(&mut env, database_path, |core| {
-        core.update_storage_provider_json(
-            &provider_id_value,
-            &account_name_value,
-            &connection_status_value,
-        )
+        core.update_storage_provider_json(&provider_id_value, &configuration_json_value)
     })
 }
 

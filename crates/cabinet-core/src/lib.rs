@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use zip::read::ZipArchive;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const BACKUP_TABLES: &[(&str, &[&str])] = &[
     (
         "storage_provider_accounts",
@@ -24,6 +24,18 @@ const BACKUP_TABLES: &[(&str, &[&str])] = &[
             "created_at",
             "updated_at",
             "last_connected_at",
+        ],
+    ),
+    (
+        "storage_provider_configurations",
+        &[
+            "provider_id",
+            "endpoint_url",
+            "username",
+            "remote_root",
+            "domain",
+            "cache_policy",
+            "updated_at",
         ],
     ),
     (
@@ -446,6 +458,28 @@ pub struct StorageProviderAccountSummary {
     pub auth_type: String,
     pub connection_status: String,
     pub last_connected_at: String,
+    pub endpoint_url: String,
+    pub username: String,
+    pub remote_root: String,
+    pub domain: String,
+    pub cache_policy: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageProviderConfigurationInput {
+    #[serde(default)]
+    account_name: String,
+    #[serde(default)]
+    endpoint_url: String,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    remote_root: String,
+    #[serde(default)]
+    domain: String,
+    #[serde(default = "default_cache_policy")]
+    cache_policy: String,
 }
 
 #[derive(Serialize)]
@@ -886,34 +920,94 @@ impl CabinetCore {
     pub fn update_storage_provider_json(
         &self,
         provider_id: &str,
-        account_name: &str,
-        connection_status: &str,
+        configuration_json: &str,
     ) -> CabinetResult<String> {
-        let status = match connection_status.trim() {
-            "connected" | "not_configured" | "error" | "offline" => connection_status.trim(),
-            _ => "not_configured",
+        let configuration: StorageProviderConfigurationInput =
+            serde_json::from_str(configuration_json)?;
+        let provider_type: String = self.conn.query_row(
+            "SELECT provider_type FROM storage_provider_accounts WHERE id = ?1",
+            params![provider_id],
+            |row| row.get(0),
+        )?;
+        let cache_policy = match configuration.cache_policy.trim() {
+            "metadata_only" | "on_demand" | "offline_selected" => configuration.cache_policy.trim(),
+            _ => "on_demand",
+        };
+        let endpoint_url = configuration.endpoint_url.trim();
+        if matches!(provider_type.as_str(), "webdav" | "nextcloud")
+            && !endpoint_url.is_empty()
+            && !(endpoint_url.starts_with("https://") || endpoint_url.starts_with("http://"))
+        {
+            return Err(CabinetError::Message(
+                "WebDAV endpoint must use http or https.".to_owned(),
+            ));
+        }
+        let configured = match provider_type.as_str() {
+            "local" => true,
+            "usb" | "sdcard" => !configuration.remote_root.trim().is_empty(),
+            "google_drive" | "dropbox" | "onedrive" | "box" => {
+                !configuration.account_name.trim().is_empty()
+            }
+            "nextcloud" | "webdav" => {
+                !endpoint_url.is_empty() && !configuration.username.trim().is_empty()
+            }
+            "smb" => {
+                !endpoint_url.is_empty()
+                    && !configuration.remote_root.trim().is_empty()
+                    && !configuration.username.trim().is_empty()
+            }
+            _ => false,
+        };
+        let status = if configured {
+            "configured"
+        } else {
+            "not_configured"
         };
         let now = now_string();
-        let updated = self.conn.execute(
+        let transaction = self.conn.unchecked_transaction()?;
+        let updated = transaction.execute(
             "UPDATE storage_provider_accounts
-             SET account_name = ?1, connection_status = ?2, updated_at = ?3,
-                 last_connected_at = CASE WHEN ?2 = 'connected' THEN ?3 ELSE last_connected_at END
+             SET account_name = ?1, connection_status = ?2, updated_at = ?3
              WHERE id = ?4",
-            params![account_name.trim(), status, now, provider_id],
+            params![configuration.account_name.trim(), status, now, provider_id],
         )?;
         if updated == 0 {
             return Err(CabinetError::Message(format!(
                 "Storage Provider not found: {provider_id}"
             )));
         }
-        self.log_event(
+        transaction.execute(
+            "INSERT INTO storage_provider_configurations(
+                provider_id, endpoint_url, username, remote_root, domain, cache_policy, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(provider_id) DO UPDATE SET
+                endpoint_url = excluded.endpoint_url,
+                username = excluded.username,
+                remote_root = excluded.remote_root,
+                domain = excluded.domain,
+                cache_policy = excluded.cache_policy,
+                updated_at = excluded.updated_at",
+            params![
+                provider_id,
+                endpoint_url,
+                configuration.username.trim(),
+                configuration.remote_root.trim(),
+                configuration.domain.trim(),
+                cache_policy,
+                now,
+            ],
+        )?;
+        log_event_in(
+            &transaction,
             "Cabinet.StorageProviderUpdated",
             None,
             serde_json::json!({
                 "provider_id": provider_id,
                 "connection_status": status,
+                "cache_policy": cache_policy,
             }),
         )?;
+        transaction.commit()?;
         self.settings_json()
     }
 
@@ -2201,6 +2295,17 @@ impl CabinetCore {
                 last_connected_at TEXT NOT NULL DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS storage_provider_configurations (
+                provider_id TEXT PRIMARY KEY,
+                endpoint_url TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL DEFAULT '',
+                remote_root TEXT NOT NULL DEFAULT '',
+                domain TEXT NOT NULL DEFAULT '',
+                cache_policy TEXT NOT NULL DEFAULT 'on_demand',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(provider_id) REFERENCES storage_provider_accounts(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS cabinet_documents (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -2556,6 +2661,12 @@ impl CabinetCore {
                 params![provider_type, provider_type, display_name, auth_type, now],
             )?;
         }
+        self.conn.execute(
+            "UPDATE storage_provider_accounts
+             SET connection_status = 'connected', updated_at = ?1
+             WHERE id = 'local' AND connection_status = 'not_configured'",
+            params![now],
+        )?;
 
         Ok(())
     }
@@ -2892,16 +3003,21 @@ impl CabinetCore {
 
     fn storage_provider_accounts(&self) -> CabinetResult<Vec<StorageProviderAccountSummary>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, provider_type, display_name, account_name, auth_type, connection_status, last_connected_at
-             FROM storage_provider_accounts
+            "SELECT a.id, a.provider_type, a.display_name, a.account_name, a.auth_type,
+                    a.connection_status, a.last_connected_at,
+                    COALESCE(c.endpoint_url, ''), COALESCE(c.username, ''),
+                    COALESCE(c.remote_root, ''), COALESCE(c.domain, ''),
+                    COALESCE(c.cache_policy, 'on_demand')
+             FROM storage_provider_accounts a
+             LEFT JOIN storage_provider_configurations c ON c.provider_id = a.id
              ORDER BY
-                CASE provider_type
+                CASE a.provider_type
                     WHEN 'local' THEN 0
                     WHEN 'usb' THEN 1
                     WHEN 'sdcard' THEN 2
                     ELSE 3
                 END,
-                display_name ASC",
+                a.display_name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(StorageProviderAccountSummary {
@@ -2912,6 +3028,11 @@ impl CabinetCore {
                 auth_type: row.get(4)?,
                 connection_status: row.get(5)?,
                 last_connected_at: row.get(6)?,
+                endpoint_url: row.get(7)?,
+                username: row.get(8)?,
+                remote_root: row.get(9)?,
+                domain: row.get(10)?,
+                cache_policy: row.get(11)?,
             })
         })?;
         let mut result = Vec::new();
@@ -3436,6 +3557,10 @@ fn now_string() -> String {
     OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned())
+}
+
+fn default_cache_policy() -> String {
+    "on_demand".to_owned()
 }
 
 fn new_id() -> String {
@@ -3963,6 +4088,40 @@ mod tests {
         assert!(dashboard.collection_count >= 1);
         let settings = core.settings_json().expect("settings json");
         assert!(settings.contains("Google Drive"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn stores_provider_specific_configuration() {
+        let path = test_db_path("provider-configuration");
+        let core = CabinetCore::open(&path).expect("open database");
+        let settings = core
+            .update_storage_provider_json(
+                "webdav",
+                &serde_json::json!({
+                    "accountName": "社内文書",
+                    "endpointUrl": "https://dav.example.com/files",
+                    "username": "cabinet-user",
+                    "remoteRoot": "/documents",
+                    "cachePolicy": "offline_selected"
+                })
+                .to_string(),
+            )
+            .expect("update WebDAV configuration");
+        assert!(settings.contains("https://dav.example.com/files"));
+        assert!(settings.contains("offline_selected"));
+        assert!(settings.contains("configured"));
+        assert!(
+            core.update_storage_provider_json(
+                "webdav",
+                &serde_json::json!({
+                    "endpointUrl": "dav.example.com",
+                    "username": "cabinet-user"
+                })
+                .to_string(),
+            )
+            .is_err()
+        );
         let _ = fs::remove_file(path);
     }
 

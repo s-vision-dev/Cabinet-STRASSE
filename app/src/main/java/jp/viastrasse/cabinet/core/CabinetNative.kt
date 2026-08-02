@@ -22,8 +22,7 @@ object CabinetNative {
     external fun updateStorageProviderJson(
         databasePath: String,
         providerId: String,
-        accountName: String,
-        connectionStatus: String,
+        configurationJson: String,
     ): String
 
     external fun createSmartFolderJson(databasePath: String, title: String, preset: String): String

@@ -13,12 +13,15 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.Switch
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.documentfile.provider.DocumentFile
@@ -600,6 +603,8 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
         onOpenProvider: (StorageProviderAccountSummary) -> Unit,
         onCreateSmartFolder: () -> Unit,
         onDuplicateItemSelected: (String) -> Unit,
+        selectedProviderId: String,
+        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
         displayMode: String,
         fontPreference: FileListDisplayPreference,
         onDisplayModeSelected: (String) -> Unit,
@@ -723,21 +728,42 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
             )
         }
 
-        content.addView(sectionWithCount("Storage Provider", settings.providers.size.toLong()))
-        settings.providers.forEach { provider ->
+        content.addView(sectionWithCount(context.getString(R.string.storage_provider_section), settings.providers.size.toLong()))
+        val selectedProvider = settings.providers.firstOrNull { it.id == selectedProviderId }
+            ?: settings.providers.firstOrNull()
+        if (selectedProvider != null) {
+            content.addView(providerSelector(settings.providers, selectedProvider.id, onProviderSelected))
+            content.addView(spacer(CabinetMetrics.SPACE_MD))
             content.addView(
                 card {
-                    addView(cardTitleRow(provider.displayName, statusBadge(provider.connectionStatus, providerStatusColor(provider.connectionStatus))))
-                    addView(definitionRow(context.getString(R.string.view_render_settings_17), "${provider.providerType} / ${provider.authType}"))
-                    addView(definitionRow(context.getString(R.string.label_account), provider.accountName.ifBlank { context.getString(R.string.label_not_configured) }))
+                    addView(cardTitleRow(selectedProvider.displayName, statusBadge(providerStatusLabel(selectedProvider.connectionStatus), providerStatusColor(selectedProvider.connectionStatus))))
+                    addView(definitionRow(context.getString(R.string.view_render_settings_17), "${selectedProvider.providerType} / ${selectedProvider.authType}"))
+                    if (selectedProvider.accountName.isNotBlank()) {
+                        addView(definitionRow(context.getString(R.string.label_account), selectedProvider.accountName))
+                    }
+                    if (selectedProvider.endpointUrl.isNotBlank()) {
+                        addView(definitionRow(context.getString(R.string.storage_provider_endpoint), selectedProvider.endpointUrl))
+                    }
+                    if (selectedProvider.username.isNotBlank()) {
+                        addView(definitionRow(context.getString(R.string.storage_provider_username), selectedProvider.username))
+                    }
+                    if (selectedProvider.remoteRoot.isNotBlank()) {
+                        addView(definitionRow(context.getString(R.string.storage_provider_remote_root), selectedProvider.remoteRoot))
+                    }
+                    if (selectedProvider.domain.isNotBlank()) {
+                        addView(definitionRow(context.getString(R.string.storage_provider_domain), selectedProvider.domain))
+                    }
+                    addView(definitionRow(context.getString(R.string.storage_provider_cache_policy), cachePolicyLabel(selectedProvider.cachePolicy)))
                     addView(spacer(CabinetMetrics.SPACE_MD))
                     addView(
                         actionGrid(
-                            listOf(
-                                ActionItem(context.getString(R.string.view_render_settings_18)) { onOpenProvider(provider) },
-                                ActionItem(context.getString(R.string.label_settings)) { onConfigureProvider(provider) },
-                                ActionItem(context.getString(R.string.view_render_settings_19)) { onAddRemoteFile(provider) },
-                            ),
+                            buildList {
+                                add(ActionItem(context.getString(R.string.view_render_settings_18)) { onOpenProvider(selectedProvider) })
+                                add(ActionItem(context.getString(R.string.label_settings)) { onConfigureProvider(selectedProvider) })
+                                if (selectedProvider.providerType !in setOf("local", "usb", "sdcard")) {
+                                    add(ActionItem(context.getString(R.string.view_render_settings_19)) { onAddRemoteFile(selectedProvider) })
+                                }
+                            },
                         ),
                     )
                 },
@@ -1278,9 +1304,67 @@ class CabinetDashboardView(context: Context) : ScrollView(context) {
 
     private fun providerStatusColor(status: String): Int = when (status.lowercase()) {
         "connected" -> CabinetColors.Success
+        "configured" -> CabinetColors.Accent
         "error" -> CabinetColors.Danger
         "offline" -> CabinetColors.Warning
         else -> CabinetColors.TextMuted
+    }
+
+    private fun providerStatusLabel(status: String): String = context.getString(
+        when (status.lowercase()) {
+            "connected" -> R.string.storage_provider_status_connected
+            "configured" -> R.string.storage_provider_status_configured
+            "offline" -> R.string.storage_provider_status_offline
+            "error" -> R.string.storage_provider_status_error
+            else -> R.string.label_not_configured
+        },
+    )
+
+    private fun cachePolicyLabel(policy: String): String = context.getString(
+        when (policy) {
+            "metadata_only" -> R.string.storage_provider_cache_metadata
+            "offline_selected" -> R.string.storage_provider_cache_offline
+            else -> R.string.storage_provider_cache_on_demand
+        },
+    )
+
+    private fun providerSelector(
+        providers: List<StorageProviderAccountSummary>,
+        selectedProviderId: String,
+        onProviderSelected: (StorageProviderAccountSummary) -> Unit,
+    ): Spinner {
+        return Spinner(context).apply {
+            adapter = object : ArrayAdapter<String>(
+                context,
+                android.R.layout.simple_spinner_item,
+                providers.map { it.displayName },
+            ) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    styleProviderOption(super.getView(position, convertView, parent))
+
+                override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    styleProviderOption(super.getDropDownView(position, convertView, parent))
+
+                private fun styleProviderOption(view: View): View = view.apply {
+                    (this as? TextView)?.apply {
+                        setTextColor(CabinetColors.TextPrimary)
+                        setBackgroundColor(CabinetColors.SurfaceAlt)
+                        setPadding(dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD), dp(CabinetMetrics.SPACE_MD))
+                        minHeight = dp(CabinetMetrics.MIN_TOUCH_HEIGHT)
+                    }
+                }
+            }
+            setSelection(providers.indexOfFirst { it.id == selectedProviderId }.coerceAtLeast(0), false)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    providers.getOrNull(position)
+                        ?.takeIf { it.id != selectedProviderId }
+                        ?.let(onProviderSelected)
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
     }
 
     private fun parseTagColor(color: String): Int =

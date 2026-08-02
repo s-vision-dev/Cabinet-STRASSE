@@ -46,11 +46,17 @@ class CabinetRepository(context: Context) {
 
     fun updateStorageProvider(
         providerId: String,
-        accountName: String,
-        connectionStatus: String,
+        configuration: StorageProviderConfiguration,
     ): SettingsSnapshot {
+        val configurationJson = JSONObject()
+            .put("accountName", configuration.accountName)
+            .put("endpointUrl", configuration.endpointUrl)
+            .put("username", configuration.username)
+            .put("remoteRoot", configuration.remoteRoot)
+            .put("domain", configuration.domain)
+            .put("cachePolicy", configuration.cachePolicy)
         return CabinetJsonParser.settings(
-            CabinetNative.updateStorageProviderJson(databasePath, providerId, accountName, connectionStatus),
+            CabinetNative.updateStorageProviderJson(databasePath, providerId, configurationJson.toString()),
         )
     }
 

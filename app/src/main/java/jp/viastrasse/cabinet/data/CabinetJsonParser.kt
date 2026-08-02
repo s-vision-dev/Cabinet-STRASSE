@@ -262,6 +262,11 @@ object CabinetJsonParser {
                         authType = item.optString("auth_type"),
                         connectionStatus = item.optString("connection_status"),
                         lastConnectedAt = item.optString("last_connected_at"),
+                        endpointUrl = item.optString("endpoint_url"),
+                        username = item.optString("username"),
+                        remoteRoot = item.optString("remote_root"),
+                        domain = item.optString("domain"),
+                        cachePolicy = item.optString("cache_policy", "on_demand"),
                     ),
                 )
             }

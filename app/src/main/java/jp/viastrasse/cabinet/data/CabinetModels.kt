@@ -156,6 +156,20 @@ data class StorageProviderAccountSummary(
     val authType: String,
     val connectionStatus: String,
     val lastConnectedAt: String,
+    val endpointUrl: String,
+    val username: String,
+    val remoteRoot: String,
+    val domain: String,
+    val cachePolicy: String,
+)
+
+data class StorageProviderConfiguration(
+    val accountName: String = "",
+    val endpointUrl: String = "",
+    val username: String = "",
+    val remoteRoot: String = "",
+    val domain: String = "",
+    val cachePolicy: String = "on_demand",
 )
 
 data class BackupSummary(
