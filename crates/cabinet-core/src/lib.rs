@@ -942,24 +942,10 @@ impl CabinetCore {
                 "WebDAV endpoint must use http or https.".to_owned(),
             ));
         }
-        let configured = match provider_type.as_str() {
-            "local" => true,
-            "usb" | "sdcard" => !configuration.remote_root.trim().is_empty(),
-            "google_drive" | "dropbox" | "onedrive" | "box" => {
-                !configuration.account_name.trim().is_empty()
-            }
-            "nextcloud" | "webdav" => {
-                !endpoint_url.is_empty() && !configuration.username.trim().is_empty()
-            }
-            "smb" => {
-                !endpoint_url.is_empty()
-                    && !configuration.remote_root.trim().is_empty()
-                    && !configuration.username.trim().is_empty()
-            }
-            _ => false,
-        };
-        let status = if configured {
-            "configured"
+        let connected = provider_type == "local"
+            || configuration.remote_root.trim().starts_with("content://");
+        let status = if connected {
+            "connected"
         } else {
             "not_configured"
         };
@@ -967,7 +953,8 @@ impl CabinetCore {
         let transaction = self.conn.unchecked_transaction()?;
         let updated = transaction.execute(
             "UPDATE storage_provider_accounts
-             SET account_name = ?1, connection_status = ?2, updated_at = ?3
+             SET account_name = ?1, connection_status = ?2, updated_at = ?3,
+                 last_connected_at = CASE WHEN ?2 = 'connected' THEN ?3 ELSE last_connected_at END
              WHERE id = ?4",
             params![configuration.account_name.trim(), status, now, provider_id],
         )?;
@@ -2667,6 +2654,19 @@ impl CabinetCore {
              WHERE id = 'local' AND connection_status = 'not_configured'",
             params![now],
         )?;
+        self.conn.execute(
+            "UPDATE storage_provider_accounts
+             SET connection_status = CASE
+                 WHEN EXISTS(
+                     SELECT 1 FROM storage_provider_configurations c
+                     WHERE c.provider_id = storage_provider_accounts.id
+                       AND c.remote_root LIKE 'content://%'
+                 ) THEN 'connected'
+                 ELSE 'not_configured'
+             END
+             WHERE id <> 'local'",
+            [],
+        )?;
 
         Ok(())
     }
@@ -4110,7 +4110,34 @@ mod tests {
             .expect("update WebDAV configuration");
         assert!(settings.contains("https://dav.example.com/files"));
         assert!(settings.contains("offline_selected"));
-        assert!(settings.contains("configured"));
+        let parsed: serde_json::Value = serde_json::from_str(&settings).expect("parse settings");
+        let webdav = parsed["providers"]
+            .as_array()
+            .expect("provider array")
+            .iter()
+            .find(|provider| provider["id"] == "webdav")
+            .expect("WebDAV provider");
+        assert_eq!(webdav["connection_status"], "not_configured");
+        let connected_settings = core
+            .update_storage_provider_json(
+                "webdav",
+                &serde_json::json!({
+                    "accountName": "社内文書",
+                    "remoteRoot": "content://com.example.documents/tree/webdav",
+                    "cachePolicy": "on_demand"
+                })
+                .to_string(),
+            )
+            .expect("connect WebDAV document provider");
+        let connected: serde_json::Value =
+            serde_json::from_str(&connected_settings).expect("parse connected settings");
+        let webdav = connected["providers"]
+            .as_array()
+            .expect("provider array")
+            .iter()
+            .find(|provider| provider["id"] == "webdav")
+            .expect("WebDAV provider");
+        assert_eq!(webdav["connection_status"], "connected");
         assert!(
             core.update_storage_provider_json(
                 "webdav",

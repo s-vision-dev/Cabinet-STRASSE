@@ -61,6 +61,9 @@ class MainActivity : Activity() {
     private var pendingPublicDirectoryType: String? = null
     private var fileListOptions: FileListOptions = FileListOptions()
     private var currentDocumentParents: List<DocumentFile> = emptyList()
+    private var currentDocumentProviderTitle: String = ""
+    private var currentDocumentRootBack: (() -> Unit)? = null
+    private var currentDocumentChooseRoot: (() -> Unit)? = null
     private var pendingStorageProviderId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -316,9 +319,12 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_STORAGE_PROVIDER_TREE && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             runCatching {
+                val grantedFlags = data.flags and (
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
                 contentResolver.takePersistableUriPermission(
                     uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    grantedFlags,
                 )
                 val providerId = requireNotNull(pendingStorageProviderId)
                 val provider = repository.settings().providers.first { it.id == providerId }
@@ -583,8 +589,16 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun openDocumentTreeRoot(treeUri: Uri) {
+    private fun openDocumentTreeRoot(
+        treeUri: Uri,
+        title: String = getString(R.string.label_sd_card),
+        onRootBack: () -> Unit = ::openSdCardExplorer,
+        onChooseRoot: () -> Unit = ::openSdCardPicker,
+    ) {
         val root = DocumentFile.fromTreeUri(this, treeUri) ?: error(getString(R.string.main_open_document_tree_root))
+        currentDocumentProviderTitle = title
+        currentDocumentRootBack = onRootBack
+        currentDocumentChooseRoot = onChooseRoot
         openDocumentDirectory(root, emptyList())
     }
 
@@ -597,7 +611,7 @@ class MainActivity : Activity() {
         val entries = applyDocumentFileListOptions(rawEntries)
         isDashboardVisible = false
         dashboardView.renderDocumentTree(
-            title = getString(R.string.label_sd_card),
+            title = currentDocumentProviderTitle.ifBlank { getString(R.string.label_sd_card) },
             location = directory.name ?: directory.uri.toString(),
             entries = entries,
             displayMode = displayModePreference(),
@@ -607,11 +621,11 @@ class MainActivity : Activity() {
                 fileListOptions = options
                 openDocumentDirectory(directory, parents)
             },
-            onBack = ::renderDashboard,
+            onBack = currentDocumentRootBack ?: ::renderDashboard,
             onParent = parents.lastOrNull()?.let { parent ->
                 { openDocumentDirectory(parent, parents.dropLast(1)) }
-            } ?: ::openSdCardExplorer,
-            parentLabel = if (parents.isEmpty()) getString(R.string.main_open_document_directory) else getString(R.string.action_move_to_parent_folder),
+            } ?: currentDocumentRootBack,
+            parentLabel = if (parents.isEmpty()) getString(R.string.storage_provider_back_to_settings) else getString(R.string.action_move_to_parent_folder),
             onOpenDirectory = { entry -> openDocumentDirectory(entry.document, parents + directory) },
             onOpenFile = { entry ->
                 openViewer(
@@ -622,7 +636,7 @@ class MainActivity : Activity() {
                 )
             },
             onRegisterFile = { entry -> registerDocumentFile(entry, directory) },
-            onChooseRoot = ::openSdCardPicker,
+            onChooseRoot = currentDocumentChooseRoot ?: ::openSdCardPicker,
         )
     }
 
@@ -2152,7 +2166,7 @@ class MainActivity : Activity() {
 
     private fun openSettings() {
         runCatching {
-            repository.settings() to repository.duplicateReport()
+            validatedStorageProviderSettings() to repository.duplicateReport()
         }.onSuccess { (settings, duplicateReport) ->
             isDashboardVisible = false
             dashboardView.renderSettings(
@@ -2167,7 +2181,7 @@ class MainActivity : Activity() {
                 onVerifyPin = ::showVerifyPinDialog,
                 onConfigureProvider = ::showStorageProviderDialog,
                 onAddRemoteFile = ::showRemoteFileDialog,
-                onOpenProvider = { provider -> openMode("provider:${provider.id}") },
+                onOpenProvider = ::openStorageProvider,
                 onCreateSmartFolder = ::showCreateSmartFolderDialog,
                 onDuplicateItemSelected = ::openItemFromList,
                 selectedProviderId = selectedStorageProviderId(settings.providers),
@@ -2184,6 +2198,27 @@ class MainActivity : Activity() {
         }.onFailure { error ->
             Toast.makeText(this, error.message ?: getString(R.string.main_open_settings), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun validatedStorageProviderSettings(): jp.viastrasse.cabinet.data.SettingsSnapshot {
+        var settings = repository.settings()
+        val persistedUris = contentResolver.persistedUriPermissions
+            .filter { it.isReadPermission }
+            .map { it.uri.toString() }
+            .toSet()
+        val invalidProviders = settings.providers.filter { provider ->
+            provider.remoteRoot.startsWith("content://") && provider.remoteRoot !in persistedUris
+        }
+        invalidProviders.forEach { provider ->
+            repository.updateStorageProvider(
+                provider.id,
+                provider.toConfiguration().copy(remoteRoot = ""),
+            )
+        }
+        if (invalidProviders.isNotEmpty()) {
+            settings = repository.settings()
+        }
+        return settings
     }
 
     private fun openAbout() {
@@ -2298,101 +2333,82 @@ class MainActivity : Activity() {
                     .show()
                 return
             }
-            "usb", "sdcard" -> {
-                AlertDialog.Builder(this, R.style.CabinetDialogTheme)
+            else -> {
+                val dialog = AlertDialog.Builder(this, R.style.CabinetDialogTheme)
                     .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
-                    .setMessage(getString(R.string.storage_provider_saf_description))
+                    .setMessage(getString(R.string.storage_provider_document_provider_description, provider.displayName))
                     .setPositiveButton(getString(R.string.storage_provider_choose_folder)) { _, _ ->
                         pendingStorageProviderId = provider.id
                         startActivityForResult(
                             Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                                 addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                             },
                             REQUEST_STORAGE_PROVIDER_TREE,
                         )
                     }
                     .setNegativeButton(getString(R.string.action_cancel), null)
-                    .show()
+                if (provider.connectionStatus == "connected") {
+                    dialog.setNeutralButton(getString(R.string.storage_provider_disconnect)) { _, _ ->
+                        disconnectStorageProvider(provider)
+                    }
+                }
+                dialog.show()
                 return
             }
         }
+    }
 
-        val accountInput = darkInput(getString(R.string.storage_provider_account_name)).apply {
-            setText(provider.accountName)
+    private fun openStorageProvider(provider: StorageProviderAccountSummary) {
+        if (provider.providerType == "local") {
+            openMode("explorer")
+            return
         }
-        val endpointInput = darkInput(
-            getString(
-                if (provider.providerType == "smb") R.string.storage_provider_server
-                else R.string.storage_provider_endpoint,
-            ),
-        ).apply {
-            setText(provider.endpointUrl)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        val treeUri = provider.remoteRoot
+            .takeIf { it.startsWith("content://") }
+            ?.let(Uri::parse)
+        if (treeUri == null) {
+            Toast.makeText(this, getString(R.string.storage_provider_not_connected, provider.displayName), Toast.LENGTH_SHORT).show()
+            showStorageProviderDialog(provider)
+            return
         }
-        val usernameInput = darkInput(getString(R.string.storage_provider_username)).apply {
-            setText(provider.username)
-        }
-        val remoteRootInput = darkInput(
-            getString(
-                if (provider.providerType == "smb") R.string.storage_provider_share
-                else R.string.storage_provider_remote_root,
-            ),
-        ).apply {
-            setText(provider.remoteRoot)
-        }
-        val domainInput = darkInput(getString(R.string.storage_provider_domain)).apply {
-            setText(provider.domain)
-        }
-        val cachePolicies = listOf("metadata_only", "on_demand", "offline_selected")
-        val cachePolicySpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                listOf(
-                    getString(R.string.storage_provider_cache_metadata),
-                    getString(R.string.storage_provider_cache_on_demand),
-                    getString(R.string.storage_provider_cache_offline),
-                ),
+        runCatching {
+            openDocumentTreeRoot(
+                treeUri = treeUri,
+                title = provider.displayName,
+                onRootBack = ::openSettings,
+                onChooseRoot = { showStorageProviderDialog(provider) },
             )
-            setSelection(cachePolicies.indexOf(provider.cachePolicy).coerceAtLeast(1))
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.storage_provider_access_failed), Toast.LENGTH_SHORT).show()
         }
-        val fields = buildList {
-            add(accountInput)
-            when (provider.providerType) {
-                "nextcloud", "webdav" -> {
-                    add(endpointInput)
-                    add(usernameInput)
-                    add(remoteRootInput)
-                }
-                "smb" -> {
-                    add(endpointInput)
-                    add(remoteRootInput)
-                    add(domainInput)
-                    add(usernameInput)
+    }
+
+    private fun disconnectStorageProvider(provider: StorageProviderAccountSummary) {
+        runCatching {
+            provider.remoteRoot.takeIf { it.startsWith("content://") }?.let { savedUri ->
+                val uri = Uri.parse(savedUri)
+                val permission = contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+                val flags = (if (permission?.isReadPermission == true) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                    (if (permission?.isWritePermission == true) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                if (flags != 0) {
+                    contentResolver.releasePersistableUriPermission(
+                        uri,
+                        flags,
+                    )
                 }
             }
-            add(cachePolicySpinner)
+            repository.updateStorageProvider(
+                provider.id,
+                provider.toConfiguration().copy(remoteRoot = ""),
+            )
+        }.onSuccess {
+            Toast.makeText(this, getString(R.string.storage_provider_disconnected, provider.displayName), Toast.LENGTH_SHORT).show()
+            openSettings()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: getString(R.string.main_show_storage_provider_dialog_5), Toast.LENGTH_SHORT).show()
         }
-        val container = dialogContainer(*fields.toTypedArray())
-        AlertDialog.Builder(this, R.style.CabinetDialogTheme)
-            .setTitle(getString(R.string.main_show_storage_provider_dialog_3, provider.displayName))
-            .setView(container)
-            .setPositiveButton(getString(R.string.action_save)) { _, _ ->
-                saveStorageProviderConfiguration(
-                    provider = provider,
-                    configuration = StorageProviderConfiguration(
-                        accountName = accountInput.text.toString().trim(),
-                        endpointUrl = endpointInput.text.toString().trim(),
-                        username = usernameInput.text.toString().trim(),
-                        remoteRoot = remoteRootInput.text.toString().trim(),
-                        domain = domainInput.text.toString().trim(),
-                        cachePolicy = cachePolicies[cachePolicySpinner.selectedItemPosition.coerceIn(cachePolicies.indices)],
-                    ),
-                )
-            }
-            .setNegativeButton(getString(R.string.action_cancel), null)
-            .show()
     }
 
     private fun saveStorageProviderConfiguration(

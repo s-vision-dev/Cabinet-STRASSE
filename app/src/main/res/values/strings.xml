@@ -207,6 +207,12 @@
     <string name="storage_provider_local_description">内部ストレージはAndroidの権限設定に従って自動的に利用されます。</string>
     <string name="storage_provider_saf_description">Androidのフォルダ選択画面から、このプロバイダで使用するフォルダを指定します。</string>
     <string name="storage_provider_choose_folder">フォルダを選択</string>
+    <string name="storage_provider_document_provider_description">Androidのファイル選択画面で%1$sのフォルダを選択してください。表示されない場合は、対応するストレージアプリを端末へインストールしてログインしてください。</string>
+    <string name="storage_provider_not_connected">%1$sは接続されていません</string>
+    <string name="storage_provider_access_failed">選択したストレージを開けませんでした</string>
+    <string name="storage_provider_back_to_settings">ストレージ設定へ戻る</string>
+    <string name="storage_provider_disconnect">接続を解除</string>
+    <string name="storage_provider_disconnected">%1$sの接続を解除しました</string>
     <string name="main_show_verify_pin_dialog">PINは一致しました</string>
     <string name="main_toggle_favorite_from_summary">お気に入りを解除しました</string>
     <string name="main_toggle_favorite_from_summary_2">お気に入りに追加しました</string>
